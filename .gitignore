@@ -1,0 +1,29 @@
+# Build
+**/bin/
+**/obj/
+**/*.user
+**/*.suo
+.vs/
+
+# App runtime
+**/backups/
+**/images/
+**/bundles/
+*.log
+
+# Cloned reference trees (large) — keep local only
+.temp-refs/
+
+# Native / tooling
+*.dll
+!src/**/*.dll
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Secrets / local
+*.pfx
+.env
+.env.*
