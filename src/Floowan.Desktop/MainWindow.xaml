@@ -117,6 +117,162 @@
           </StackPanel>
         </Border>
       </TabItem>
+
+      <TabItem Header="Database">
+        <Grid Margin="0,8,0,0">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+
+          <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
+            <StackPanel>
+              <TextBlock Text="Filters" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <WrapPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
+                  <TextBlock Text="Card ID" Width="70" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <TextBox x:Name="DbFilterIdBox" Width="100" KeyDown="DbFilter_KeyDown"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
+                  <TextBlock Text="Name" Width="50" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <TextBox x:Name="DbFilterNameBox" Width="180" KeyDown="DbFilter_KeyDown"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
+                  <TextBlock Text="Description" Width="80" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <TextBox x:Name="DbFilterDescBox" Width="180" KeyDown="DbFilter_KeyDown"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
+                  <TextBlock Text="Favorite" Width="60" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <ComboBox x:Name="DbFilterFavoriteBox" Width="110" SelectedIndex="0">
+                    <ComboBoxItem Content="Any"/>
+                    <ComboBoxItem Content="Yes"/>
+                    <ComboBoxItem Content="No"/>
+                  </ComboBox>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
+                  <TextBlock Text="Backup" Width="55" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <ComboBox x:Name="DbFilterBackupBox" Width="110" SelectedIndex="0">
+                    <ComboBoxItem Content="Any"/>
+                    <ComboBoxItem Content="Has backup"/>
+                    <ComboBoxItem Content="No backup"/>
+                  </ComboBox>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
+                  <TextBlock Text="Modded name" Width="90" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <ComboBox x:Name="DbFilterModdedNameBox" Width="110" SelectedIndex="0">
+                    <ComboBoxItem Content="Any"/>
+                    <ComboBoxItem Content="Populated"/>
+                    <ComboBoxItem Content="Empty"/>
+                  </ComboBox>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
+                  <TextBlock Text="Modded desc" Width="90" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <ComboBox x:Name="DbFilterModdedDescBox" Width="110" SelectedIndex="0">
+                    <ComboBoxItem Content="Any"/>
+                    <ComboBoxItem Content="Populated"/>
+                    <ComboBoxItem Content="Empty"/>
+                  </ComboBox>
+                </StackPanel>
+              </WrapPanel>
+              <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                <Button Content="Apply filters" Click="DbApplyFilters_Click" Background="{StaticResource AccentBrush}"/>
+                <Button Content="Clear filters" Click="DbClearFilters_Click"/>
+                <Button x:Name="DbPrevPageButton" Content="Previous page" Click="DbPrevPage_Click" IsEnabled="False"/>
+                <Button x:Name="DbNextPageButton" Content="Next page" Click="DbNextPage_Click" IsEnabled="False"/>
+                <TextBlock x:Name="DbPageInfoText" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="8,0,0,0"/>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+          <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="1.6*"/>
+              <ColumnDefinition Width="12"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Cards" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <DataGrid x:Name="DbCardGrid"
+                          SelectionChanged="DbCardGrid_SelectionChanged"
+                          HeadersVisibility="Column">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="id" Binding="{Binding Id}" Width="70"/>
+                    <DataGridTextColumn Header="name" Binding="{Binding Name}" Width="140"/>
+                    <DataGridTextColumn Header="description" Binding="{Binding Description}" Width="180"/>
+                    <DataGridTextColumn Header="modded_name" Binding="{Binding ModdedName}" Width="120"/>
+                    <DataGridTextColumn Header="modded_description" Binding="{Binding ModdedDescription}" Width="140"/>
+                    <DataGridTextColumn Header="bundle" Binding="{Binding Bundle}" Width="80"/>
+                    <DataGridTextColumn Header="data_index" Binding="{Binding DataIndex}" Width="80"/>
+                    <DataGridCheckBoxColumn Header="favorite" Binding="{Binding Favorite}" Width="70"/>
+                    <DataGridCheckBoxColumn Header="has_backup" Binding="{Binding HasBackup}" Width="80"/>
+                  </DataGrid.Columns>
+                </DataGrid>
+              </DockPanel>
+            </Border>
+
+            <Border Grid.Column="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Edit record" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,12,0,0">
+                  <Button Content="Save" Click="DbSave_Click" Background="{StaticResource AccentBrush}"/>
+                  <Button Content="Discard" Click="DbDiscard_Click"/>
+                </StackPanel>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                  <Grid>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="120"/>
+                      <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto"/>
+                      <RowDefinition Height="Auto"/>
+                      <RowDefinition Height="Auto"/>
+                      <RowDefinition Height="Auto"/>
+                      <RowDefinition Height="Auto"/>
+                      <RowDefinition Height="Auto"/>
+                      <RowDefinition Height="Auto"/>
+                      <RowDefinition Height="Auto"/>
+                      <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="id" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                    <TextBox x:Name="DbEditIdBox" Grid.Row="0" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
+
+                    <TextBlock Grid.Row="1" Text="name" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                    <TextBox x:Name="DbEditNameBox" Grid.Row="1" Grid.Column="1" Margin="0,0,0,8"/>
+
+                    <TextBlock Grid.Row="2" Text="description" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Top" Margin="0,6,0,8"/>
+                    <TextBox x:Name="DbEditDescBox" Grid.Row="2" Grid.Column="1" Height="90" TextWrapping="Wrap"
+                             AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Margin="0,0,0,8"/>
+
+                    <TextBlock Grid.Row="3" Text="modded_name" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                    <TextBox x:Name="DbEditModdedNameBox" Grid.Row="3" Grid.Column="1" Margin="0,0,0,8"/>
+
+                    <TextBlock Grid.Row="4" Text="modded_description" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Top" Margin="0,6,0,8"/>
+                    <TextBox x:Name="DbEditModdedDescBox" Grid.Row="4" Grid.Column="1" Height="90" TextWrapping="Wrap"
+                             AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Margin="0,0,0,8"/>
+
+                    <TextBlock Grid.Row="5" Text="bundle" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                    <TextBox x:Name="DbEditBundleBox" Grid.Row="5" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
+
+                    <TextBlock Grid.Row="6" Text="data_index" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                    <TextBox x:Name="DbEditDataIndexBox" Grid.Row="6" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
+
+                    <TextBlock Grid.Row="7" Text="favorite" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                    <CheckBox x:Name="DbEditFavoriteBox" Grid.Row="7" Grid.Column="1" Content="Favorite" Margin="0,0,0,8"/>
+
+                    <TextBlock Grid.Row="8" Text="has_backup" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                    <TextBox x:Name="DbEditHasBackupBox" Grid.Row="8" Grid.Column="1" IsReadOnly="True"/>
+                  </Grid>
+                </ScrollViewer>
+              </DockPanel>
+            </Border>
+          </Grid>
+        </Grid>
+      </TabItem>
     </TabControl>
   </DockPanel>
 </Window>
