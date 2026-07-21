@@ -144,7 +144,8 @@ LIMIT $limit;";
         using var cmd = _connection.CreateCommand();
         var where = BuildFilterWhere(filters, cmd);
         cmd.CommandText = $@"
-SELECT id, name, description, bundle, modded_name, modded_description, data_index, favorite, has_backup
+SELECT id, name, description, bundle, modded_name, modded_description, data_index, favorite, has_backup,
+       is_overframe, overframe_base_id
 FROM card
 {where}
 ORDER BY id
