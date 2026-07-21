@@ -16,25 +16,38 @@ public sealed class BackupService
     public string GetBundleBackupPath(string bundleId) =>
         Path.Combine(_root, "bundles", "cards", bundleId);
 
+    public string GetGateBundleBackupPath(string bundleId) =>
+        Path.Combine(_root, "bundles", "gate", bundleId);
+
     public string GetTextureBackupPath(string cardName) =>
         Path.Combine(_root, "cards", ImagePreparation.Slugify(cardName) + ".png");
 
-    public string BackupBundleFile(string sourceBundlePath, string bundleId)
+    public string BackupBundleFile(string sourceBundlePath, string bundleId) =>
+        BackupFile(sourceBundlePath, GetBundleBackupPath(bundleId));
+
+    public string BackupGateBundleFile(string sourceBundlePath, string bundleId) =>
+        BackupFile(sourceBundlePath, GetGateBundleBackupPath(bundleId));
+
+    public bool TryRestoreBundleFile(string targetBundlePath, string bundleId) =>
+        TryRestoreFile(targetBundlePath, GetBundleBackupPath(bundleId));
+
+    public bool TryRestoreGateBundleFile(string targetBundlePath, string bundleId) =>
+        TryRestoreFile(targetBundlePath, GetGateBundleBackupPath(bundleId));
+
+    private static string BackupFile(string sourcePath, string dest)
     {
-        var dest = GetBundleBackupPath(bundleId);
         Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
         if (!File.Exists(dest))
-            File.Copy(sourceBundlePath, dest);
+            File.Copy(sourcePath, dest);
         return dest;
     }
 
-    public bool TryRestoreBundleFile(string targetBundlePath, string bundleId)
+    private static bool TryRestoreFile(string targetPath, string backupPath)
     {
-        var backup = GetBundleBackupPath(bundleId);
-        if (!File.Exists(backup))
+        if (!File.Exists(backupPath))
             return false;
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(targetBundlePath))!);
-        File.Copy(backup, targetBundlePath, overwrite: true);
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(targetPath))!);
+        File.Copy(backupPath, targetPath, overwrite: true);
         return true;
     }
 }

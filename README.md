@@ -1,6 +1,6 @@
 # Floowan
 
-.NET 8 WPF desktop tool for replacing **Yu-Gi-Oh! Master Duel** card art.
+.NET 8 WPF desktop tool for replacing **Yu-Gi-Oh! Master Duel** card art and applying **over-frame** mods.
 
 ## Features (MVP)
 
@@ -11,13 +11,14 @@
 - Back up the original bundle file before writing
 - Replace card art in the Unity AssetBundle via **AssetsTools.NET** (UABEA family)
 - Restore from backup
+- **Over-frame tab**: apply **704×1024** art, register the card in `of_card_asset`, enable/remove gate entries, restore backups
 
 ## Projects
 
 | Project | Role |
 |---------|------|
-| `src/Floowan.Core` | Non-UI logic: DB, paths, image prep, bundle read/write |
-| `src/Floowan.Desktop` | WPF UI |
+| `src/Floowan.Core` | Non-UI logic: DB, paths, image prep, bundle read/write, over-frame gate |
+| `src/Floowan.Desktop` | WPF UI (Card Art + Over-frame tabs) |
 | `tests/Floowan.Core.Tests` | Unit + optional integration tests |
 
 ## Requirements
@@ -44,6 +45,19 @@ dotnet run --project src/Floowan.Desktop -c Release
 5. Write uncompressed bundle, then **LZ4** pack (same packer Floowandereeze defaults to)
 6. Overwrite the live bundle path
 
+## Over-frame workflow
+
+Automates the [Nexus Mods over-frame guide](https://www.nexusmods.com/yugiohmasterduel/articles/103):
+
+1. Prefer replacement art at exactly **704×1024**. Other sizes are stretched with a warning.
+2. Keep **RGBA32** (not BC7) — same writable path as normal card-art replace.
+3. Tip: for foil/mask regions, keep alpha ≈ **4** (near-transparent) so the game’s foil treatment still reads correctly.
+4. On first use of the Over-frame tab (or via **Scan / locate of_card_asset**), Floowan finds the bundle containing TextAsset `of_card_asset`, caches its id in `app_config`, and can sync `is_overframe` flags from the gate.
+5. **Apply over-frame** backs up the card bundle + gate bundle, replaces texture at 704×1024, and adds a LE ushort pair `(cardId, cardId)` to the gate.
+6. **Enable gate only** / **Remove over-frame** edit the gate without requiring a new image; **Restore backups** reverts card and/or gate files.
+
+Game updates may reset `of_card_asset` (and card bundles). Keep backups under `backups/bundles/cards` and `backups/bundles/gate`.
+
 ## Limitations
 
 - **Card text / names / descriptions** are not edited (those use encrypted metadata + crypto key in Floowandereeze).
@@ -54,4 +68,4 @@ dotnet run --project src/Floowan.Desktop -c Release
 
 ## Attribution
 
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Approach and `database.db` schema align with Floowandereeze and Modding (GPL-3.0). Bundle I/O uses AssetsTools.NET / UABEA (MIT).
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Approach and `database.db` schema align with Floowandereeze and Modding (GPL-3.0). Bundle I/O uses AssetsTools.NET / UABEA (MIT). Over-frame steps follow the community Nexus guide linked above.
