@@ -13,11 +13,17 @@ namespace Floowan.Desktop;
 
 public partial class MainWindow : Window
 {
+    private const int DbPageSize = 100;
+
     private CardDatabase? _database;
     private CardArtModService? _modService;
     private CardRecord? _selected;
     private string? _replacementImagePath;
     private string? _previewTempPath;
+
+    private CardRecord? _dbSelected;
+    private int _dbOffset;
+    private int _dbTotalMatching;
 
     public MainWindow()
     {
@@ -49,7 +55,10 @@ public partial class MainWindow : Window
 
             Status($"Loaded. Cards in DB: {_database?.CountCards() ?? 0}. Discovered installs: {discovered.Count}.");
             if (_database is not null)
+            {
                 RunSearch();
+                RunDatabaseQuery(resetOffset: true);
+            }
         }
         catch (Exception ex)
         {
@@ -157,6 +166,7 @@ public partial class MainWindow : Window
         {
             OpenDatabase(dlg.FileName);
             RunSearch();
+            RunDatabaseQuery(resetOffset: true);
             Status("Opened database: " + dlg.FileName);
         }
     }
@@ -361,4 +371,206 @@ public partial class MainWindow : Window
     }
 
     private void Status(string text) => StatusText.Text = text;
+
+    private void DbFilter_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+            RunDatabaseQuery(resetOffset: true);
+    }
+
+    private void DbApplyFilters_Click(object sender, RoutedEventArgs e) =>
+        RunDatabaseQuery(resetOffset: true);
+
+    private void DbClearFilters_Click(object sender, RoutedEventArgs e)
+    {
+        DbFilterIdBox.Text = "";
+        DbFilterNameBox.Text = "";
+        DbFilterDescBox.Text = "";
+        DbFilterFavoriteBox.SelectedIndex = 0;
+        DbFilterBackupBox.SelectedIndex = 0;
+        DbFilterModdedNameBox.SelectedIndex = 0;
+        DbFilterModdedDescBox.SelectedIndex = 0;
+        RunDatabaseQuery(resetOffset: true);
+    }
+
+    private void DbPrevPage_Click(object sender, RoutedEventArgs e)
+    {
+        _dbOffset = Math.Max(0, _dbOffset - DbPageSize);
+        RunDatabaseQuery(resetOffset: false);
+    }
+
+    private void DbNextPage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_dbOffset + DbPageSize < _dbTotalMatching)
+            _dbOffset += DbPageSize;
+        RunDatabaseQuery(resetOffset: false);
+    }
+
+    private void RunDatabaseQuery(bool resetOffset)
+    {
+        if (_database is null)
+        {
+            Status("Open database.db first.");
+            return;
+        }
+
+        if (resetOffset)
+            _dbOffset = 0;
+
+        try
+        {
+            var filters = BuildDatabaseFilters();
+            _dbTotalMatching = _database.CountCards(filters);
+            var page = _database.QueryCards(filters);
+
+            var keepId = _dbSelected?.Id;
+            DbCardGrid.ItemsSource = page;
+
+            if (keepId is int id)
+            {
+                var match = page.FirstOrDefault(c => c.Id == id);
+                if (match is not null)
+                    DbCardGrid.SelectedItem = match;
+                else
+                    ClearDatabaseEditForm();
+            }
+            else if (_dbSelected is null)
+            {
+                ClearDatabaseEditForm();
+            }
+
+            var pageStart = _dbTotalMatching == 0 ? 0 : _dbOffset + 1;
+            var pageEnd = Math.Min(_dbOffset + page.Count, _dbTotalMatching);
+            DbPageInfoText.Text = $"Showing {pageStart}–{pageEnd} of {_dbTotalMatching}";
+            DbPrevPageButton.IsEnabled = _dbOffset > 0;
+            DbNextPageButton.IsEnabled = _dbOffset + DbPageSize < _dbTotalMatching;
+            Status($"Database: {page.Count} row(s) on page ({_dbTotalMatching} match filter).");
+        }
+        catch (Exception ex)
+        {
+            Status("Database query error: " + ex.Message);
+        }
+    }
+
+    private CardQueryFilters BuildDatabaseFilters()
+    {
+        int? cardId = null;
+        var idText = DbFilterIdBox.Text?.Trim() ?? "";
+        if (idText.Length > 0)
+        {
+            if (!int.TryParse(idText, out var parsed) || parsed <= 0)
+                throw new InvalidOperationException("Card ID filter must be a positive integer.");
+            cardId = parsed;
+        }
+
+        return new CardQueryFilters
+        {
+            CardId = cardId,
+            NameContains = NullIfBlank(DbFilterNameBox.Text),
+            DescriptionContains = NullIfBlank(DbFilterDescBox.Text),
+            Favorite = TriStateBool(DbFilterFavoriteBox.SelectedIndex),
+            HasBackup = TriStateBool(DbFilterBackupBox.SelectedIndex),
+            HasModdedName = TriStateBool(DbFilterModdedNameBox.SelectedIndex),
+            HasModdedDescription = TriStateBool(DbFilterModdedDescBox.SelectedIndex),
+            Limit = DbPageSize,
+            Offset = _dbOffset
+        };
+    }
+
+    private static string? NullIfBlank(string? value)
+    {
+        var trimmed = value?.Trim() ?? "";
+        return trimmed.Length == 0 ? null : trimmed;
+    }
+
+    private static bool? TriStateBool(int selectedIndex) => selectedIndex switch
+    {
+        1 => true,
+        2 => false,
+        _ => null
+    };
+
+    private void DbCardGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        _dbSelected = DbCardGrid.SelectedItem as CardRecord;
+        if (_dbSelected is null)
+        {
+            ClearDatabaseEditForm();
+            return;
+        }
+
+        LoadDatabaseEditForm(_dbSelected);
+    }
+
+    private void LoadDatabaseEditForm(CardRecord card)
+    {
+        DbEditIdBox.Text = card.Id.ToString();
+        DbEditNameBox.Text = card.Name;
+        DbEditDescBox.Text = card.Description;
+        DbEditModdedNameBox.Text = card.ModdedName ?? "";
+        DbEditModdedDescBox.Text = card.ModdedDescription ?? "";
+        DbEditBundleBox.Text = card.Bundle;
+        DbEditDataIndexBox.Text = card.DataIndex.ToString();
+        DbEditFavoriteBox.IsChecked = card.Favorite;
+        DbEditHasBackupBox.Text = card.HasBackup ? "True" : "False";
+    }
+
+    private void ClearDatabaseEditForm()
+    {
+        _dbSelected = null;
+        DbEditIdBox.Text = "";
+        DbEditNameBox.Text = "";
+        DbEditDescBox.Text = "";
+        DbEditModdedNameBox.Text = "";
+        DbEditModdedDescBox.Text = "";
+        DbEditBundleBox.Text = "";
+        DbEditDataIndexBox.Text = "";
+        DbEditFavoriteBox.IsChecked = false;
+        DbEditHasBackupBox.Text = "";
+    }
+
+    private void DbDiscard_Click(object sender, RoutedEventArgs e)
+    {
+        if (_dbSelected is null)
+        {
+            ClearDatabaseEditForm();
+            return;
+        }
+
+        LoadDatabaseEditForm(_dbSelected);
+        Status("Discarded Database edit changes.");
+    }
+
+    private void DbSave_Click(object sender, RoutedEventArgs e)
+    {
+        if (_database is null)
+        {
+            Status("Open database.db first.");
+            return;
+        }
+
+        if (_dbSelected is null || !int.TryParse(DbEditIdBox.Text, out var id))
+        {
+            Status("Select a Database row to edit.");
+            return;
+        }
+
+        try
+        {
+            _database.UpdateCard(
+                id,
+                DbEditNameBox.Text ?? "",
+                DbEditDescBox.Text ?? "",
+                NullIfBlank(DbEditModdedNameBox.Text),
+                NullIfBlank(DbEditModdedDescBox.Text),
+                DbEditFavoriteBox.IsChecked == true);
+
+            RunDatabaseQuery(resetOffset: false);
+            Status($"Saved card id {id}.");
+        }
+        catch (Exception ex)
+        {
+            Status("Database save error: " + ex.Message);
+        }
+    }
 }

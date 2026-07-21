@@ -28,5 +28,62 @@
       <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
       <Setter Property="BorderBrush" Value="#3A4652"/>
     </Style>
+    <Style TargetType="DataGrid">
+      <Setter Property="Background" Value="#1A222A"/>
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+      <Setter Property="BorderBrush" Value="#3A4652"/>
+      <Setter Property="RowBackground" Value="#1A222A"/>
+      <Setter Property="AlternatingRowBackground" Value="#1F272F"/>
+      <Setter Property="HorizontalGridLinesBrush" Value="#3A4652"/>
+      <Setter Property="VerticalGridLinesBrush" Value="#3A4652"/>
+      <Setter Property="HeadersVisibility" Value="Column"/>
+      <Setter Property="SelectionMode" Value="Single"/>
+      <Setter Property="SelectionUnit" Value="FullRow"/>
+      <Setter Property="CanUserAddRows" Value="False"/>
+      <Setter Property="CanUserDeleteRows" Value="False"/>
+      <Setter Property="AutoGenerateColumns" Value="False"/>
+      <Setter Property="IsReadOnly" Value="True"/>
+      <Setter Property="EnableRowVirtualization" Value="True"/>
+      <Setter Property="EnableColumnVirtualization" Value="True"/>
+      <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
+      <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/>
+    </Style>
+    <Style TargetType="DataGridColumnHeader">
+      <Setter Property="Background" Value="#2C3540"/>
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+      <Setter Property="BorderBrush" Value="#3A4652"/>
+      <Setter Property="Padding" Value="8,6"/>
+    </Style>
+    <Style TargetType="DataGridCell">
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="6,4"/>
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+      <Style.Triggers>
+        <Trigger Property="IsSelected" Value="True">
+          <Setter Property="Background" Value="#2F4A3A"/>
+          <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+    <Style TargetType="DataGridRow">
+      <Setter Property="Background" Value="Transparent"/>
+      <Style.Triggers>
+        <Trigger Property="IsSelected" Value="True">
+          <Setter Property="Background" Value="#2F4A3A"/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+    <Style TargetType="CheckBox">
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Margin" Value="0,0,12,0"/>
+    </Style>
+    <Style TargetType="ComboBox">
+      <Setter Property="Background" Value="#1A222A"/>
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+      <Setter Property="BorderBrush" Value="#3A4652"/>
+      <Setter Property="Padding" Value="6"/>
+      <Setter Property="Margin" Value="0,0,12,0"/>
+    </Style>
   </Application.Resources>
 </Application>
