@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
   <Application.Resources>
+    <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
     <SolidColorBrush x:Key="BgBrush" Color="#1A1F24"/>
     <SolidColorBrush x:Key="PanelBrush" Color="#242B33"/>
     <SolidColorBrush x:Key="AccentBrush" Color="#2F9E6B"/>

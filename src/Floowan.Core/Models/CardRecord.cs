@@ -11,6 +11,8 @@ public sealed class CardRecord
     public int DataIndex { get; init; }
     public bool Favorite { get; init; }
     public bool HasBackup { get; init; }
+    public bool IsOverframe { get; init; }
+    public int? OverframeBaseId { get; init; }
 
     public string DisplayName => string.IsNullOrWhiteSpace(ModdedName) ? Name : ModdedName!;
 }

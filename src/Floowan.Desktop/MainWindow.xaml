@@ -40,7 +40,7 @@
       </StatusBarItem>
     </StatusBar>
 
-    <TabControl x:Name="MainTabs" Background="{StaticResource BgBrush}" BorderBrush="#3A4652">
+    <TabControl x:Name="MainTabs" Background="{StaticResource BgBrush}" BorderBrush="#3A4652" SelectionChanged="MainTabs_SelectionChanged">
       <TabItem Header="Card Art">
         <Grid Margin="0,8,0,0">
           <Grid.ColumnDefinitions>
@@ -97,25 +97,81 @@
         </Grid>
       </TabItem>
 
-      <TabItem Header="Over-frame">
-        <Border Background="{StaticResource PanelBrush}" Padding="24" CornerRadius="4" Margin="0,8,0,0">
-          <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="520">
-            <TextBlock Text="Over-frame editor" FontSize="20" FontWeight="SemiBold"
-                       HorizontalAlignment="Center" TextAlignment="Center"/>
-            <TextBlock Text="Over-frame editor coming next."
-                       Foreground="{StaticResource MutedBrush}"
-                       Margin="0,12,0,0"
-                       TextWrapping="Wrap"
-                       TextAlignment="Center"
-                       HorizontalAlignment="Center"/>
-            <TextBlock Text="This tab will apply 704×1024 card art and register cards in of_card_asset without changing the Card Art workflow."
-                       Foreground="{StaticResource MutedBrush}"
-                       Margin="0,8,0,0"
-                       TextWrapping="Wrap"
-                       TextAlignment="Center"
-                       HorizontalAlignment="Center"/>
-          </StackPanel>
-        </Border>
+      <TabItem x:Name="OverFrameTab" Header="Over-frame">
+        <Grid Margin="0,8,0,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="1.2*"/>
+            <ColumnDefinition Width="12"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+
+          <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Text="Over-frame cards" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <TextBlock x:Name="OfGateStatusText" DockPanel.Dock="Top"
+                         Text="Gate: not scanned yet"
+                         Foreground="{StaticResource MutedBrush}"
+                         Margin="0,0,0,8" TextWrapping="Wrap"/>
+              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <TextBox x:Name="OfSearchBox" Width="220" KeyDown="OfSearchBox_KeyDown"/>
+                <Button Content="Search" Click="OfSearch_Click" Background="{StaticResource AccentBrush}"/>
+                <CheckBox x:Name="OfOverframeOnlyBox" Content="Over-frame only" VerticalAlignment="Center"
+                          Foreground="{StaticResource TextBrush}" Margin="4,0,0,0"
+                          Checked="OfFilter_Changed" Unchecked="OfFilter_Changed"/>
+                <CheckBox x:Name="OfFavoritesOnlyBox" Content="Favorites" VerticalAlignment="Center"
+                          Foreground="{StaticResource TextBrush}" Margin="8,0,0,0"/>
+              </StackPanel>
+              <Button DockPanel.Dock="Top" Content="Scan / locate of_card_asset…" Click="OfScanGate_Click" Margin="0,0,0,8" HorizontalAlignment="Left"/>
+              <ListBox x:Name="OfCardList" SelectionChanged="OfCardList_SelectionChanged">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <StackPanel Orientation="Horizontal">
+                      <TextBlock Text="{Binding DisplayName}"/>
+                      <TextBlock Text="  [OF]" Foreground="#7DCEA0" FontWeight="SemiBold"
+                                 Visibility="{Binding IsOverframe, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </DockPanel>
+          </Border>
+
+          <Border Grid.Column="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Text="Over-frame editor" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <WrapPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+                <Button Content="Select 704×1024 image…" Click="OfSelectImage_Click"/>
+                <Button Content="Apply over-frame" Click="OfApply_Click" Background="{StaticResource AccentBrush}"/>
+                <Button Content="Enable gate only" Click="OfEnableGate_Click"/>
+                <Button Content="Remove over-frame" Click="OfRemove_Click"/>
+                <Button Content="Restore backups" Click="OfRestore_Click"/>
+              </WrapPanel>
+              <CheckBox x:Name="OfCreateBackupBox" DockPanel.Dock="Bottom" Content="Backup card + gate bundles before write"
+                        IsChecked="True" Foreground="{StaticResource TextBrush}" Margin="0,8,0,0"/>
+              <Grid>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="*"/>
+                  <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <StackPanel>
+                  <TextBlock x:Name="OfCardTitleText" Text="(none selected)" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                  <TextBlock x:Name="OfCardMetaText" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                  <TextBlock x:Name="OfGateEntryText" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                  <TextBlock x:Name="OfImagePathText" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+                <Border Grid.Row="1" Background="#12161A" Margin="0,12,0,0" CornerRadius="4">
+                  <Grid>
+                    <Image x:Name="OfCurrentArtImage" Stretch="Uniform" Margin="8"/>
+                    <Image x:Name="OfReplacementImage" Stretch="Uniform" Margin="8" Opacity="0.0"/>
+                  </Grid>
+                </Border>
+                <TextBlock Grid.Row="2" x:Name="OfDetailText" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"
+                           Text="Target texture size: 704×1024 (RGBA32). Tip: keep alpha ≈ 4 for foil mask areas."/>
+              </Grid>
+            </DockPanel>
+          </Border>
+        </Grid>
       </TabItem>
     </TabControl>
   </DockPanel>

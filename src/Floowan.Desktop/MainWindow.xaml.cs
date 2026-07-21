@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
+using Floowan.Core.Assets;
 using Floowan.Core.Data;
 using Floowan.Core.Game;
 using Floowan.Core.Models;
@@ -15,9 +16,15 @@ public partial class MainWindow : Window
 {
     private CardDatabase? _database;
     private CardArtModService? _modService;
+    private OverFrameModService? _overFrameService;
     private CardRecord? _selected;
+    private CardRecord? _ofSelected;
     private string? _replacementImagePath;
+    private string? _ofReplacementImagePath;
     private string? _previewTempPath;
+    private string? _ofPreviewTempPath;
+    private bool _ofGateReady;
+    private bool _ofInitialScanStarted;
 
     public MainWindow()
     {
@@ -30,7 +37,9 @@ public partial class MainWindow : Window
     {
         try
         {
-            _modService = new CardArtModService(backupRoot: Path.Combine(AppContext.BaseDirectory, "backups"));
+            var backupRoot = Path.Combine(AppContext.BaseDirectory, "backups");
+            _modService = new CardArtModService(backupRoot: backupRoot);
+            _overFrameService = new OverFrameModService(backupRoot: backupRoot);
 
             var defaultDb = FindDefaultDatabase();
             if (defaultDb is not null)
@@ -49,7 +58,11 @@ public partial class MainWindow : Window
 
             Status($"Loaded. Cards in DB: {_database?.CountCards() ?? 0}. Discovered installs: {discovered.Count}.");
             if (_database is not null)
+            {
                 RunSearch();
+                RunOfSearch();
+                RefreshOfGateStatusFromCache();
+            }
         }
         catch (Exception ex)
         {
@@ -77,13 +90,20 @@ public partial class MainWindow : Window
         DatabasePathBox.Text = path;
         var flag = _database.GetCreateBackupFlag();
         if (flag is bool b)
+        {
             CreateBackupBox.IsChecked = b;
+            OfCreateBackupBox.IsChecked = b;
+        }
+
+        RefreshOfGateStatusFromCache();
     }
 
     private void SetGamePath(string path)
     {
         GamePathBox.Text = path;
         try { _database?.SetStoredGamePath(path); } catch { /* read-only ok */ }
+        _ofGateReady = false;
+        RefreshOfGateStatusFromCache();
     }
 
     private void DiscoverSteam_Click(object sender, RoutedEventArgs e)
@@ -157,6 +177,7 @@ public partial class MainWindow : Window
         {
             OpenDatabase(dlg.FileName);
             RunSearch();
+            RunOfSearch();
             Status("Opened database: " + dlg.FileName);
         }
     }
@@ -333,6 +354,415 @@ public partial class MainWindow : Window
         }
     }
 
+    // --- Over-frame tab ---
+
+    private void MainTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || OverFrameTab is null)
+            return;
+        if (!ReferenceEquals(MainTabs.SelectedItem, OverFrameTab))
+            return;
+        if (_ofInitialScanStarted || _ofGateReady)
+            return;
+        if (string.IsNullOrWhiteSpace(GamePathBox.Text) || _overFrameService is null)
+            return;
+
+        _ofInitialScanStarted = true;
+        _ = EnsureOfGateAsync(showErrors: false);
+    }
+
+    private void OfSearchBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+            RunOfSearch();
+    }
+
+    private void OfSearch_Click(object sender, RoutedEventArgs e) => RunOfSearch();
+
+    private void OfFilter_Changed(object sender, RoutedEventArgs e) => RunOfSearch();
+
+    private void RunOfSearch()
+    {
+        if (_database is null)
+        {
+            Status("Open database.db first.");
+            return;
+        }
+
+        var results = _database.SearchCards(
+            OfSearchBox.Text,
+            favoritesOnly: OfFavoritesOnlyBox.IsChecked == true,
+            overframeOnly: OfOverframeOnlyBox.IsChecked == true,
+            limit: 400);
+        OfCardList.ItemsSource = results;
+        Status($"Over-frame tab: {results.Count} card(s).");
+    }
+
+    private void OfCardList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        _ofSelected = OfCardList.SelectedItem as CardRecord;
+        _ofReplacementImagePath = null;
+        OfReplacementImage.Source = null;
+        OfImagePathText.Text = "";
+        OfCurrentArtImage.Opacity = 1.0;
+
+        if (_ofSelected is null)
+        {
+            OfCardTitleText.Text = "(none selected)";
+            OfCardMetaText.Text = "";
+            OfGateEntryText.Text = "";
+            OfCurrentArtImage.Source = null;
+            OfDetailText.Text = "Target texture size: 704×1024 (RGBA32). Tip: keep alpha ≈ 4 for foil mask areas.";
+            return;
+        }
+
+        OfCardTitleText.Text = _ofSelected.DisplayName;
+        OfCardMetaText.Text =
+            $"Bundle {_ofSelected.Bundle} · id {_ofSelected.Id} · overframe={_ofSelected.IsOverframe}" +
+            (_ofSelected.OverframeBaseId is int baseId ? $" · base={baseId}" : "");
+        RefreshOfGateEntryStatus();
+        LoadOfCurrentPreview();
+    }
+
+    private void RefreshOfGateEntryStatus()
+    {
+        if (_ofSelected is null || _overFrameService is null || string.IsNullOrWhiteSpace(GamePathBox.Text) || !_ofGateReady)
+        {
+            OfGateEntryText.Text = _ofGateReady ? "" : "Gate not located yet — open this tab or click Scan.";
+            return;
+        }
+
+        try
+        {
+            var inGate = _overFrameService.IsInGate(GamePathBox.Text, _ofSelected.Id, _database);
+            OfGateEntryText.Text = inGate
+                ? $"Gate: present as ({_ofSelected.Id},{_ofSelected.Id})"
+                : "Gate: not registered";
+        }
+        catch (Exception ex)
+        {
+            OfGateEntryText.Text = "Gate check failed: " + ex.Message;
+        }
+    }
+
+    private void RefreshOfGateStatusFromCache()
+    {
+        var cached = _database?.GetOfCardAssetBundleId();
+        if (!string.IsNullOrWhiteSpace(cached))
+        {
+            OfGateStatusText.Text = $"Gate bundle (cached): {cached}";
+            _ofGateReady = true;
+        }
+        else
+        {
+            OfGateStatusText.Text = "Gate: not scanned yet";
+            _ofGateReady = false;
+        }
+    }
+
+    private async void OfScanGate_Click(object sender, RoutedEventArgs e) =>
+        await EnsureOfGateAsync(showErrors: true);
+
+    private async Task EnsureOfGateAsync(bool showErrors)
+    {
+        if (_overFrameService is null)
+            return;
+        if (string.IsNullOrWhiteSpace(GamePathBox.Text))
+        {
+            if (showErrors)
+                MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
+            return;
+        }
+
+        IsEnabled = false;
+        OfGateStatusText.Text = "Scanning for of_card_asset…";
+        Status("Scanning for of_card_asset…");
+        var gamePath = GamePathBox.Text;
+        var progress = new Progress<string>(msg =>
+        {
+            OfGateStatusText.Text = msg;
+            Status(msg);
+        });
+
+        try
+        {
+            var result = await Task.Run(() =>
+                _overFrameService.EnsureGateLocated(gamePath, _database, progress));
+            if (result.Success)
+            {
+                _ofGateReady = true;
+                OfGateStatusText.Text = result.Message + (result.BundleId is null ? "" : $" ({result.BundleId})");
+                Status(result.Message);
+                if (_database is not null)
+                {
+                    try
+                    {
+                        var marked = _overFrameService.SyncDatabaseFromGate(gamePath, _database);
+                        Status($"{result.Message} Synced {marked} over-frame flag(s).");
+                        RunOfSearch();
+                    }
+                    catch (Exception syncEx)
+                    {
+                        Status(result.Message + " Sync skipped: " + syncEx.Message);
+                    }
+                }
+
+                RefreshOfGateEntryStatus();
+            }
+            else
+            {
+                _ofGateReady = false;
+                OfGateStatusText.Text = result.Message;
+                Status(result.Message);
+                if (showErrors)
+                    MessageBox.Show(result.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            _ofGateReady = false;
+            OfGateStatusText.Text = "Scan failed: " + ex.Message;
+            Status(OfGateStatusText.Text);
+            if (showErrors)
+                MessageBox.Show(ex.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            IsEnabled = true;
+        }
+    }
+
+    private void LoadOfCurrentPreview()
+    {
+        if (_ofSelected is null || _overFrameService is null || string.IsNullOrWhiteSpace(GamePathBox.Text))
+            return;
+
+        try
+        {
+            CleanupOfPreviewTemp();
+            _ofPreviewTempPath = Path.Combine(Path.GetTempPath(), $"floowan-of-preview-{Guid.NewGuid():N}.png");
+            _overFrameService.ExtractCardArt(GamePathBox.Text, _ofSelected, _ofPreviewTempPath);
+            OfCurrentArtImage.Source = LoadBitmap(_ofPreviewTempPath);
+            var info = _overFrameService.GetTextureInfo(GamePathBox.Text, _ofSelected);
+            OfDetailText.Text =
+                $"Texture '{info.Name}' {info.Width}x{info.Height} format={info.Format}. Target over-frame: {OverFrameConstants.Width}x{OverFrameConstants.Height} RGBA32.";
+        }
+        catch (Exception ex)
+        {
+            OfCurrentArtImage.Source = null;
+            OfDetailText.Text = "Preview failed: " + ex.Message;
+        }
+    }
+
+    private void OfSelectImage_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Title = "Select 704×1024 over-frame art",
+            Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp|All files|*.*"
+        };
+        if (dlg.ShowDialog(this) != true)
+            return;
+
+        _ofReplacementImagePath = dlg.FileName;
+        OfImagePathText.Text = "Replacement (prefer 704×1024): " + dlg.FileName;
+        OfReplacementImage.Source = LoadBitmap(dlg.FileName);
+        OfReplacementImage.Opacity = 1.0;
+        OfCurrentArtImage.Opacity = 0.35;
+    }
+
+    private async void OfApply_Click(object sender, RoutedEventArgs e)
+    {
+        if (_overFrameService is null || _ofSelected is null)
+        {
+            MessageBox.Show("Select a card first.", "Floowan");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(GamePathBox.Text))
+        {
+            MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_ofReplacementImagePath))
+        {
+            MessageBox.Show("Select a 704×1024 replacement image first.", "Floowan");
+            return;
+        }
+
+        if (!_ofGateReady)
+            await EnsureOfGateAsync(showErrors: true);
+        if (!_ofGateReady)
+            return;
+
+        var createBackup = OfCreateBackupBox.IsChecked == true;
+        var gamePath = GamePathBox.Text;
+        var card = _ofSelected;
+        var image = _ofReplacementImagePath;
+        IsEnabled = false;
+        Status("Applying over-frame…");
+        try
+        {
+            var result = await Task.Run(() =>
+                _overFrameService.ApplyOverFrame(gamePath, card, image, createBackup, _database));
+            Status(result.Message);
+            MessageBox.Show(result.Message, "Floowan",
+                MessageBoxButton.OK,
+                result.Success ? MessageBoxImage.Information : MessageBoxImage.Error);
+            if (result.Success)
+            {
+                OfCurrentArtImage.Opacity = 1.0;
+                OfReplacementImage.Opacity = 0.0;
+                RunOfSearch();
+                ReselectOfCard(card.Id);
+            }
+        }
+        finally
+        {
+            IsEnabled = true;
+        }
+    }
+
+    private async void OfEnableGate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_overFrameService is null || _ofSelected is null)
+        {
+            MessageBox.Show("Select a card first.", "Floowan");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(GamePathBox.Text))
+        {
+            MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
+            return;
+        }
+
+        if (!_ofGateReady)
+            await EnsureOfGateAsync(showErrors: true);
+        if (!_ofGateReady)
+            return;
+
+        var createBackup = OfCreateBackupBox.IsChecked == true;
+        var gamePath = GamePathBox.Text;
+        var card = _ofSelected;
+        IsEnabled = false;
+        Status("Updating of_card_asset gate…");
+        try
+        {
+            var result = await Task.Run(() =>
+                _overFrameService.EnableGateOnly(gamePath, card, createBackup, _database));
+            Status(result.Message);
+            MessageBox.Show(result.Message, "Floowan",
+                MessageBoxButton.OK,
+                result.Success ? MessageBoxImage.Information : MessageBoxImage.Error);
+            if (result.Success)
+            {
+                RunOfSearch();
+                ReselectOfCard(card.Id);
+            }
+        }
+        finally
+        {
+            IsEnabled = true;
+        }
+    }
+
+    private async void OfRemove_Click(object sender, RoutedEventArgs e)
+    {
+        if (_overFrameService is null || _ofSelected is null)
+        {
+            MessageBox.Show("Select a card first.", "Floowan");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(GamePathBox.Text))
+        {
+            MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
+            return;
+        }
+
+        if (!_ofGateReady)
+            await EnsureOfGateAsync(showErrors: true);
+        if (!_ofGateReady)
+            return;
+
+        var createBackup = OfCreateBackupBox.IsChecked == true;
+        var gamePath = GamePathBox.Text;
+        var card = _ofSelected;
+        IsEnabled = false;
+        Status("Removing from of_card_asset…");
+        try
+        {
+            var result = await Task.Run(() =>
+                _overFrameService.RemoveFromGate(gamePath, card, createBackup, _database));
+            Status(result.Message);
+            MessageBox.Show(result.Message, "Floowan",
+                MessageBoxButton.OK,
+                result.Success ? MessageBoxImage.Information : MessageBoxImage.Error);
+            if (result.Success)
+            {
+                RunOfSearch();
+                ReselectOfCard(card.Id);
+            }
+        }
+        finally
+        {
+            IsEnabled = true;
+        }
+    }
+
+    private async void OfRestore_Click(object sender, RoutedEventArgs e)
+    {
+        if (_overFrameService is null || _ofSelected is null || string.IsNullOrWhiteSpace(GamePathBox.Text))
+            return;
+
+        if (!_ofGateReady)
+            await EnsureOfGateAsync(showErrors: true);
+
+        var gamePath = GamePathBox.Text;
+        var card = _ofSelected;
+        IsEnabled = false;
+        Status("Restoring over-frame backups…");
+        try
+        {
+            var result = await Task.Run(() =>
+                _overFrameService.RestoreBackups(gamePath, card, _database));
+            Status(result.Message);
+            MessageBox.Show(result.Message, "Floowan",
+                MessageBoxButton.OK,
+                result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+            if (result.Success)
+            {
+                RunOfSearch();
+                ReselectOfCard(card.Id);
+            }
+        }
+        finally
+        {
+            IsEnabled = true;
+        }
+    }
+
+    private void ReselectOfCard(int cardId)
+    {
+        if (OfCardList.ItemsSource is IEnumerable<CardRecord> items)
+        {
+            var match = items.FirstOrDefault(c => c.Id == cardId);
+            if (match is not null)
+            {
+                OfCardList.SelectedItem = match;
+                return;
+            }
+        }
+
+        _ofSelected = _database?.GetById(cardId);
+        if (_ofSelected is not null)
+        {
+            OfCardTitleText.Text = _ofSelected.DisplayName;
+            OfCardMetaText.Text =
+                $"Bundle {_ofSelected.Bundle} · id {_ofSelected.Id} · overframe={_ofSelected.IsOverframe}";
+            RefreshOfGateEntryStatus();
+            LoadOfCurrentPreview();
+        }
+    }
+
     private static BitmapImage LoadBitmap(string path)
     {
         var bmp = new BitmapImage();
@@ -353,10 +783,21 @@ public partial class MainWindow : Window
         _previewTempPath = null;
     }
 
+    private void CleanupOfPreviewTemp()
+    {
+        if (_ofPreviewTempPath is not null && File.Exists(_ofPreviewTempPath))
+        {
+            try { File.Delete(_ofPreviewTempPath); } catch { /* ignore */ }
+        }
+        _ofPreviewTempPath = null;
+    }
+
     private void Cleanup()
     {
         CleanupPreviewTemp();
+        CleanupOfPreviewTemp();
         _modService?.Dispose();
+        _overFrameService?.Dispose();
         _database?.Dispose();
     }
 
