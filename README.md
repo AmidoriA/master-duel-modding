@@ -12,6 +12,7 @@
 - Replace card art in the Unity AssetBundle via **AssetsTools.NET** (UABEA family)
 - Restore from backup
 - **Over-frame tab**: apply **704×1024** art, register the card in `of_card_asset`, enable/remove gate entries, restore backups
+- **Auto-create over-frame art**: remove the current art background with the lightweight rembg `u2netp` model, trim/resize the subject, and preview it on a transparent 704×1024 canvas
 
 ## Projects
 
@@ -50,11 +51,12 @@ dotnet run --project src/Floowan.Desktop -c Release
 Automates the [Nexus Mods over-frame guide](https://www.nexusmods.com/yugiohmasterduel/articles/103):
 
 1. Prefer replacement art at exactly **704×1024**. Other sizes are stretched with a warning.
-2. Keep **RGBA32** (not BC7) — same writable path as normal card-art replace.
-3. Tip: for foil/mask regions, keep alpha ≈ **4** (near-transparent) so the game’s foil treatment still reads correctly.
-4. On first use of the Over-frame tab (or via **Scan / locate of_card_asset**), Floowan finds the bundle containing TextAsset `of_card_asset`, caches its id in `app_config`, and can sync `is_overframe` flags from the gate.
-5. **Apply over-frame** backs up the card bundle + gate bundle, replaces texture at 704×1024, and adds a LE ushort pair `(cardId, cardId)` to the gate.
-6. **Enable gate only** / **Remove over-frame** edit the gate without requiring a new image; **Restore backups** reverts card and/or gate files.
+2. Or select a card and click **Auto-create from current art**. Floowan extracts the current texture, removes its background, and prepares a 704×1024 replacement for review. The first run downloads and verifies the small `u2netp.onnx` model under `%LOCALAPPDATA%\Floowan\models`; Python and the rembg CLI are not required.
+3. Keep **RGBA32** (not BC7) — same writable path as normal card-art replace.
+4. Tip: for foil/mask regions, keep alpha ≈ **4** (near-transparent) so the game’s foil treatment still reads correctly.
+5. On first use of the Over-frame tab (or via **Scan / locate of_card_asset**), Floowan finds the bundle containing TextAsset `of_card_asset`, caches its id in `app_config`, and can sync `is_overframe` flags from the gate.
+6. **Apply over-frame** backs up the card bundle + gate bundle, replaces texture at 704×1024, and adds a LE ushort pair `(cardId, cardId)` to the gate.
+7. **Enable gate only** / **Remove over-frame** edit the gate without requiring a new image; **Restore backups** reverts card and/or gate files.
 
 Game updates may reset `of_card_asset` (and card bundles). Keep backups under `backups/bundles/cards` and `backups/bundles/gate`.
 
@@ -63,6 +65,7 @@ Game updates may reset `of_card_asset` (and card bundles). Keep backups under `b
 - **Card text / names / descriptions** are not edited (those use encrypted metadata + crypto key in Floowandereeze).
 - **Sleeves, fields, icons, wallpapers** are out of scope for this MVP (architecture is ready to extend).
 - Replacement forces **RGBA32** (larger than BC7). This matches Floowandereeze’s UnityPy `set_image(..., RGBA32)` approach and is the reliably writable path without native texture encoders.
+- Automatic background removal is an AI-assisted starting point. Complex artwork may need manual cleanup before applying.
 - Orphaned `.resS` directory entries may remain inside the bundle after inlining texture bytes; the Texture2D no longer references them.
 - Always keep backups; game updates can overwrite LocalData assets.
 
