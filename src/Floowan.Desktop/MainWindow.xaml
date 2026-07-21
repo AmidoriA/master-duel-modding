@@ -40,58 +40,83 @@
       </StatusBarItem>
     </StatusBar>
 
-    <Grid>
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="1.2*"/>
-        <ColumnDefinition Width="12"/>
-        <ColumnDefinition Width="*"/>
-      </Grid.ColumnDefinitions>
+    <TabControl x:Name="MainTabs" Background="{StaticResource BgBrush}" BorderBrush="#3A4652">
+      <TabItem Header="Card Art">
+        <Grid Margin="0,8,0,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="1.2*"/>
+            <ColumnDefinition Width="12"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
 
-      <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
-        <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Text="Cards" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
-          <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBox x:Name="SearchBox" Width="260" KeyDown="SearchBox_KeyDown"/>
-            <Button Content="Search" Click="Search_Click" Background="{StaticResource AccentBrush}"/>
-            <CheckBox x:Name="FavoritesOnlyBox" Content="Favorites" VerticalAlignment="Center" Foreground="{StaticResource TextBrush}" Margin="4,0,0,0"/>
-            <CheckBox x:Name="SearchDescBox" Content="Include description" VerticalAlignment="Center" Foreground="{StaticResource TextBrush}" Margin="8,0,0,0"/>
-          </StackPanel>
-          <ListBox x:Name="CardList" DisplayMemberPath="DisplayName" SelectionChanged="CardList_SelectionChanged"/>
-        </DockPanel>
-      </Border>
+          <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Text="Cards" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <TextBox x:Name="SearchBox" Width="260" KeyDown="SearchBox_KeyDown"/>
+                <Button Content="Search" Click="Search_Click" Background="{StaticResource AccentBrush}"/>
+                <CheckBox x:Name="FavoritesOnlyBox" Content="Favorites" VerticalAlignment="Center" Foreground="{StaticResource TextBrush}" Margin="4,0,0,0"/>
+                <CheckBox x:Name="SearchDescBox" Content="Include description" VerticalAlignment="Center" Foreground="{StaticResource TextBrush}" Margin="8,0,0,0"/>
+              </StackPanel>
+              <ListBox x:Name="CardList" DisplayMemberPath="DisplayName" SelectionChanged="CardList_SelectionChanged"/>
+            </DockPanel>
+          </Border>
 
-      <Border Grid.Column="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
-        <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Text="Selected card" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
-          <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,12,0,0">
-            <Button Content="Select image…" Click="SelectImage_Click"/>
-            <Button Content="Replace art" Click="Replace_Click" Background="{StaticResource AccentBrush}"/>
-            <Button Content="Extract PNG" Click="Extract_Click"/>
-            <Button Content="Restore backup" Click="Restore_Click"/>
-          </StackPanel>
-          <CheckBox x:Name="CreateBackupBox" DockPanel.Dock="Bottom" Content="Backup original bundle before replace"
-                    IsChecked="True" Foreground="{StaticResource TextBrush}" Margin="0,8,0,0"/>
-          <Grid>
-            <Grid.RowDefinitions>
-              <RowDefinition Height="Auto"/>
-              <RowDefinition Height="*"/>
-              <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
-            <StackPanel>
-              <TextBlock x:Name="CardTitleText" Text="(none selected)" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"/>
-              <TextBlock x:Name="CardMetaText" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0" TextWrapping="Wrap"/>
-              <TextBlock x:Name="ImagePathText" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
-            </StackPanel>
-            <Border Grid.Row="1" Background="#12161A" Margin="0,12,0,0" CornerRadius="4">
+          <Border Grid.Column="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Text="Selected card" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,12,0,0">
+                <Button Content="Select image…" Click="SelectImage_Click"/>
+                <Button Content="Replace art" Click="Replace_Click" Background="{StaticResource AccentBrush}"/>
+                <Button Content="Extract PNG" Click="Extract_Click"/>
+                <Button Content="Restore backup" Click="Restore_Click"/>
+              </StackPanel>
+              <CheckBox x:Name="CreateBackupBox" DockPanel.Dock="Bottom" Content="Backup original bundle before replace"
+                        IsChecked="True" Foreground="{StaticResource TextBrush}" Margin="0,8,0,0"/>
               <Grid>
-                <Image x:Name="CurrentArtImage" Stretch="Uniform" Margin="8"/>
-                <Image x:Name="ReplacementImage" Stretch="Uniform" Margin="8" Opacity="0.0"/>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="*"/>
+                  <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <StackPanel>
+                  <TextBlock x:Name="CardTitleText" Text="(none selected)" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                  <TextBlock x:Name="CardMetaText" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                  <TextBlock x:Name="ImagePathText" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+                <Border Grid.Row="1" Background="#12161A" Margin="0,12,0,0" CornerRadius="4">
+                  <Grid>
+                    <Image x:Name="CurrentArtImage" Stretch="Uniform" Margin="8"/>
+                    <Image x:Name="ReplacementImage" Stretch="Uniform" Margin="8" Opacity="0.0"/>
+                  </Grid>
+                </Border>
+                <TextBlock Grid.Row="2" x:Name="DetailText" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
               </Grid>
-            </Border>
-            <TextBlock Grid.Row="2" x:Name="DetailText" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
-          </Grid>
-        </DockPanel>
-      </Border>
-    </Grid>
+            </DockPanel>
+          </Border>
+        </Grid>
+      </TabItem>
+
+      <TabItem Header="Over-frame">
+        <Border Background="{StaticResource PanelBrush}" Padding="24" CornerRadius="4" Margin="0,8,0,0">
+          <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="520">
+            <TextBlock Text="Over-frame editor" FontSize="20" FontWeight="SemiBold"
+                       HorizontalAlignment="Center" TextAlignment="Center"/>
+            <TextBlock Text="Over-frame editor coming next."
+                       Foreground="{StaticResource MutedBrush}"
+                       Margin="0,12,0,0"
+                       TextWrapping="Wrap"
+                       TextAlignment="Center"
+                       HorizontalAlignment="Center"/>
+            <TextBlock Text="This tab will apply 704×1024 card art and register cards in of_card_asset without changing the Card Art workflow."
+                       Foreground="{StaticResource MutedBrush}"
+                       Margin="0,8,0,0"
+                       TextWrapping="Wrap"
+                       TextAlignment="Center"
+                       HorizontalAlignment="Center"/>
+          </StackPanel>
+        </Border>
+      </TabItem>
+    </TabControl>
   </DockPanel>
 </Window>
