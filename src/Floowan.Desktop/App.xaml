@@ -181,24 +181,127 @@
       <Setter Property="Background" Value="{StaticResource ControlBgBrush}"/>
       <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
       <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}"/>
-      <Setter Property="Padding" Value="6"/>
+      <Setter Property="Padding" Value="6,4"/>
       <Setter Property="Margin" Value="0,0,12,0"/>
+      <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto"/>
+      <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBox">
+            <Grid>
+              <ToggleButton x:Name="ToggleButton"
+                            Focusable="False"
+                            IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                            ClickMode="Press">
+                <ToggleButton.Template>
+                  <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Chrome"
+                            Background="{StaticResource ControlBgBrush}"
+                            BorderBrush="{StaticResource ControlBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="3"
+                            SnapsToDevicePixels="True">
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*"/>
+                          <ColumnDefinition Width="22"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="1" Background="#24303A" BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1,0,0,0">
+                          <Path HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Data="M 0,0 L 4,4 L 8,0 Z"
+                                Fill="{StaticResource TextBrush}"/>
+                        </Border>
+                      </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                      <Trigger Property="IsMouseOver" Value="True">
+                        <Setter TargetName="Chrome" Property="BorderBrush" Value="#5A6B7A"/>
+                      </Trigger>
+                    </ControlTemplate.Triggers>
+                  </ControlTemplate>
+                </ToggleButton.Template>
+              </ToggleButton>
+              <ContentPresenter x:Name="ContentSite"
+                                IsHitTestVisible="False"
+                                Margin="8,4,28,4"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                RecognizesAccessKey="True"
+                                Content="{TemplateBinding SelectionBoxItem}"
+                                ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                TextElement.Foreground="{StaticResource TextBrush}"/>
+              <Popup x:Name="Popup"
+                     Placement="Bottom"
+                     IsOpen="{TemplateBinding IsDropDownOpen}"
+                     AllowsTransparency="True"
+                     Focusable="False"
+                     PopupAnimation="Slide">
+                <Border x:Name="DropDownBorder"
+                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                        MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                        Background="{StaticResource ControlBgBrush}"
+                        BorderBrush="{StaticResource ControlBorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="3"
+                        Padding="1">
+                  <ScrollViewer Margin="0" SnapsToDevicePixels="True">
+                    <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
+                  </ScrollViewer>
+                </Border>
+              </Popup>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.55"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
 
     <Style TargetType="ComboBoxItem">
       <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
       <Setter Property="Background" Value="{StaticResource ControlBgBrush}"/>
-      <Setter Property="Padding" Value="8,4"/>
-      <Style.Triggers>
-        <Trigger Property="IsHighlighted" Value="True">
-          <Setter Property="Background" Value="{StaticResource SelectedBrush}"/>
-          <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
-        </Trigger>
-        <Trigger Property="IsSelected" Value="True">
-          <Setter Property="Background" Value="{StaticResource SelectedBrush}"/>
-          <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
-        </Trigger>
-      </Style.Triggers>
+      <Setter Property="Padding" Value="8,5"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBoxItem">
+            <Border x:Name="Bd"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{StaticResource ControlBorderBrush}"
+                    BorderThickness="0,0,0,1"
+                    Padding="{TemplateBinding Padding}"
+                    SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="Center"
+                                RecognizesAccessKey="True"
+                                TextElement.Foreground="{TemplateBinding Foreground}"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{StaticResource SelectedBrush}"/>
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#24303A"/>
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+              </Trigger>
+              <MultiTrigger>
+                <MultiTrigger.Conditions>
+                  <Condition Property="IsSelected" Value="True"/>
+                  <Condition Property="IsHighlighted" Value="True"/>
+                </MultiTrigger.Conditions>
+                <Setter TargetName="Bd" Property="Background" Value="{StaticResource SelectedBrush}"/>
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+              </MultiTrigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
 
     <Style TargetType="TabControl">
