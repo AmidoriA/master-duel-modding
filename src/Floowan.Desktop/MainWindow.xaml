@@ -34,13 +34,17 @@
       </Grid>
     </Border>
 
-    <StatusBar DockPanel.Dock="Bottom" Background="#15191E" Foreground="{StaticResource MutedBrush}" Margin="0,12,0,0">
+    <StatusBar DockPanel.Dock="Bottom" Margin="0,12,0,0">
       <StatusBarItem>
-        <TextBlock x:Name="StatusText" Text="Ready"/>
+        <TextBlock x:Name="StatusText" Text="Ready" Foreground="{StaticResource MutedBrush}"/>
       </StatusBarItem>
     </StatusBar>
 
+<<<<<<< HEAD
     <TabControl x:Name="MainTabs" Background="{StaticResource BgBrush}" BorderBrush="#3A4652" SelectionChanged="MainTabs_SelectionChanged">
+=======
+    <TabControl x:Name="MainTabs">
+>>>>>>> origin/master
       <TabItem Header="Card Art">
         <Grid Margin="0,8,0,0">
           <Grid.ColumnDefinitions>
