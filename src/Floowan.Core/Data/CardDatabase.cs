@@ -27,7 +27,16 @@ public sealed class CardDatabase : IDisposable
     {
         EnsureColumn("card", "is_overframe", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumn("card", "overframe_base_id", "INTEGER");
+        EnsureColumn("card", "art_id", "INTEGER");
         EnsureColumn("app_config", "of_card_asset_bundle", "VARCHAR(8)");
+        EnsureIndex("idx_card_art_id", "card", "art_id");
+    }
+
+    private void EnsureIndex(string indexName, string table, string column)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = $"CREATE INDEX IF NOT EXISTS {indexName} ON {table}({column});";
+        cmd.ExecuteNonQuery();
     }
 
     private void EnsureColumn(string table, string column, string typeSql)
@@ -118,7 +127,7 @@ public sealed class CardDatabase : IDisposable
         var where = clauses.Count == 0 ? "" : "WHERE " + string.Join(" AND ", clauses);
         cmd.CommandText = $@"
 SELECT id, name, description, bundle, modded_name, modded_description, data_index, favorite, has_backup,
-       is_overframe, overframe_base_id
+       is_overframe, overframe_base_id, art_id
 FROM card
 {where}
 ORDER BY name COLLATE NOCASE
@@ -145,7 +154,7 @@ LIMIT $limit;";
         var where = BuildFilterWhere(filters, cmd);
         cmd.CommandText = $@"
 SELECT id, name, description, bundle, modded_name, modded_description, data_index, favorite, has_backup,
-       is_overframe, overframe_base_id
+       is_overframe, overframe_base_id, art_id
 FROM card
 {where}
 ORDER BY id
@@ -174,11 +183,46 @@ LIMIT $limit OFFSET $offset;";
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = @"
 SELECT id, name, description, bundle, modded_name, modded_description, data_index, favorite, has_backup,
-       is_overframe, overframe_base_id
+       is_overframe, overframe_base_id, art_id
 FROM card WHERE id = $id;";
         cmd.Parameters.AddWithValue("$id", id);
         using var reader = cmd.ExecuteReader();
         return reader.Read() ? ReadCard(reader) : null;
+    }
+
+    public CardRecord? GetByBundle(string bundle)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = @"
+SELECT id, name, description, bundle, modded_name, modded_description, data_index, favorite, has_backup,
+       is_overframe, overframe_base_id, art_id
+FROM card WHERE bundle = $bundle;";
+        cmd.Parameters.AddWithValue("$bundle", bundle);
+        using var reader = cmd.ExecuteReader();
+        return reader.Read() ? ReadCard(reader) : null;
+    }
+
+    public CardRecord? GetByArtId(int artId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = @"
+SELECT id, name, description, bundle, modded_name, modded_description, data_index, favorite, has_backup,
+       is_overframe, overframe_base_id, art_id
+FROM card WHERE art_id = $art_id
+ORDER BY id
+LIMIT 1;";
+        cmd.Parameters.AddWithValue("$art_id", artId);
+        using var reader = cmd.ExecuteReader();
+        return reader.Read() ? ReadCard(reader) : null;
+    }
+
+    public void SetArtId(int cardId, int artId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "UPDATE card SET art_id = $art_id WHERE id = $id;";
+        cmd.Parameters.AddWithValue("$art_id", artId);
+        cmd.Parameters.AddWithValue("$id", cardId);
+        cmd.ExecuteNonQuery();
     }
 
     /// <summary>
@@ -259,8 +303,9 @@ WHERE id = $id;";
     }
 
     /// <summary>
-    /// Clears all over-frame flags, then marks cards present in the gate payload.
-    /// Returns how many cards were marked.
+    /// Clears all over-frame flags, then marks cards whose Master Duel art id
+    /// appears as a gate <paramref name="entries"/> trigger (Texture2D m_Name).
+    /// Returns how many card rows were marked.
     /// </summary>
     public int SyncOverframeFromGate(IEnumerable<(ushort TriggerId, ushort BaseArtId)> entries)
     {
@@ -275,13 +320,25 @@ WHERE id = $id;";
             cmd.CommandText = @"
 UPDATE card
 SET is_overframe = 1, overframe_base_id = $base
-WHERE id = $id;";
-            cmd.Parameters.AddWithValue("$id", (int)triggerId);
+WHERE art_id = $trigger;";
+            cmd.Parameters.AddWithValue("$trigger", (int)triggerId);
             cmd.Parameters.AddWithValue("$base", (int)baseArtId);
             marked += cmd.ExecuteNonQuery();
         }
 
         return marked;
+    }
+
+    public IReadOnlyList<(int Id, string Bundle)> ListCardBundles()
+    {
+        using var cmd = _connection.CreateCommand();
+        // Newest Master Duel arts (incl. official over-frames) tend to have high data_index.
+        cmd.CommandText = "SELECT id, bundle FROM card ORDER BY data_index DESC, id DESC;";
+        var results = new List<(int, string)>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            results.Add((reader.GetInt32(0), reader.GetString(1)));
+        return results;
     }
 
     public int CountCards()
@@ -350,7 +407,8 @@ WHERE id = $id;";
         Favorite = reader.GetBoolean(7),
         HasBackup = reader.GetBoolean(8),
         IsOverframe = !reader.IsDBNull(9) && reader.GetInt32(9) != 0,
-        OverframeBaseId = reader.IsDBNull(10) ? null : reader.GetInt32(10)
+        OverframeBaseId = reader.IsDBNull(10) ? null : reader.GetInt32(10),
+        ArtId = reader.IsDBNull(11) ? null : reader.GetInt32(11)
     };
 
     public void Dispose() => _connection.Dispose();

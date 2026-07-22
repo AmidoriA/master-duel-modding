@@ -12,7 +12,7 @@
 - Replace card art in the Unity AssetBundle via **AssetsTools.NET** (UABEA family)
 - Restore from backup
 - **Over-frame tab**: apply **704×1024** art, register the card in `of_card_asset`, enable/remove gate entries, restore backups
-- **Auto-create over-frame art**: remove the current art background with the lightweight rembg `u2netp` model, trim/resize the subject, and preview it on a transparent 704×1024 canvas
+- **Auto-create over-frame art**: remove the current art background with rembg’s `isnet-anime` model, trim/resize the subject, and preview it on a transparent 704×1024 canvas
 
 ## Projects
 
@@ -51,9 +51,9 @@ dotnet run --project src/Floowan.Desktop -c Release
 Automates the [Nexus Mods over-frame guide](https://www.nexusmods.com/yugiohmasterduel/articles/103):
 
 1. Prefer replacement art at exactly **704×1024**. Other sizes are stretched with a warning.
-2. Or select a card and click **Auto-create from current art**. Floowan extracts the current texture, removes its background, and prepares a 704×1024 replacement for review. The first run downloads and verifies the small `u2netp.onnx` model under `%LOCALAPPDATA%\Floowan\models`; Python and the rembg CLI are not required.
+2. Or select a card and click **Auto-create from current art**. Floowan extracts the current texture, removes its background, composites it under a **card frame with a transparent art hole** (from Master Duel `card_frame*` faces), and places an opaque cutout overflow on top. Pick the frame style (Normal / Effect / Fusion / …) in the Over-frame tab; it is auto-suggested from card text when possible. The first run downloads and verifies the rembg `isnet-anime` ONNX model (~168 MB) under `%LOCALAPPDATA%\Floowan\models`; Python and the rembg CLI are not required.
 3. Keep **RGBA32** (not BC7) — same writable path as normal card-art replace.
-4. Tip: for foil/mask regions, keep alpha ≈ **4** (near-transparent) so the game’s foil treatment still reads correctly.
+4. Tip: main art / frame-overlap regions must use alpha ≈ **4** (not 0). Official over-frames and the Nexus guide comments use this as the foil/coverage mask; alpha 0 blacks out the card frame.
 5. On first use of the Over-frame tab (or via **Scan / locate of_card_asset**), Floowan finds the bundle containing TextAsset `of_card_asset`, caches its id in `app_config`, and can sync `is_overframe` flags from the gate.
 6. **Apply over-frame** backs up the card bundle + gate bundle, replaces texture at 704×1024, and adds a LE ushort pair `(cardId, cardId)` to the gate.
 7. **Enable gate only** / **Remove over-frame** edit the gate without requiring a new image; **Restore backups** reverts card and/or gate files.

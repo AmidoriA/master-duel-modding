@@ -142,13 +142,29 @@
               <WrapPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
                 <Button Content="Select 704×1024 image…" Click="OfSelectImage_Click"/>
                 <Button Content="Auto-create from current art" Click="OfAutoCreate_Click"/>
-                <Button Content="Apply over-frame" Click="OfApply_Click" Background="{StaticResource AccentBrush}"/>
+                <Button Content="Auto-create &amp; apply" Click="OfAutoCreateAndApply_Click" Background="{StaticResource AccentBrush}"/>
+                <Button Content="Apply over-frame" Click="OfApply_Click"/>
                 <Button Content="Enable gate only" Click="OfEnableGate_Click"/>
                 <Button Content="Remove over-frame" Click="OfRemove_Click"/>
                 <Button Content="Restore backups" Click="OfRestore_Click"/>
               </WrapPanel>
-              <CheckBox x:Name="OfCreateBackupBox" DockPanel.Dock="Bottom" Content="Backup card + gate bundles before write"
-                        IsChecked="True" Foreground="{StaticResource TextBrush}" Margin="0,8,0,0"/>
+              <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+                <TextBlock Text="Frame" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,8,0"/>
+                <ComboBox x:Name="OfFrameStyleBox" Width="140" SelectedIndex="0">
+                  <ComboBoxItem Content="Effect (ext)" Tag="EffectExt"/>
+                  <ComboBoxItem Content="Effect" Tag="Effect"/>
+                  <ComboBoxItem Content="Normal" Tag="Normal"/>
+                  <ComboBoxItem Content="Fusion" Tag="Fusion"/>
+                  <ComboBoxItem Content="Synchro" Tag="Synchro"/>
+                  <ComboBoxItem Content="Xyz" Tag="Xyz"/>
+                  <ComboBoxItem Content="Ritual" Tag="Ritual"/>
+                  <ComboBoxItem Content="Spell" Tag="Spell"/>
+                  <ComboBoxItem Content="Trap" Tag="Trap"/>
+                  <ComboBoxItem Content="Link" Tag="Link"/>
+                </ComboBox>
+                <CheckBox x:Name="OfCreateBackupBox" Content="Backup card + gate bundles before write"
+                          IsChecked="True" Foreground="{StaticResource TextBrush}" Margin="16,0,0,0" VerticalAlignment="Center"/>
+              </StackPanel>
               <Grid>
                 <Grid.RowDefinitions>
                   <RowDefinition Height="Auto"/>
@@ -168,7 +184,7 @@
                   </Grid>
                 </Border>
                 <TextBlock Grid.Row="2" x:Name="OfDetailText" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"
-                           Text="Target texture size: 704×1024 (RGBA32). Tip: keep alpha ≈ 4 for foil mask areas."/>
+                           Text="Target: 704×1024 RGBA32. Main art / frame overlap must use alpha ≈ 4 (not 0) or the frame goes black."/>
               </Grid>
             </DockPanel>
           </Border>
