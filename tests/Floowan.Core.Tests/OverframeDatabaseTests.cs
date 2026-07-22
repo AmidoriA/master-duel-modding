@@ -29,18 +29,36 @@ public class OverframeDatabaseTests
                 Assert.Single(only);
                 Assert.Equal(1, only[0].Id);
 
+                db.SetArtId(1, 1001);
+                db.SetArtId(2, 1002);
+                Assert.Equal(1001, db.GetById(1)!.ArtId);
+                Assert.Equal(1, db.GetByArtId(1001)!.Id);
+                Assert.Equal(1, db.GetByBundle("aaa11111")!.Id);
+
                 db.SetOverframe(2, true, 2);
-                var synced = db.SyncOverframeFromGate([(1, 9)]);
+                var synced = db.SyncOverframeFromGate([(1001, 9)]);
                 Assert.Equal(1, synced);
                 Assert.True(db.GetById(1)!.IsOverframe);
                 Assert.Equal(9, db.GetById(1)!.OverframeBaseId);
                 Assert.False(db.GetById(2)!.IsOverframe);
+
+                // Floowandereeze PK must NOT be treated as a gate trigger anymore.
+                db.SetOverframe(2, true, 2);
+                synced = db.SyncOverframeFromGate([(1, 9)]);
+                Assert.Equal(0, synced);
+                Assert.False(db.GetById(1)!.IsOverframe);
+                Assert.False(db.GetById(2)!.IsOverframe);
+
+                synced = db.SyncOverframeFromGate([(1001, 9)]);
+                Assert.Equal(1, synced);
+                Assert.True(db.GetById(1)!.IsOverframe);
             }
 
             // Idempotent migration on reopen
             using (var db2 = new CardDatabase(path))
             {
                 Assert.True(db2.GetById(1)!.IsOverframe);
+                Assert.Equal(1001, db2.GetById(1)!.ArtId);
                 Assert.Equal("abcd1234", db2.GetOfCardAssetBundleId());
             }
         }

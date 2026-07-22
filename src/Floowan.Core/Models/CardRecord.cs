@@ -13,6 +13,8 @@ public sealed class CardRecord
     public bool HasBackup { get; init; }
     public bool IsOverframe { get; init; }
     public int? OverframeBaseId { get; init; }
+    /// <summary>Master Duel art id (Texture2D m_Name), when known.</summary>
+    public int? ArtId { get; init; }
 
     public string DisplayName => string.IsNullOrWhiteSpace(ModdedName) ? Name : ModdedName!;
 }

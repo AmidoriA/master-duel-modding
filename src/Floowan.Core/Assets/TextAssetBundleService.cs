@@ -60,13 +60,18 @@ public sealed class TextAssetBundleService : IDisposable
         {
             am.LoadClassPackage(_classDataPath);
             var bundleInst = am.LoadBundleFile(bundlePath, unpackIfPacked: true);
-            var assetsInst = am.LoadAssetsFileFromBundle(bundleInst, 0, false);
-            am.LoadClassDatabaseFromPackage(assetsInst.file.Metadata.UnityVersion);
+            var (assetsInst, texInfo, baseField) = FindTextAssetInBundle(am, bundleInst, assetName);
 
-            var (texInfo, baseField) = FindTextAsset(am, assetsInst, assetName);
             SetScriptBytes(baseField, payload);
-            texInfo.SetNewData(baseField);
-            bundleInst.file.BlockAndDirInfo.DirectoryInfos[0].SetNewData(assetsInst.file);
+
+            // Serialize the whole TextAsset object from the mutated field so length prefixes
+            // stay consistent when m_Script grows (e.g. adding an of_card_asset entry).
+            var serializedAsset = baseField.WriteToByteArray();
+            texInfo.SetNewData(serializedAsset);
+
+            // Rewrite the CAB that contains the asset (not always directory index 0).
+            var dirIndex = FindDirectoryIndex(bundleInst, assetsInst);
+            bundleInst.file.BlockAndDirInfo.DirectoryInfos[dirIndex].SetNewData(assetsInst.file);
 
             tempUncompressed = Path.Combine(Path.GetTempPath(), $"floowan-text-{Guid.NewGuid():N}.bundle");
             tempPacked = Path.Combine(Path.GetTempPath(), $"floowan-text-{Guid.NewGuid():N}.lz4");
@@ -168,27 +173,51 @@ public sealed class TextAssetBundleService : IDisposable
         var am = new AssetsManager();
         am.LoadClassPackage(_classDataPath);
         var bundleInst = am.LoadBundleFile(bundlePath, unpackIfPacked: true);
-        var assetsInst = am.LoadAssetsFileFromBundle(bundleInst, 0, false);
-        am.LoadClassDatabaseFromPackage(assetsInst.file.Metadata.UnityVersion);
-        var (_, baseField) = FindTextAsset(am, assetsInst, assetName);
+        var (_, _, baseField) = FindTextAssetInBundle(am, bundleInst, assetName);
         return new TextAssetSession(am, baseField);
     }
 
-    private static (AssetFileInfo Info, AssetTypeValueField BaseField) FindTextAsset(
-        AssetsManager am,
-        AssetsFileInstance assetsInst,
-        string assetName)
+    private static (AssetsFileInstance Assets, AssetFileInfo Info, AssetTypeValueField BaseField)
+        FindTextAssetInBundle(AssetsManager am, BundleFileInstance bundleInst, string assetName)
     {
-        var infos = assetsInst.file.GetAssetsOfType(AssetClassID.TextAsset);
-        foreach (var info in infos)
+        var names = bundleInst.file.GetAllFileNames();
+        foreach (var entryName in names)
         {
-            var baseField = am.GetBaseField(assetsInst, info);
-            var name = baseField["m_Name"].AsString;
-            if (string.Equals(name, assetName, StringComparison.Ordinal))
-                return (info, baseField);
+            AssetsFileInstance assetsInst;
+            try
+            {
+                assetsInst = am.LoadAssetsFileFromBundle(bundleInst, entryName, false);
+            }
+            catch
+            {
+                continue;
+            }
+
+            am.LoadClassDatabaseFromPackage(assetsInst.file.Metadata.UnityVersion);
+            var infos = assetsInst.file.GetAssetsOfType(AssetClassID.TextAsset);
+            foreach (var info in infos)
+            {
+                var baseField = am.GetBaseField(assetsInst, info);
+                var name = baseField["m_Name"].AsString;
+                if (string.Equals(name, assetName, StringComparison.Ordinal))
+                    return (assetsInst, info, baseField);
+            }
         }
 
         throw new InvalidOperationException($"TextAsset '{assetName}' not found in bundle.");
+    }
+
+    private static int FindDirectoryIndex(BundleFileInstance bundleInst, AssetsFileInstance assetsInst)
+    {
+        var dirs = bundleInst.file.BlockAndDirInfo.DirectoryInfos;
+        for (var i = 0; i < dirs.Count; i++)
+        {
+            if (string.Equals(dirs[i].Name, assetsInst.name, StringComparison.Ordinal))
+                return i;
+        }
+
+        // Fallback used by older single-CAB Master Duel bundles.
+        return 0;
     }
 
     private static byte[] GetScriptBytes(AssetTypeValueField baseField)
@@ -197,11 +226,10 @@ public sealed class TextAssetBundleService : IDisposable
         if (script.IsDummy)
             throw new InvalidOperationException("TextAsset has no m_Script field.");
 
-        // AssetsTools may expose byte array directly or via Array children.
         try
         {
             var arr = script.AsByteArray;
-            if (arr is { Length: > 0 } || arr is { Length: 0 })
+            if (arr is not null)
                 return arr;
         }
         catch
@@ -274,9 +302,6 @@ public sealed class TextAssetBundleService : IDisposable
 
         return -1;
     }
-
-    private static int IndexOf(byte[] haystack, byte[] needle) =>
-        IndexOf(haystack, haystack.Length, needle);
 
     public void Dispose()
     {

@@ -10,20 +10,23 @@ using SixLabors.ImageSharp.Processing;
 namespace Floowan.Core.Imaging;
 
 /// <summary>
-/// One-click over-frame art generation inspired by rembg's u2netp session.
-/// Runs the same lightweight ONNX model natively in .NET, so Python/rembg does
-/// not need to be installed. The model is downloaded and verified on first use.
+/// One-click over-frame art generation using rembg's <c>isnet-anime</c> session.
+/// Runs the ONNX model natively in .NET, so Python/rembg does not need to be
+/// installed. The model is downloaded and verified on first use.
 /// </summary>
 public sealed class AutoOverFrameArtService : IDisposable
 {
-    public const string ModelName = "u2netp.onnx";
+    public const string ModelName = "isnet-anime.onnx";
     public const string ModelUrl =
-        "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx";
-    public const string ModelMd5 = "8e83ca70e441ab06c318d82300c84806";
+        "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-anime.onnx";
+    public const string ModelMd5 = "6f184e756bb3bd901c8849220a83e38e";
 
-    private const int ModelSize = 320;
+    /// <summary>Matches rembg <c>DisSession</c> / isnet-anime normalize size.</summary>
+    private const int ModelSize = 1024;
+
     private static readonly float[] Mean = [0.485f, 0.456f, 0.406f];
-    private static readonly float[] StdDev = [0.229f, 0.224f, 0.225f];
+    // rembg isnet-anime uses std (1,1,1), unlike u2netp's ImageNet std.
+    private static readonly float[] StdDev = [1f, 1f, 1f];
 
     private readonly HttpClient _httpClient;
     private readonly string _modelPath;
@@ -44,6 +47,7 @@ public sealed class AutoOverFrameArtService : IDisposable
     public async Task CreateAsync(
         string sourceImagePath,
         string outputPngPath,
+        CardFrameStyle frameStyle = CardFrameStyle.EffectExt,
         IProgress<string>? progress = null,
         CancellationToken cancellationToken = default)
     {
@@ -51,14 +55,23 @@ public sealed class AutoOverFrameArtService : IDisposable
             throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
 
         await EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
-        progress?.Report("Removing background with u2netp…");
+        progress?.Report("Removing background with isnet-anime…");
 
         await Task.Run(() =>
         {
-            using var source = Image.Load<Rgba32>(sourceImagePath);
+            using var loaded = Image.Load<Rgba32>(sourceImagePath);
+            // Game illusts are 512×512. If the source is already a 704×1024 OF texture,
+            // crop the art hole back to 512×512 before rembg/compose (avoids frame-in-frame).
+            using var source = OverFrameAutoArtComposer.ExtractIllustrationSource(loaded);
+            if (OverFrameAutoArtComposer.IsOverFrameTextureSize(loaded.Width, loaded.Height))
+            {
+                progress?.Report(
+                    "Source was 704×1024 over-frame art — re-extracted 512×512 illustration from the art hole…");
+            }
+
             using var mask = PredictMask(source);
-            progress?.Report("Resizing subject onto a 704×1024 canvas…");
-            using var result = OverFrameAutoArtComposer.Compose(source, mask);
+            progress?.Report($"Compositing subject onto {frameStyle} frame (704×1024)…");
+            using var result = OverFrameAutoArtComposer.Compose(source, mask, frameStyle);
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPngPath))!);
             result.Save(outputPngPath, new PngEncoder());
         }, cancellationToken).ConfigureAwait(false);
@@ -77,7 +90,7 @@ public sealed class AutoOverFrameArtService : IDisposable
         var tempPath = _modelPath + "." + Guid.NewGuid().ToString("N") + ".download";
         try
         {
-            progress?.Report("Downloading the rembg u2netp model (first use only)…");
+            progress?.Report("Downloading the rembg isnet-anime model (~168 MB, first use only)…");
             using var response = await _httpClient.GetAsync(
                 ModelUrl,
                 HttpCompletionOption.ResponseHeadersRead,
@@ -102,14 +115,14 @@ public sealed class AutoOverFrameArtService : IDisposable
                 await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
                 downloaded += read;
                 if (total > 0)
-                    progress?.Report($"Downloading u2netp model… {downloaded * 100 / total.Value}%");
+                    progress?.Report($"Downloading isnet-anime model… {downloaded * 100 / total.Value}%");
             }
 
             await output.FlushAsync(cancellationToken).ConfigureAwait(false);
             output.Close();
 
             if (!HasExpectedChecksum(tempPath))
-                throw new InvalidDataException("Downloaded u2netp model failed its MD5 integrity check.");
+                throw new InvalidDataException("Downloaded isnet-anime model failed its MD5 integrity check.");
 
             File.Move(tempPath, _modelPath, overwrite: true);
         }
@@ -129,6 +142,7 @@ public sealed class AutoOverFrameArtService : IDisposable
             Sampler = KnownResamplers.Lanczos3
         }));
 
+        // rembg: im_ary / max(im_ary) then (x - mean) / std
         var maximum = 1f;
         for (var y = 0; y < resized.Height; y++)
         {
@@ -153,8 +167,9 @@ public sealed class AutoOverFrameArtService : IDisposable
         var inputName = _session.InputMetadata.Keys.First();
         using var results = _session.Run([NamedOnnxValue.CreateFromTensor(inputName, input)]);
         var prediction = results.First().AsTensor<float>().ToArray();
+        // isnet-anime outputs [1,1,1024,1024]; keep last HxW plane if extra dims exist.
         if (prediction.Length < ModelSize * ModelSize)
-            throw new InvalidDataException("u2netp returned an unexpected output shape.");
+            throw new InvalidDataException("isnet-anime returned an unexpected output shape.");
 
         var offset = prediction.Length - ModelSize * ModelSize;
         var minimum = float.MaxValue;
