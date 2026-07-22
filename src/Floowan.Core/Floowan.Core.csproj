@@ -12,6 +12,7 @@
     <PackageReference Include="AssetsTools.NET" Version="3.0.4" />
     <PackageReference Include="AssetsTools.NET.Texture" Version="3.0.2" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
     <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
   </ItemGroup>
@@ -20,6 +21,10 @@
     <None Include="Resources\classdata.tpk">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>classdata.tpk</Link>
+    </None>
+    <None Include="Resources\frames\*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>frames\%(Filename)%(Extension)</Link>
     </None>
   </ItemGroup>
 
