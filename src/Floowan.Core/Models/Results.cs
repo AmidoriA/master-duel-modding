@@ -28,3 +28,29 @@ public sealed class CardArtReplacementResult
     public static CardArtReplacementResult Fail(string message) =>
         new() { Success = false, Message = message };
 }
+
+public sealed class OverFrameResult
+{
+    public bool Success { get; init; }
+    public string Message { get; init; } = "";
+    public string? CardBundlePath { get; init; }
+    public string? GateBundlePath { get; init; }
+    public bool InGate { get; init; }
+
+    public static OverFrameResult Ok(
+        string message,
+        string? cardBundlePath = null,
+        string? gateBundlePath = null,
+        bool inGate = false) =>
+        new()
+        {
+            Success = true,
+            Message = message,
+            CardBundlePath = cardBundlePath,
+            GateBundlePath = gateBundlePath,
+            InGate = inGate
+        };
+
+    public static OverFrameResult Fail(string message) =>
+        new() { Success = false, Message = message };
+}

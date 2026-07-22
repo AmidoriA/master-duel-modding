@@ -33,3 +33,18 @@
 
 - License: MIT
 - Reads Floowandereeze-compatible `database.db`.
+
+## rembg / IS-Net anime (`isnet-anime`)
+
+- https://github.com/danielgatis/rembg
+- https://github.com/SkyTNT/anime-segmentation
+- Licenses: rembg MIT; anime-segmentation model per upstream project
+- The automatic over-frame generator independently ports rembg's documented
+  `isnet-anime` preprocessing/postprocessing to .NET. The ONNX model is downloaded
+  from the official rembg release on first use and is not stored in this repository.
+
+## Microsoft.ML.OnnxRuntime
+
+- https://github.com/microsoft/onnxruntime
+- License: MIT
+- Runs the `isnet-anime` background-removal model locally.

@@ -36,13 +36,29 @@ public sealed class CardArtBundleService : IDisposable
         ImagePreparation.SavePng(decoded, session.Texture.m_Width, session.Texture.m_Height, outputPngPath, inputIsBgra: true);
     }
 
-    public void ReplaceTexture(string bundlePath, string replacementImagePath, string compression = "lz4")
+    public void ReplaceTexture(
+        string bundlePath,
+        string replacementImagePath,
+        string compression = "lz4",
+        int? overrideWidth = null,
+        int? overrideHeight = null)
+    {
+        ReplaceTexture(bundlePath, replacementImagePath, new TextureReplaceOptions
+        {
+            Compression = compression,
+            Width = overrideWidth,
+            Height = overrideHeight
+        });
+    }
+
+    public void ReplaceTexture(string bundlePath, string replacementImagePath, TextureReplaceOptions options)
     {
         if (!File.Exists(bundlePath))
             throw new FileNotFoundException("Bundle not found.", bundlePath);
         if (!File.Exists(replacementImagePath))
             throw new FileNotFoundException("Replacement image not found.", replacementImagePath);
 
+        var compression = options.Compression ?? "lz4";
         var am = new AssetsManager();
         BundleFileInstance? bundleInst = null;
         AssetsFileInstance? assetsInst = null;
@@ -64,8 +80,10 @@ public sealed class CardArtBundleService : IDisposable
             var baseField = am.GetBaseField(assetsInst, texInfo);
             var texture = TextureFile.ReadTextureFile(baseField);
 
-            var targetWidth = texture.m_Width > 0 ? texture.m_Width : 512;
-            var targetHeight = texture.m_Height > 0 ? texture.m_Height : 512;
+            var targetWidth = options.Width
+                ?? (texture.m_Width > 0 ? texture.m_Width : 512);
+            var targetHeight = options.Height
+                ?? (texture.m_Height > 0 ? texture.m_Height : 512);
 
             var rgba = ImagePreparation.PrepareRgba32TextureBytes(replacementImagePath, targetWidth, targetHeight);
 
