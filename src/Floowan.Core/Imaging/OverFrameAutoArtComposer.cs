@@ -10,10 +10,11 @@ namespace Floowan.Core.Imaging;
 /// Official OF arts keep the full illustration as a foil-mask (A≈4) base — never a
 /// solid black matte. Game illusts are Cover-scaled into the real frame hole, then
 /// overflowed. The type-line strip under the art hole always shows foil art so it
-/// meets the cream lore panel with no chrome gap. Overflow silhouette is hard-cut
-/// at the lore panel top (full width) so it cannot bleed past the lore left/right
-/// into the outer card border. Only the cream panel itself stays opaque below that.
-/// Rembg is used for silhouette punching outside that panel.
+/// meets the cream lore panel with no chrome gap. Overflow is hard-cut across the
+/// lore panel width (gold rim + cream stay clear). Left/right lore side wings keep
+/// frame chrome unless the rembg subject actually occupies those pixels.
+/// Lore cream / outer / cut geometry is always taken from Effect.png so Normal,
+/// Synchro, Link, and other styles share the same punch layout.
 /// </summary>
 public static class OverFrameAutoArtComposer
 {
@@ -38,6 +39,22 @@ public static class OverFrameAutoArtComposer
     /// and left the black gap inside the white art border.
     /// </summary>
     public static Rectangle ArtWindow { get; } = new(89, 191, 527, 528);
+
+    /// <summary>
+    /// Canonical lore cream panel from <c>Effect.png</c>. All frame styles use this
+    /// layout for punch/cut (color detection fails on Synchro white, Link dark, Normal yellow).
+    /// </summary>
+    public static Rectangle EffectLoreCream { get; } = new(44, 766, 615, 196);
+
+    /// <summary>
+    /// Canonical outer lore border (gold rim) from <c>Effect.png</c>, including side wings.
+    /// </summary>
+    public static Rectangle EffectLoreOuter { get; } = new(26, 766, 652, 196);
+
+    /// <summary>
+    /// Top of the lore gold rim from <c>Effect.png</c> — overflow hard-cuts here.
+    /// </summary>
+    public const int EffectLoreCutTop = 759;
 
     /// <summary>
     /// Scale relative to the art window. Values &gt; 1 make the subject break out
@@ -119,9 +136,10 @@ public static class OverFrameAutoArtComposer
             Sampler = KnownResamplers.Lanczos3
         }));
 
-        // Use the frame's real transparent hole (Effect≈527, EffectExt≈555), not a
-        // hardcoded 512² — game illusts are 512×512 and must Cover into that hole.
-        var artWindow = ResolveArtWindow(frame);
+        // All styles share Effect art-hole + lore geometry (EffectExt's larger hole used to
+        // shift scale / type-line / wings). Patch oversized holes, then use ArtWindow.
+        NormalizeFrameToSharedArtLayout(frame);
+        var artWindow = ArtWindow;
 
         var cover = Math.Max(
             artWindow.Width / (float)source.Width,
@@ -147,30 +165,28 @@ public static class OverFrameAutoArtComposer
         var xOffset = bgX + (int)MathF.Round(bounds.Left * scale);
         var yOffset = bgY + (int)MathF.Round(bounds.Top * scale);
 
-        // 1) Art window + type-line strip (meets outer lore border) + soft lore underlay.
+        // 1) Art window + type-line strip + soft lore underlay (not lore side wings).
         var textBox = ResolveTextBox(frame, artWindow);
         var loreCutTop = ResolveLoreCutTop(frame, textBox, artWindow);
         var loreOuter = ResolveLoreOuterBorder(frame, textBox, artWindow);
-        var typeLineStrip = ResolveTypeLineStrip(artWindow, loreCutTop, loreOuter);
+        // Type-line fill stays art-hole-wide (avoids horizontal corner stubs).
+        var typeLineStrip = ResolveTypeLineStrip(artWindow, loreCutTop);
         var canvas = CreateFoilMaskArtBase(source, artWindow, scaledSourceW, scaledSourceH, bgX, bgY);
 
-        // Fill out to the OUTER lore border (not just the art-hole / cream width) so the
-        // illustration meets the lore box's outer gold edge with no orange side gaps.
         FillRegionWithScaledArt(canvas, typeLineStrip, source, scaledSourceW, scaledSourceH, bgX, bgY);
 
-        // Soft continuation of the FULL illustration under the lore box (Mirrorjade).
-        // Do NOT blit the rembg cutout here — cutout edges (sleeve panels, etc.) created
-        // hard vertical “glitch” lines inside the lore panel.
+        // Soft continuation under the cream lore panel (Mirrorjade). Never rembg here.
         FillRegionWithScaledArt(canvas, textBox, source, scaledSourceW, scaledSourceH, bgX, bgY);
 
-        // 2) Overflow silhouette — hard-cut at the OUTER lore top (above the gold rim),
-        //    not the cream inner edge (that covered the top border).
+        // 2) Overflow silhouette — may punch lore side wings only where the subject is;
+        //    never punch the cream interior / gold top span / empty wings.
         var occupied = new bool[canvas.Width * canvas.Height];
-        BlitSubjectFoilMask(canvas, resized, xOffset, yOffset, occupied, loreCutTop);
+        BlitSubjectFoilMask(canvas, resized, xOffset, yOffset, occupied, loreCutTop, textBox, loreOuter);
 
         // 3) Frame chrome + mostly-opaque lore panel over the soft underlay.
         EnsureArtWindowHole(frame, artWindow);
-        DrawFramePunchedByRectangleAndSilhouette(canvas, frame, artWindow, textBox, typeLineStrip, occupied);
+        DrawFramePunchedByRectangleAndSilhouette(
+            canvas, frame, artWindow, textBox, typeLineStrip, occupied);
         PaintLorePanel(canvas, frame, textBox);
 
         return canvas;
@@ -211,10 +227,50 @@ public static class OverFrameAutoArtComposer
         return hole.Width >= 400 && hole.Height >= 400 ? hole : Rectangle.Empty;
     }
 
-    private static Rectangle ResolveArtWindow(Image<Rgba32> frame)
+    /// <summary>
+    /// EffectExt (and slight Link offsets) detect a different transparent hole than Effect.
+    /// Fill any extra transparent ring with Effect chrome, then force the shared Effect hole.
+    /// </summary>
+    private static void NormalizeFrameToSharedArtLayout(Image<Rgba32> frame)
     {
         var detected = DetectArtWindow(frame);
-        return detected.IsEmpty ? ArtWindow : detected;
+        var target = ArtWindow;
+        if (!detected.IsEmpty &&
+            (detected.X != target.X || detected.Y != target.Y ||
+             detected.Width != target.Width || detected.Height != target.Height))
+        {
+            using var effect = CardFrameTemplates.Load(CardFrameStyle.Effect);
+            if (effect.Width != frame.Width || effect.Height != frame.Height)
+            {
+                effect.Mutate(ctx => ctx.Resize(new ResizeOptions
+                {
+                    Size = new Size(frame.Width, frame.Height),
+                    Mode = ResizeMode.Stretch,
+                    Sampler = KnownResamplers.Lanczos3
+                }));
+            }
+
+            var union = Rectangle.Union(detected, target);
+            var y0 = Math.Max(0, union.Top);
+            var y1 = Math.Min(frame.Height, union.Bottom);
+            var x0 = Math.Max(0, union.Left);
+            var x1 = Math.Min(frame.Width, union.Right);
+            for (var y = y0; y < y1; y++)
+            {
+                var dst = frame.DangerousGetPixelRowMemory(y).Span;
+                var src = effect.DangerousGetPixelRowMemory(y).Span;
+                for (var x = x0; x < x1; x++)
+                {
+                    if (target.Contains(x, y))
+                        continue;
+                    if (dst[x].A > VisibleAlphaThreshold)
+                        continue;
+                    dst[x] = src[x];
+                }
+            }
+        }
+
+        EnsureArtWindowHole(frame, target);
     }
 
     /// <summary>
@@ -489,19 +545,127 @@ public static class OverFrameAutoArtComposer
         return source.Clone();
     }
 
+    /// <summary>
+    /// True when <paramref name="image"/> still looks like a full card face / over-frame
+    /// (foil-mask OF hole, 704×1024, or a desaturated cream lore panel). Bright illustration
+    /// highlights alone must not trip this — MD art is often 512² or 1024² with pale clothing.
+    /// </summary>
+    public static bool LooksLikeFramedCardArt(Image<Rgba32> image)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+
+        if (IsOverFrameTextureSize(image.Width, image.Height))
+            return true;
+
+        if (image.Width < 64 || image.Height < 64)
+            return false;
+
+        var foil = 0;
+        var sampled = 0;
+        var stepX = Math.Max(1, image.Width / 64);
+        var stepY = Math.Max(1, image.Height / 64);
+        for (var y = 0; y < image.Height; y += stepY)
+        {
+            var row = image.DangerousGetPixelRowMemory(y).Span;
+            for (var x = 0; x < row.Length; x += stepX)
+            {
+                sampled++;
+                var a = row[x].A;
+                if (a > 0 && a <= VisibleAlphaThreshold)
+                    foil++;
+            }
+        }
+
+        // Official OF arts use A≈4 across the illustration; raw MD illusts are opaque.
+        if (sampled > 0 && foil / (float)sampled >= 0.12f)
+            return true;
+
+        // Nested OF crops include a desaturated cream lore panel — not vivid pink/white art.
+        var y0 = (int)(image.Height * 0.58f);
+        var creamRows = 0;
+        var rowsChecked = 0;
+        for (var y = y0; y < image.Height; y++)
+        {
+            var row = image.DangerousGetPixelRowMemory(y).Span;
+            var cream = 0;
+            var counted = 0;
+            for (var x = 0; x < row.Length; x++)
+            {
+                var p = row[x];
+                if (p.A <= 200)
+                    continue;
+                counted++;
+                if (IsFramedLoreFillPixel(p))
+                    cream++;
+            }
+
+            rowsChecked++;
+            if (counted > 0 && cream / (float)counted >= 0.55f)
+                creamRows++;
+        }
+
+        // Require a solid lore block, not a few bright clothing rows.
+        return rowsChecked > 0 && creamRows / (float)rowsChecked >= 0.20f;
+    }
+
+    /// <summary>
+    /// Cream / lavender lore fill only (low chroma, warm). Rejects saturated illustration
+    /// colors and near-white highlights that previously false-triggered framed detection.
+    /// </summary>
+    private static bool IsFramedLoreFillPixel(Rgba32 p)
+    {
+        var lum = (p.R + p.G + p.B) / 3;
+        if (lum is < 160 or > 235)
+            return false;
+
+        // Cool outer margin / blue-gray.
+        if (p.B > p.R + 15 && p.B >= p.G)
+            return false;
+
+        // Must be warm (cream), not neutral white clothing highlights.
+        if (p.R < p.B + 8)
+            return false;
+
+        var max = Math.Max(p.R, Math.Max(p.G, p.B));
+        var min = Math.Min(p.R, Math.Min(p.G, p.B));
+        return max - min <= 55;
+    }
+
+    /// <summary>
+    /// Returns a 512-oriented illustration clone, or throws if the pixels still look framed.
+    /// </summary>
+    public static Image<Rgba32> RequireCleanIllustrationSource(Image<Rgba32> source)
+    {
+        var extracted = ExtractIllustrationSource(source);
+        if (!LooksLikeFramedCardArt(extracted))
+            return extracted;
+
+        extracted.Dispose();
+        throw new InvalidOperationException(
+            "Source art still looks like a framed / over-frame card (lore panel or foil mask). " +
+            "Restore the original card backup first, then Auto-create again. " +
+            "Compositing framed art produces nested frames.");
+    }
+
     public static bool IsOverFrameTextureSize(int width, int height) =>
         width == Assets.OverFrameConstants.Width && height == Assets.OverFrameConstants.Height;
 
+    public static bool IsLikelyOriginalIllustrationSize(int width, int height) =>
+        width == 512 && height == 512;
+
     private static Rectangle ResolveTextBox(Image<Rgba32> frame, Rectangle artWindow)
     {
-        var detected = DetectTextBox(frame, artWindow);
-        if (!detected.IsEmpty)
-            return detected;
+        // Always use Effect lore geometry so Normal/Synchro/Link/… match Effect punch layout.
+        _ = artWindow;
+        return ClampToFrame(EffectLoreCream, frame.Width, frame.Height);
+    }
 
-        // Fallback: skip ~48px type-line strip under the art hole.
-        var top = Math.Min(artWindow.Bottom + 48, Assets.OverFrameConstants.Height - 80);
-        var bottom = Math.Min(Assets.OverFrameConstants.Height - 48, top + 200);
-        return Rectangle.FromLTRB(artWindow.Left, top, artWindow.Right, bottom);
+    private static int ResolveLoreCutTop(Image<Rgba32> frame, Rectangle creamPanel, Rectangle artWindow)
+    {
+        _ = frame;
+        _ = creamPanel;
+        _ = artWindow;
+        return Math.Clamp(EffectLoreCutTop, 0, Assets.OverFrameConstants.Height - 1);
     }
 
     private static Rectangle ResolveLoreOuterBorder(
@@ -509,44 +673,30 @@ public static class OverFrameAutoArtComposer
         Rectangle creamPanel,
         Rectangle artWindow)
     {
-        var outer = DetectLoreOuterBorder(frame, creamPanel);
-        if (outer.IsEmpty)
-        {
-            return Rectangle.FromLTRB(
-                Math.Max(0, artWindow.Left - 24),
-                creamPanel.Top,
-                Math.Min(frame.Width, artWindow.Right + 24),
-                creamPanel.Bottom);
-        }
-
-        return outer;
+        _ = creamPanel;
+        _ = artWindow;
+        return ClampToFrame(EffectLoreOuter, frame.Width, frame.Height);
     }
 
-    private static int ResolveLoreCutTop(Image<Rgba32> frame, Rectangle creamPanel, Rectangle artWindow)
+    private static Rectangle ClampToFrame(Rectangle rect, int width, int height)
     {
-        var cut = DetectLoreOuterTop(frame, creamPanel, artWindow);
-        // Always keep the gold top rim free of subject punch / type-line fill.
-        if (creamPanel.Top - cut < 2)
-            cut = Math.Max(artWindow.Bottom, creamPanel.Top - 8);
-
-        return cut;
+        var left = Math.Clamp(rect.Left, 0, width);
+        var top = Math.Clamp(rect.Top, 0, height);
+        var right = Math.Clamp(rect.Right, left, width);
+        var bottom = Math.Clamp(rect.Bottom, top, height);
+        return Rectangle.FromLTRB(left, top, right, bottom);
     }
 
     /// <summary>
-    /// Band between art-hole bottom and the OUTER lore top, spanning the outer lore
-    /// width so art meets the lore box's outer gold edge.
+    /// Band between art-hole bottom and the outer lore top, matching the art-hole
+    /// width only (no forced horizontal stubs into lore side wings).
     /// </summary>
-    private static Rectangle ResolveTypeLineStrip(
-        Rectangle artWindow,
-        int loreCutTop,
-        Rectangle loreOuter)
+    private static Rectangle ResolveTypeLineStrip(Rectangle artWindow, int loreCutTop)
     {
         if (loreCutTop <= artWindow.Bottom)
             return Rectangle.Empty;
 
-        var left = loreOuter.Width > 0 ? loreOuter.Left : artWindow.Left;
-        var right = loreOuter.Width > 0 ? loreOuter.Right : artWindow.Right;
-        return Rectangle.FromLTRB(left, artWindow.Bottom, right, loreCutTop);
+        return Rectangle.FromLTRB(artWindow.Left, artWindow.Bottom, artWindow.Right, loreCutTop);
     }
 
     private static Image<Rgba32> CreateFoilMaskArtBase(
@@ -616,7 +766,9 @@ public static class OverFrameAutoArtComposer
         int xOffset,
         int yOffset,
         bool[] occupied,
-        int loreCutTop)
+        int loreCutTop,
+        Rectangle textBox,
+        Rectangle loreOuter)
     {
         for (var y = 0; y < subject.Height; y++)
         {
@@ -636,9 +788,15 @@ public static class OverFrameAutoArtComposer
                 if ((uint)dx >= (uint)canvas.Width)
                     continue;
 
-                // Hard-cut at the outer lore top so the gold rim stays visible.
                 if (dy >= loreCutTop)
-                    continue;
+                {
+                    // Keep cream + gold top span clear; punch lore side wings only when
+                    // the subject actually covers those pixels (no default wing fill).
+                    if (dx >= textBox.Left && dx < textBox.Right)
+                        continue;
+                    if (dx < loreOuter.Left || dx >= loreOuter.Right)
+                        continue;
+                }
 
                 dstRow[dx] = new Rgba32(src.R, src.G, src.B, FoilMaskAlpha);
                 occupied[dy * canvas.Width + dx] = true;
@@ -663,12 +821,12 @@ public static class OverFrameAutoArtComposer
             {
                 if (artWindow.Contains(x, y))
                     continue;
-                // Type-line strip keeps foil art (meets lore); no chrome gap.
                 if (typeLineStrip.Contains(x, y))
                     continue;
                 // Lore panel is painted in a dedicated pass — skip here.
                 if (textBox.Contains(x, y))
                     continue;
+                // Lore side wings stay frame chrome unless rembg marked them occupied.
                 if (occupied[rowOffset + x])
                     continue;
 

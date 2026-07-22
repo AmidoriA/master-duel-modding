@@ -55,32 +55,91 @@ public static class CardFrameTemplates
     }
 
     /// <summary>
-    /// Best-effort style guess from Floowandereeze card text (type line / keywords).
+    /// Best-effort style guess from the card type line (e.g. <c>[Dragon/Effect]</c>).
+    /// Does not scan effect body text — phrases like "Link Monster" there caused false Link predictions.
     /// </summary>
     public static CardFrameStyle InferStyle(string? name, string? description)
     {
         var text = $"{name}\n{description}".ToLowerInvariant();
+        var typeLine = ExtractTypeLine(text);
+        if (typeLine is not null)
+            return InferFromTypeLine(typeLine);
 
-        if (ContainsAny(text, "[spell", "spell card", "/spell]", "continuous spell", "quick-play"))
+        // No bracket type line — only accept explicit spell/trap card labels.
+        if (ContainsAny(text, "spell card", "[spell"))
             return CardFrameStyle.Spell;
-        if (ContainsAny(text, "[trap", "trap card", "/trap]", "counter trap", "continuous trap"))
+        if (ContainsAny(text, "trap card", "[trap"))
             return CardFrameStyle.Trap;
-        if (ContainsAny(text, "link monster", "/link]", "link-"))
+
+        return CardFrameStyle.EffectExt;
+    }
+
+    private static string? ExtractTypeLine(string lowerText)
+    {
+        // Prefer the first [Race/Types…] line; ignore later bracketed reminders in effects.
+        var start = lowerText.IndexOf('[');
+        while (start >= 0)
+        {
+            var end = lowerText.IndexOf(']', start + 1);
+            if (end < 0)
+                break;
+
+            var segment = lowerText[start..(end + 1)];
+            if (LooksLikeTypeLine(segment))
+                return segment;
+
+            start = lowerText.IndexOf('[', end + 1);
+        }
+
+        return null;
+    }
+
+    private static bool LooksLikeTypeLine(string bracketed)
+    {
+        // Real type lines are short and use / separators, e.g. [fiend/effect], [cyberse/link/effect].
+        if (bracketed.Length is < 5 or > 80)
+            return false;
+
+        return ContainsAny(
+            bracketed,
+            "/effect",
+            "/normal",
+            "/fusion",
+            "/synchro",
+            "/xyz",
+            "/link",
+            "/ritual",
+            "/pendulum",
+            "/tuner",
+            "/token",
+            "spell]",
+            "trap]",
+            "spell card",
+            "trap card");
+    }
+
+    private static CardFrameStyle InferFromTypeLine(string typeLine)
+    {
+        // Order matters: Link/Xyz/… before generic /effect.
+        if (typeLine.Contains("/link", StringComparison.Ordinal) || typeLine.StartsWith("[link", StringComparison.Ordinal))
             return CardFrameStyle.Link;
-        if (ContainsAny(text, "xyz monster", "/xyz]", "rank "))
+        if (typeLine.Contains("/xyz", StringComparison.Ordinal) || typeLine.Contains("rank", StringComparison.Ordinal))
             return CardFrameStyle.Xyz;
-        if (ContainsAny(text, "synchro monster", "/synchro]"))
+        if (typeLine.Contains("/synchro", StringComparison.Ordinal))
             return CardFrameStyle.Synchro;
-        if (ContainsAny(text, "fusion monster", "/fusion]", "fusion summon"))
+        if (typeLine.Contains("/fusion", StringComparison.Ordinal))
             return CardFrameStyle.Fusion;
-        if (ContainsAny(text, "ritual monster", "/ritual]", "ritual summon"))
+        if (typeLine.Contains("/ritual", StringComparison.Ordinal))
             return CardFrameStyle.Ritual;
-        if (ContainsAny(text, "/normal]", "normal monster"))
+        if (ContainsAny(typeLine, "spell]", "spell card", "[spell"))
+            return CardFrameStyle.Spell;
+        if (ContainsAny(typeLine, "trap]", "trap card", "[trap"))
+            return CardFrameStyle.Trap;
+        if (typeLine.Contains("/normal", StringComparison.Ordinal))
             return CardFrameStyle.Normal;
-        if (ContainsAny(text, "/effect]", "effect monster"))
+        if (typeLine.Contains("/effect", StringComparison.Ordinal) || typeLine.Contains("effect]", StringComparison.Ordinal))
             return CardFrameStyle.EffectExt;
 
-        // Default to the game's over-frame extension face (Effect chrome).
         return CardFrameStyle.EffectExt;
     }
 

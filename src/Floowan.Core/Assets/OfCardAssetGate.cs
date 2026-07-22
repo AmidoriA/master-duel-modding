@@ -32,7 +32,15 @@ public sealed class OfCardAssetGate
             return gate;
         }
 
-        // Prefer UABEA-style wrappers when the header math is consistent, then raw pairs.
+        // Master Duel live m_Script is raw LE ushort pairs. Prefer that whenever length % 4 == 0.
+        // Count/length-prefixed UABEA wrappers are ambiguous with raw (e.g. [(1,0), pair] ==
+        // count-prefixed one pair) and previously caused dropped gate entries on rewrite.
+        if (TryParseRaw(data, gate._entries))
+        {
+            gate.Format = PayloadFormat.RawPairs;
+            return gate;
+        }
+
         if (data.Length >= 4)
         {
             var prefix = BitConverter.ToUInt32(data);
@@ -56,14 +64,6 @@ public sealed class OfCardAssetGate
                 gate.Format = PayloadFormat.ByteLengthPrefixed;
                 return gate;
             }
-
-            gate._entries.Clear();
-        }
-
-        if (TryParseRaw(data, gate._entries))
-        {
-            gate.Format = PayloadFormat.RawPairs;
-            return gate;
         }
 
         throw new InvalidDataException(
