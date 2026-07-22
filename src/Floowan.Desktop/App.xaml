@@ -11,7 +11,6 @@
     <SolidColorBrush x:Key="ControlBgBrush" Color="#1A222A"/>
     <SolidColorBrush x:Key="ControlBorderBrush" Color="#3A4652"/>
     <SolidColorBrush x:Key="ButtonBgBrush" Color="#2C3540"/>
-    <SolidColorBrush x:Key="ButtonHoverBrush" Color="#3A4652"/>
     <SolidColorBrush x:Key="SelectedBrush" Color="#2F4A3A"/>
     <SolidColorBrush x:Key="TabSelectedBrush" Color="#2C3540"/>
 
@@ -96,7 +95,7 @@
                     Padding="{TemplateBinding Padding}"
                     Margin="0,1"
                     SnapsToDevicePixels="True">
-              <ContentPresenter/>
+              <ContentPresenter TextElement.Foreground="{TemplateBinding Foreground}"/>
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
