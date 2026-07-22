@@ -9,6 +9,10 @@
 **/backups/
 **/images/
 **/bundles/
+cutin.db
+**/cutin.db
+cutin-index.json
+**/cutin-index.json
 *.log
 
 # Cloned reference trees (large) — keep local only

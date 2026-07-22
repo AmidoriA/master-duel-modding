@@ -1,5 +1,6 @@
 using Floowan.Core.Assets;
 using Floowan.Core.Backup;
+using Floowan.Core.Data;
 using Floowan.Core.Game;
 using Floowan.Core.Imaging;
 using Floowan.Core.Models;
@@ -19,6 +20,7 @@ public sealed class CardCutInModService : IDisposable
     private readonly BackupService _backupService;
     private readonly ISpineCutInGenerator _generator;
     private readonly AutoOverFrameArtService _subjectCrop;
+    private CutInDatabase? _cutInDatabase;
 
     public CardCutInModService(
         string? classDataPath = null,
@@ -41,18 +43,34 @@ public sealed class CardCutInModService : IDisposable
     public CutInCatalog Catalog => _catalog;
     public BackupService Backups => _backupService;
     public CutInAssetLocator Locator => _locator;
+    public CutInDatabase? CutInDatabase => _cutInDatabase;
+
+    public void AttachCutInDatabase(CutInDatabase? database) => _cutInDatabase = database;
 
     public bool TryResolveCutInId(CardRecord card, out int cutInId)
     {
-        if (card.ArtId is int artId && artId > 0 && _catalog.HasCutInId(artId))
+        if (card.ArtId is int artId && artId > 0)
         {
-            cutInId = artId;
+            if (_cutInDatabase?.HasCutIn(artId) == true || _catalog.HasCutInId(artId))
+            {
+                cutInId = artId;
+                return true;
+            }
+        }
+
+        if (_catalog.TryResolveByCardName(card.DisplayName, out cutInId)
+            || _catalog.TryResolveByCardName(card.Name, out cutInId))
+        {
             return true;
         }
 
-        return _catalog.TryResolveByCardName(card.DisplayName, out cutInId)
-               || _catalog.TryResolveByCardName(card.Name, out cutInId);
+        cutInId = 0;
+        return false;
     }
+
+    public bool HasKnownCutIn(CardRecord card) =>
+        TryResolveCutInId(card, out var id)
+        && (_cutInDatabase?.HasCutIn(id) == true || _catalog.HasCutInId(id));
 
     public async Task<CutInReplacementResult> ApplySimpleBobAsync(
         string playerDataPath,

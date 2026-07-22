@@ -71,7 +71,11 @@ v1 only works for cards that **already** have a Master Duel summon cut-in (`P###
 4. **Apply simple animation** backs up touched cut-in bundles, then replaces the Texture2D + atlas + JSON TextAssets and LZ4-repacks.
 5. Restart Master Duel to preview. **Restore backup** reverts the cut-in bundles for that `P####` id.
 
-Optional **Build cut-in index** scans LocalData once and caches bundle locations for faster applies.
+Optional **Build cut-in index** (catalog-only) is faster but misses alt arts. Prefer **Tools → Build cut-in database** for a full LocalData discovery into a separate `cutin.db` file (next to `database.db`) plus `cutin-index.json`.
+
+## Tools
+
+- **Build cut-in database**: full LocalData scan for every `P####` cut-in (including alt arts). Writes/replaces a dedicated `cutin.db` (not Floowandereeze `database.db`) and refreshes `cutin-index.json`. Can take several minutes.
 
 ## Limitations
 

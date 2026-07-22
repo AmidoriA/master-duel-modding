@@ -49,6 +49,13 @@ public sealed class CutInAssetLocator : IDisposable
         }
     }
 
+    /// <summary>Clears memory cache and reloads <c>cutin-index.json</c> from disk.</summary>
+    public bool ReloadIndex()
+    {
+        _cache = null;
+        return TryLoadIndex();
+    }
+
     public void SaveIndex()
     {
         if (_cache is null)
@@ -105,33 +112,16 @@ public sealed class CutInAssetLocator : IDisposable
             return 0;
 
         var byId = wanted.ToDictionary(id => id, id => new List<CutInAssetHit>());
-        var roots = EnumerateBundleRoots(playerDataPath).ToList();
-        var scanned = 0;
-        foreach (var root in roots)
-        {
-            if (!Directory.Exists(root))
-                continue;
-            foreach (var bundlePath in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        ScanBundles(
+            playerDataPath,
+            progress,
+            "Indexed",
+            bundlePath =>
             {
-                scanned++;
-                if (scanned % 250 == 0)
-                    progress?.Report($"Indexed {scanned} bundles…");
-
-                if (!LooksLikeBundle(bundlePath))
-                    continue;
                 if (!MightContainAny(bundlePath, wanted))
-                    continue;
-
-                try
-                {
-                    CollectHits(bundlePath, wanted, byId);
-                }
-                catch
-                {
-                    // Skip unreadable / non-asset files.
-                }
-            }
-        }
+                    return;
+                CollectHits(bundlePath, wanted, byId);
+            });
 
         _cache ??= new Dictionary<int, CutInAssetSet>();
         var complete = 0;
@@ -146,6 +136,86 @@ public sealed class CutInAssetLocator : IDisposable
         SaveIndex();
         progress?.Report($"Cut-in index ready: {complete}/{wanted.Count} complete sets.");
         return complete;
+    }
+
+    /// <summary>
+    /// Discovers every <c>P####</c> cut-in present under LocalData (not limited to the CSV catalog).
+    /// Writes <c>cutin-index.json</c> and returns the complete/incomplete sets found.
+    /// </summary>
+    public IReadOnlyList<CutInAssetSet> DiscoverAll(
+        string playerDataPath,
+        IProgress<string>? progress = null)
+    {
+        var byId = new Dictionary<int, List<CutInAssetHit>>();
+        ScanBundles(
+            playerDataPath,
+            progress,
+            "Scanned",
+            bundlePath =>
+            {
+                // Skeleton TextAssets are named P####JS — cheap reject for large unrelated bundles.
+                try
+                {
+                    var length = new FileInfo(bundlePath).Length;
+                    if (length > 512 * 1024 && !FileContainsAscii(bundlePath, "JS"))
+                        return;
+                }
+                catch
+                {
+                    return;
+                }
+
+                CollectAllHits(bundlePath, byId);
+            });
+
+        _cache ??= new Dictionary<int, CutInAssetSet>();
+        var results = new List<CutInAssetSet>(byId.Count);
+        var complete = 0;
+        foreach (var (id, hits) in byId.OrderBy(kv => kv.Key))
+        {
+            var set = SelectBestSet(id, hits);
+            _cache[id] = set;
+            results.Add(set);
+            if (set.IsComplete)
+                complete++;
+        }
+
+        SaveIndex();
+        progress?.Report($"Discovered {results.Count} cut-in ID(s); {complete} complete set(s).");
+        return results;
+    }
+
+    private void ScanBundles(
+        string playerDataPath,
+        IProgress<string>? progress,
+        string progressVerb,
+        Action<string> onBundle)
+    {
+        var roots = EnumerateBundleRoots(playerDataPath).ToList();
+        var scanned = 0;
+        foreach (var root in roots)
+        {
+            if (!Directory.Exists(root))
+                continue;
+            foreach (var bundlePath in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            {
+                scanned++;
+                if (scanned % 250 == 0)
+                    progress?.Report($"{progressVerb} {scanned} bundles…");
+
+                if (!LooksLikeBundle(bundlePath))
+                    continue;
+
+                try
+                {
+                    onBundle(bundlePath);
+                }
+                catch
+                {
+                    // Skip unreadable / non-asset files.
+                }
+            }
+        }
     }
 
     private CutInAssetSet ScanForId(string playerDataPath, int cutInId, IProgress<string>? progress)
@@ -194,6 +264,36 @@ public sealed class CutInAssetLocator : IDisposable
         HashSet<int> wanted,
         Dictionary<int, List<CutInAssetHit>> byId)
     {
+        CollectHitsCore(bundlePath, (id, hit) =>
+        {
+            if (!wanted.Contains(id))
+                return;
+            if (!byId.TryGetValue(id, out var list))
+            {
+                list = [];
+                byId[id] = list;
+            }
+
+            list.Add(hit);
+        });
+    }
+
+    private void CollectAllHits(string bundlePath, Dictionary<int, List<CutInAssetHit>> byId)
+    {
+        CollectHitsCore(bundlePath, (id, hit) =>
+        {
+            if (!byId.TryGetValue(id, out var list))
+            {
+                list = [];
+                byId[id] = list;
+            }
+
+            list.Add(hit);
+        });
+    }
+
+    private void CollectHitsCore(string bundlePath, Action<int, CutInAssetHit> onHit)
+    {
         var am = new AssetsManager();
         try
         {
@@ -201,26 +301,46 @@ public sealed class CutInAssetLocator : IDisposable
             var bundleInst = am.LoadBundleFile(bundlePath, unpackIfPacked: true);
             for (var i = 0; i < bundleInst.file.BlockAndDirInfo.DirectoryInfos.Count; i++)
             {
-                AssetsFileInstance assetsInst;
+                AssetsFileInstance? assetsInst;
                 try { assetsInst = am.LoadAssetsFileFromBundle(bundleInst, i, false); }
                 catch { continue; }
 
-                am.LoadClassDatabaseFromPackage(assetsInst.file.Metadata.UnityVersion);
+                // Non-assets CAB entries (e.g. .resS) return null without throwing.
+                if (assetsInst?.file?.Metadata is null)
+                    continue;
+
+                try
+                {
+                    am.LoadClassDatabaseFromPackage(assetsInst.file.Metadata.UnityVersion);
+                }
+                catch
+                {
+                    continue;
+                }
+
                 foreach (var info in assetsInst.file.GetAssetsOfType(AssetClassID.Texture2D)
                              .Concat(assetsInst.file.GetAssetsOfType(AssetClassID.TextAsset)))
                 {
-                    var field = am.GetBaseField(assetsInst, info);
-                    var name = field["m_Name"].AsString;
+                    AssetTypeValueField? field;
+                    try { field = am.GetBaseField(assetsInst, info); }
+                    catch { continue; }
+                    if (field is null)
+                        continue;
+
+                    var nameField = field["m_Name"];
+                    if (nameField.IsDummy)
+                        continue;
+                    var name = nameField.AsString;
                     if (string.IsNullOrEmpty(name) || name.Length < 2 || (name[0] is not 'P' and not 'p'))
                         continue;
-                    if (!TryParseCutInId(name, out var id) || !wanted.Contains(id))
+                    if (!TryParseCutInId(name, out var id))
                         continue;
 
                     var kind = Classify(name, info.TypeId);
                     if (kind is null)
                         continue;
 
-                    byId[id].Add(new CutInAssetHit
+                    onHit(id, new CutInAssetHit
                     {
                         CutInId = id,
                         Kind = kind.Value,
@@ -251,16 +371,36 @@ public sealed class CutInAssetLocator : IDisposable
             var bundleInst = am.LoadBundleFile(bundlePath, unpackIfPacked: true);
             for (var i = 0; i < bundleInst.file.BlockAndDirInfo.DirectoryInfos.Count; i++)
             {
-                AssetsFileInstance assetsInst;
+                AssetsFileInstance? assetsInst;
                 try { assetsInst = am.LoadAssetsFileFromBundle(bundleInst, i, false); }
                 catch { continue; }
 
-                am.LoadClassDatabaseFromPackage(assetsInst.file.Metadata.UnityVersion);
+                // Non-assets CAB entries (e.g. .resS) return null without throwing.
+                if (assetsInst?.file?.Metadata is null)
+                    continue;
+
+                try
+                {
+                    am.LoadClassDatabaseFromPackage(assetsInst.file.Metadata.UnityVersion);
+                }
+                catch
+                {
+                    continue;
+                }
+
                 foreach (var info in assetsInst.file.GetAssetsOfType(AssetClassID.Texture2D)
                              .Concat(assetsInst.file.GetAssetsOfType(AssetClassID.TextAsset)))
                 {
-                    var field = am.GetBaseField(assetsInst, info);
-                    var name = field["m_Name"].AsString;
+                    AssetTypeValueField? field;
+                    try { field = am.GetBaseField(assetsInst, info); }
+                    catch { continue; }
+                    if (field is null)
+                        continue;
+
+                    var nameField = field["m_Name"];
+                    if (nameField.IsDummy)
+                        continue;
+                    var name = nameField.AsString;
                     if (string.IsNullOrEmpty(name) ||
                         !name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                         continue;

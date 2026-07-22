@@ -329,6 +329,22 @@ WHERE art_id = $trigger;";
         return marked;
     }
 
+    /// <summary>Best-effort name for a cut-in id via card.art_id.</summary>
+    public string? ResolveCutInName(int cutInId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText =
+            """
+            SELECT COALESCE(NULLIF(TRIM(modded_name), ''), name)
+            FROM card
+            WHERE art_id = $id
+            ORDER BY id
+            LIMIT 1;
+            """;
+        cmd.Parameters.AddWithValue("$id", cutInId);
+        return cmd.ExecuteScalar() as string;
+    }
+
     public IReadOnlyList<(int Id, string Bundle)> ListCardBundles()
     {
         using var cmd = _connection.CreateCommand();
