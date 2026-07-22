@@ -60,13 +60,12 @@ public sealed class AutoOverFrameArtService : IDisposable
         await Task.Run(() =>
         {
             using var loaded = Image.Load<Rgba32>(sourceImagePath);
-            // Game illusts are 512×512. If the source is already a 704×1024 OF texture,
-            // crop the art hole back to 512×512 before rembg/compose (avoids frame-in-frame).
-            using var source = OverFrameAutoArtComposer.ExtractIllustrationSource(loaded);
+            // Refuse framed / OF sources — cropping a nested card still nests frames.
+            using var source = OverFrameAutoArtComposer.RequireCleanIllustrationSource(loaded);
             if (OverFrameAutoArtComposer.IsOverFrameTextureSize(loaded.Width, loaded.Height))
             {
                 progress?.Report(
-                    "Source was 704×1024 over-frame art — re-extracted 512×512 illustration from the art hole…");
+                    "Source was 704×1024 — verified clean 512×512 illustration before rembg…");
             }
 
             using var mask = PredictMask(source);

@@ -4,6 +4,9 @@ using Floowan.Core.Data;
 using Floowan.Core.Game;
 using Floowan.Core.Imaging;
 using Floowan.Core.Models;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace Floowan.Core.Services;
 
@@ -68,7 +71,7 @@ public sealed class OverFrameModService : IDisposable
             return OverFrameResult.Fail(gateLocate.Message);
 
         string? cardBackup = null;
-        string? gateBackup = null;
+        byte[]? gateRollbackBytes = null;
         try
         {
             // Always snapshot pre-OF art once so Auto-create can re-run without nesting frames.
@@ -85,23 +88,24 @@ public sealed class OverFrameModService : IDisposable
                         cardBackup = _backupService.GetBundleBackupPath(card.Bundle);
                 }
 
-                gateBackup = _backupService.BackupGateBundleFile(gateLocate.BundlePath, gateLocate.BundleId);
+                // Keep a one-time vanilla gate file for disaster recovery, but never roll back
+                // a failed apply to that stale snapshot (it would wipe every other OF entry).
+                _backupService.BackupGateBundleFile(gateLocate.BundlePath, gateLocate.BundleId);
                 database?.SetHasBackup(card.Id, true);
             }
+
+            // Per-apply rollback snapshot of the live gate (includes all prior OF registrations).
+            gateRollbackBytes = _textAssets.ReadTextAssetBytes(gateLocate.BundlePath);
 
             _bundleService.ReplaceTexture(cardBundlePath, replacementImagePath, TextureReplaceOptions.OverFrame with
             {
                 Compression = packer
             });
 
-            var gateBytes = _textAssets.ReadTextAssetBytes(gateLocate.BundlePath);
-            var gate = OfCardAssetGate.FromEntries(
-                OfCardAssetGate.Parse(gateBytes).ListEntries(),
-                OfCardAssetGate.PayloadFormat.RawPairs);
+            var gate = OfCardAssetGate.Parse(gateRollbackBytes);
             var artId = ResolveAndCacheArtId(playerDataPath, card, database);
             var baseArtId = ResolveGateBaseArtId(gate, artId);
-            // Drop any legacy Floowandereeze-PK entry for this card.
-            gate.Remove(card.Id);
+            TryRemoveLegacyPkGateEntry(gate, card.Id, artId, database);
             gate.Add(artId, baseArtId);
             _textAssets.WriteTextAssetBytes(gateLocate.BundlePath, gate.ToBytes(), compression: packer);
 
@@ -138,9 +142,12 @@ public sealed class OverFrameModService : IDisposable
                 try { _backupService.TryRestoreBundleFile(cardBundlePath, card.Bundle); } catch { /* best effort */ }
             }
 
-            if (gateBackup is not null && gateLocate.BundlePath is not null && gateLocate.BundleId is not null)
+            if (gateRollbackBytes is not null && gateLocate.BundlePath is not null)
             {
-                try { _backupService.TryRestoreGateBundleFile(gateLocate.BundlePath, gateLocate.BundleId); }
+                try
+                {
+                    _textAssets.WriteTextAssetBytes(gateLocate.BundlePath, gateRollbackBytes, compression: packer);
+                }
                 catch { /* best effort */ }
             }
 
@@ -168,12 +175,10 @@ public sealed class OverFrameModService : IDisposable
                 _backupService.BackupGateBundleFile(gateLocate.BundlePath, gateLocate.BundleId);
 
             var gateBytes = _textAssets.ReadTextAssetBytes(gateLocate.BundlePath);
-            var gate = OfCardAssetGate.FromEntries(
-                OfCardAssetGate.Parse(gateBytes).ListEntries(),
-                OfCardAssetGate.PayloadFormat.RawPairs);
+            var gate = OfCardAssetGate.Parse(gateBytes);
             var artId = ResolveAndCacheArtId(playerDataPath, card, database);
             var baseArtId = ResolveGateBaseArtId(gate, artId);
-            gate.Remove(card.Id);
+            TryRemoveLegacyPkGateEntry(gate, card.Id, artId, database);
             gate.Add(artId, baseArtId);
             _textAssets.WriteTextAssetBytes(gateLocate.BundlePath, gate.ToBytes(), compression: packer);
 
@@ -218,23 +223,23 @@ public sealed class OverFrameModService : IDisposable
                 _backupService.BackupGateBundleFile(gateLocate.BundlePath, gateLocate.BundleId);
 
             var gateBytes = _textAssets.ReadTextAssetBytes(gateLocate.BundlePath);
-            var gate = OfCardAssetGate.FromEntries(
-                OfCardAssetGate.Parse(gateBytes).ListEntries(),
-                OfCardAssetGate.PayloadFormat.RawPairs);
+            var gate = OfCardAssetGate.Parse(gateBytes);
 
             var removed = false;
+            int? artId = null;
             try
             {
-                var artId = ResolveAndCacheArtId(playerDataPath, card, database);
-                removed = gate.Remove(artId);
+                artId = ResolveAndCacheArtId(playerDataPath, card, database);
+                removed = gate.Remove(artId.Value);
             }
             catch
             {
                 // Card bundle may be missing; still try legacy PK cleanup below.
             }
 
-            // Also clear mistaken Floowandereeze-PK entries from older builds.
-            if (gate.Remove(card.Id))
+            // Clear mistaken Floowandereeze-PK entries from older builds — never delete
+            // another card's real art-id trigger that happens to equal this PK.
+            if (TryRemoveLegacyPkGateEntry(gate, card.Id, artId, database))
                 removed = true;
 
             if (removed)
@@ -256,7 +261,8 @@ public sealed class OverFrameModService : IDisposable
     public OverFrameResult RestoreBackups(
         string playerDataPath,
         CardRecord card,
-        CardDatabase? database = null)
+        CardDatabase? database = null,
+        string packer = "lz4")
     {
         if (!GamePathLocator.IsValidGamePath(playerDataPath, out var pathError))
             return OverFrameResult.Fail(pathError ?? "Invalid game path.");
@@ -273,11 +279,34 @@ public sealed class OverFrameModService : IDisposable
             return OverFrameResult.Fail($"Card restore failed: {ex.Message}");
         }
 
+        // Never restore the shared one-time gate backup here — that snapshot is from before the
+        // first OF and would unregister every other over-framed card. Only drop this card's rows.
         var gateLocate = _locator.Locate(playerDataPath, database);
-        if (gateLocate.Success && gateLocate.BundlePath is not null && gateLocate.BundleId is not null)
+        if (gateLocate.Success && gateLocate.BundlePath is not null)
         {
-            if (_backupService.TryRestoreGateBundleFile(gateLocate.BundlePath, gateLocate.BundleId))
-                messages.Add("gate bundle");
+            try
+            {
+                var gate = OfCardAssetGate.Parse(_textAssets.ReadTextAssetBytes(gateLocate.BundlePath));
+                var removed = false;
+                int? artId = null;
+                try { artId = ResolveAndCacheArtId(playerDataPath, card, database); }
+                catch { /* bundle may already be restored / missing name */ }
+
+                if (artId is int id && gate.Remove(id))
+                    removed = true;
+                if (TryRemoveLegacyPkGateEntry(gate, card.Id, artId, database))
+                    removed = true;
+
+                if (removed)
+                {
+                    _textAssets.WriteTextAssetBytes(gateLocate.BundlePath, gate.ToBytes(), compression: packer);
+                    messages.Add("gate entry");
+                }
+            }
+            catch (Exception ex)
+            {
+                return OverFrameResult.Fail($"Gate cleanup failed: {ex.Message}");
+            }
         }
 
         if (messages.Count == 0)
@@ -328,9 +357,12 @@ public sealed class OverFrameModService : IDisposable
         if (!gateLocate.Success || gateLocate.BundlePath is null || gateLocate.BundleId is null)
             throw new InvalidOperationException(gateLocate.Message);
 
-        var gate = OfCardAssetGate.FromEntries(
-            OfCardAssetGate.Parse(_textAssets.ReadTextAssetBytes(gateLocate.BundlePath)).ListEntries(),
-            OfCardAssetGate.PayloadFormat.RawPairs);
+        var gate = OfCardAssetGate.Parse(_textAssets.ReadTextAssetBytes(gateLocate.BundlePath));
+
+        // Resolve art ids BEFORE pruning — otherwise a trigger that equals some other card's
+        // Floowandereeze PK is treated as legacy junk and deleted, even when it is a real OF art id.
+        progress?.Report("Resolving Master Duel art ids for gate entries…");
+        PopulateArtIdsForGate(playerDataPath, database, gate.ListEntries(), progress, cancellationToken);
 
         // Remove mistaken Floowandereeze-PK gate rows from older builds
         // (trigger equals a card PK but is not that card's Texture2D art id).
@@ -370,9 +402,36 @@ public sealed class OverFrameModService : IDisposable
             gate = OfCardAssetGate.Parse(_textAssets.ReadTextAssetBytes(gateLocate.BundlePath));
         }
 
-        progress?.Report("Resolving Master Duel art ids for gate entries…");
-        PopulateArtIdsForGate(playerDataPath, database, gate.ListEntries(), progress, cancellationToken);
         return database.SyncOverframeFromGate(gate.ListEntries());
+    }
+
+    /// <summary>
+    /// Older builds registered <c>(floowandereezePk, …)</c> instead of the Texture2D art id.
+    /// Removing by PK unconditionally is unsafe: art ids often collide with other cards' PKs,
+    /// which unregisters previously over-framed cards and shows multilayer frames in-game.
+    /// </summary>
+    public static bool TryRemoveLegacyPkGateEntry(
+        OfCardAssetGate gate,
+        int cardPk,
+        int? thisCardArtId,
+        CardDatabase? database)
+    {
+        if (cardPk is < 0 or > ushort.MaxValue)
+            return false;
+
+        // This card's real art id is the PK — the entry is legitimate, not legacy.
+        if (thisCardArtId == cardPk)
+            return false;
+
+        // Without a DB we cannot tell PK junk from another card's art-id trigger.
+        if (database is null)
+            return false;
+
+        // Any card that owns this number as art_id (including the PK row) → keep the trigger.
+        if (database.GetByArtId(cardPk) is not null)
+            return false;
+
+        return gate.Remove(cardPk);
     }
 
     public TextureInfo GetTextureInfo(string playerDataPath, CardRecord card)
@@ -388,30 +447,82 @@ public sealed class OverFrameModService : IDisposable
     }
 
     /// <summary>
-    /// Resolves source art for Auto-create. Prefers the pre-over-frame texture/bundle backup so
-    /// re-running Auto-create after Apply does not composite a frame inside a frame.
+    /// Resolves source art for Auto-create. Prefers clean pre-over-frame backups and
+    /// refuses framed / already-OF textures so Auto-create cannot nest frames.
     /// </summary>
     public string ResolveAutoCreateSourceArt(string playerDataPath, CardRecord card, string outputPngPath)
     {
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPngPath))!);
+
         var textureBackup = _backupService.GetOverFrameTextureBackupPath(card.Name);
         if (File.Exists(textureBackup))
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPngPath))!);
-            File.Copy(textureBackup, outputPngPath, overwrite: true);
-            return "original texture backup";
+            if (TryCopyCleanIllustration(textureBackup, outputPngPath))
+                return "original texture backup";
+
+            // Poisoned backup (saved after a nested OF) — ignore it.
+            try { File.Delete(textureBackup); } catch { /* best effort */ }
         }
 
         var bundleBackup = _backupService.GetBundleBackupPath(card.Bundle);
         if (File.Exists(bundleBackup))
         {
-            _bundleService.ExtractTexturePng(bundleBackup, outputPngPath);
-            return "card bundle backup";
+            var temp = outputPngPath + ".bundle-extract.png";
+            try
+            {
+                _bundleService.ExtractTexturePng(bundleBackup, temp);
+                if (TryCopyCleanIllustration(temp, outputPngPath))
+                    return "card bundle backup";
+            }
+            finally
+            {
+                try { if (File.Exists(temp)) File.Delete(temp); } catch { /* ignore */ }
+            }
         }
 
-        ExtractCardArt(playerDataPath, card, outputPngPath);
-        return card.IsOverframe
-            ? "live texture (already over-framed — restore backup first to avoid nested frames)"
-            : "live texture";
+        // Live texture: only acceptable when it is still original (non-OF) art.
+        var liveTemp = outputPngPath + ".live-extract.png";
+        try
+        {
+            ExtractCardArt(playerDataPath, card, liveTemp);
+            using var liveInfo = Image.Load<Rgba32>(liveTemp);
+            var liveIsOfSize = OverFrameAutoArtComposer.IsOverFrameTextureSize(liveInfo.Width, liveInfo.Height);
+            if (card.IsOverframe || liveIsOfSize)
+            {
+                throw new InvalidOperationException(
+                    $"'{card.DisplayName}' is already over-framed and no clean original art backup was found. " +
+                    "Use Restore backups (or restore the card bundle from a clean install), then Auto-create again. " +
+                    "Auto-create will not use framed art — that causes nested frames.");
+            }
+
+            if (!TryCopyCleanIllustration(liveTemp, outputPngPath))
+            {
+                throw new InvalidOperationException(
+                    $"Live art for '{card.DisplayName}' looks like a framed card. " +
+                    "Restore the original illustration backup before Auto-create.");
+            }
+
+            return "live texture";
+        }
+        finally
+        {
+            try { if (File.Exists(liveTemp)) File.Delete(liveTemp); } catch { /* ignore */ }
+        }
+    }
+
+    private static bool TryCopyCleanIllustration(string sourcePath, string outputPngPath)
+    {
+        try
+        {
+            using var loaded = Image.Load<Rgba32>(sourcePath);
+            using var clean = OverFrameAutoArtComposer.RequireCleanIllustrationSource(loaded);
+            clean.Save(outputPngPath, new PngEncoder());
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -422,24 +533,54 @@ public sealed class OverFrameModService : IDisposable
     {
         var textureBackup = _backupService.GetOverFrameTextureBackupPath(card.Name);
         if (File.Exists(textureBackup))
-            return;
+        {
+            // Replace poisoned backups that still look framed.
+            if (IsCleanIllustrationFile(textureBackup))
+                return;
+            try { File.Delete(textureBackup); } catch { return; }
+        }
 
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(textureBackup)!);
-            var bundleBackup = _backupService.GetBundleBackupPath(card.Bundle);
-            if (File.Exists(bundleBackup))
+            var temp = textureBackup + ".tmp.png";
+            try
             {
-                _bundleService.ExtractTexturePng(bundleBackup, textureBackup);
-                return;
-            }
+                var bundleBackup = _backupService.GetBundleBackupPath(card.Bundle);
+                if (File.Exists(bundleBackup))
+                    _bundleService.ExtractTexturePng(bundleBackup, temp);
+                else if (!card.IsOverframe)
+                    _bundleService.ExtractTexturePng(liveBundlePath, temp);
+                else
+                    return;
 
-            if (!card.IsOverframe)
-                _bundleService.ExtractTexturePng(liveBundlePath, textureBackup);
+                if (!IsCleanIllustrationFile(temp))
+                    return;
+
+                File.Move(temp, textureBackup, overwrite: true);
+            }
+            finally
+            {
+                try { if (File.Exists(temp)) File.Delete(temp); } catch { /* ignore */ }
+            }
         }
         catch
         {
             /* best-effort snapshot for Auto-create */
+        }
+    }
+
+    private static bool IsCleanIllustrationFile(string path)
+    {
+        try
+        {
+            using var image = Image.Load<Rgba32>(path);
+            using var clean = OverFrameAutoArtComposer.ExtractIllustrationSource(image);
+            return !OverFrameAutoArtComposer.LooksLikeFramedCardArt(clean);
+        }
+        catch
+        {
+            return false;
         }
     }
 
