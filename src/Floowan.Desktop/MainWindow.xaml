@@ -212,8 +212,9 @@
                           VerticalAlignment="Center" Foreground="{StaticResource TextBrush}" Margin="8,0,0,0"
                           Checked="CiFilter_Changed" Unchecked="CiFilter_Changed"/>
               </StackPanel>
-              <Button DockPanel.Dock="Top" Content="Build cut-in index…" Click="CiBuildIndex_Click"
-                      Margin="0,0,0,8" HorizontalAlignment="Left"/>
+              <Button DockPanel.Dock="Top" Content="Build cut-in index (catalog only)…" Click="CiBuildIndex_Click"
+                      Margin="0,0,0,8" HorizontalAlignment="Left"
+                      ToolTip="Faster: only indexes IDs from the embedded catalog. Prefer Tools → Build cut-in database for alt arts."/>
               <ListBox x:Name="CiCardList" SelectionChanged="CiCardList_SelectionChanged">
                 <ListBox.ItemTemplate>
                   <DataTemplate>
@@ -258,7 +259,10 @@
                   <TextBlock x:Name="CiImagePathText" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
                 </StackPanel>
                 <Border Grid.Row="1" Background="#12161A" Margin="0,12,0,0" CornerRadius="4">
-                  <Image x:Name="CiPreviewImage" Stretch="Uniform" Margin="8"/>
+                  <Grid>
+                    <Image x:Name="CiCurrentArtImage" Stretch="Uniform" Margin="8"/>
+                    <Image x:Name="CiPreviewImage" Stretch="Uniform" Margin="8" Opacity="0.0"/>
+                  </Grid>
                 </Border>
                 <TextBlock Grid.Row="2" x:Name="CiDetailText" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"
                            Text="Only cards that already ship a summon cut-in can be modded. Apply overwrites texture + atlas + skeleton JSON."/>
@@ -421,6 +425,28 @@
               </DockPanel>
             </Border>
           </Grid>
+        </Grid>
+      </TabItem>
+
+      <TabItem Header="Tools">
+        <Grid Margin="0,8,0,0">
+          <Border Background="{StaticResource PanelBrush}" Padding="16" CornerRadius="4" VerticalAlignment="Top">
+            <StackPanel>
+              <TextBlock Text="Tools" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,16"
+                         Text="Maintenance helpers that scan Master Duel LocalData and write Floowan caches / companion databases."/>
+
+              <TextBlock Text="Cut-in database" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,6"/>
+              <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,10"
+                         Text="Scans LocalData for every P#### summon cut-in (including alt arts), writes cutin-index.json, and stores results in a separate cutin.db file (next to database.db when available). This can take several minutes."/>
+              <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <Button x:Name="ToolsBuildCutInDbButton" Content="Build cut-in database…"
+                        Click="ToolsBuildCutInDb_Click" Background="{StaticResource AccentBrush}"/>
+              </StackPanel>
+              <TextBlock x:Name="ToolsCutInDbStatusText" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                         Text="Not built yet this session."/>
+            </StackPanel>
+          </Border>
         </Grid>
       </TabItem>
     </TabControl>
