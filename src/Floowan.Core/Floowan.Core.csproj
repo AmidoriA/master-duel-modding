@@ -17,7 +17,7 @@
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
   </ItemGroup>
 
-  <ItemGroup>
+    <ItemGroup>
     <None Include="Resources\classdata.tpk">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>classdata.tpk</Link>
@@ -25,6 +25,11 @@
     <None Include="Resources\frames\*.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>frames\%(Filename)%(Extension)</Link>
+    </None>
+    <EmbeddedResource Include="Resources\cutin\monster_cutin.csv" />
+    <None Include="Resources\cutin\monster_cutin.csv">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Resources\cutin\monster_cutin.csv</Link>
     </None>
   </ItemGroup>
 

@@ -48,3 +48,15 @@
 - https://github.com/microsoft/onnxruntime
 - License: MIT
 - Runs the `isnet-anime` background-removal model locally.
+
+## MattOstgard spine_sequence (reference)
+
+- https://github.com/MattOstgard/spine_sequence
+- Inspiration for a future image-sequence → Spine attachment timeline path.
+- v1 cut-in animation uses an independent C# bone-translate bob generator instead.
+
+## daominah monster_cutin coverage table
+
+- https://github.com/daominah/yugioh_master_duel_card_art
+- The embedded `monster_cutin.csv` lists Master Duel CardIDs that ship summon cut-ins.
+- Used only as an eligibility/lookup table; game assets are not redistributed.
