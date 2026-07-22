@@ -200,12 +200,12 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
-    public void Compose_FillsDetectedFrameHole_NotHardcoded512()
+    public void Compose_UsesSharedEffectArtWindow_EvenWhenFrameHoleIsLarger()
     {
-        // Frame hole larger than old 512² ArtWindow — art must reach the hole edge.
+        // EffectExt-like hole larger than Effect — compose must still use ArtWindow.
         using var frame = CreateSolidFrame();
-        var hole = new Rectangle(80, 180, 540, 540);
-        ClearRect(frame, hole);
+        var largeHole = new Rectangle(76, 178, 555, 555);
+        ClearRect(frame, largeHole);
 
         using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 120, 255));
         using var mask = new Image<L8>(512, 512, new L8(0));
@@ -215,6 +215,7 @@ public class OverFrameAutoArtComposerTests
 
         using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
 
+        var hole = OverFrameAutoArtComposer.ArtWindow;
         foreach (var (x, y) in new[]
                  {
                      (hole.Left + 2, hole.Top + 2),
@@ -227,6 +228,10 @@ public class OverFrameAutoArtComposerTests
             Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, p.A);
             Assert.True(p.G > 100, $"hole edge ({x},{y}) should be filled art, got {p}");
         }
+
+        // Outside shared ArtWindow but inside the oversized template hole → frame chrome, not art.
+        var ring = result[largeHole.Left + 2, largeHole.Top + 2];
+        Assert.True(ring.A >= 200, $"expected patched chrome outside ArtWindow, got {ring}");
     }
 
     [Fact]
@@ -268,7 +273,7 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
-    public void Compose_TypeLineStrip_MeetsOuterLoreBorder_NotJustArtHole()
+    public void Compose_TypeLineStrip_DoesNotForceOuterLoreWingsWithoutSubject()
     {
         using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 180, 40, 255));
         using var mask = new Image<L8>(100, 100, new L8(0));
@@ -280,35 +285,29 @@ public class OverFrameAutoArtComposerTests
         }
 
         using var frame = CreateSolidFrame();
-        var hole = new Rectangle(89, 191, 527, 400);
+        var hole = OverFrameAutoArtComposer.ArtWindow;
         ClearRect(frame, hole);
-
-        // Gold outer lore rim, then cream interior (wider than... cream starts inset).
-        var gold = new Rgba32(180, 100, 50, 255);
         var cream = new Rgba32(233, 207, 183, 255);
-        for (var y = hole.Bottom; y < hole.Bottom + 40; y++)
-        for (var x = hole.Left - 30; x < hole.Right + 30; x++)
-        {
-            if (x >= 0 && x < frame.Width)
-                frame[x, y] = new Rgba32(60, 40, 30, 255);
-        }
+        var typeLine = new Rgba32(60, 40, 30, 255);
+        PaintEffectStyleLore(frame, cream);
 
-        for (var y = hole.Bottom + 40; y < hole.Bottom + 200; y++)
+        var cut = OverFrameAutoArtComposer.EffectLoreCutTop;
+        for (var y = hole.Bottom; y < cut; y++)
         {
             for (var x = hole.Left - 30; x < hole.Left; x++)
-                if (x >= 0) frame[x, y] = gold;
-            for (var x = hole.Left; x < hole.Right; x++)
-                frame[x, y] = cream;
+                if (x >= 0) frame[x, y] = typeLine;
             for (var x = hole.Right; x < hole.Right + 30; x++)
-                if (x < frame.Width) frame[x, y] = gold;
+                if (x < frame.Width) frame[x, y] = typeLine;
         }
 
         using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
 
-        // Just left of the art hole, in the type-line band — must be foil art (outer lore width), not orange chrome.
-        var wing = result[hole.Left - 20, hole.Bottom + 20];
-        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, wing.A);
-        Assert.True(wing.G > 80, $"expected foil art out to outer lore wing, got {wing}");
+        var wing = result[hole.Left - 20, (hole.Bottom + cut) / 2];
+        Assert.True(wing.A >= 200, $"expected frame chrome in wing, got {wing}");
+        Assert.True(Math.Abs(wing.R - typeLine.R) < 40, $"expected type-line chrome in wing, got {wing}");
+
+        var mid = result[hole.Left + hole.Width / 2, (hole.Bottom + cut) / 2];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, mid.A);
     }
 
     [Fact]
@@ -318,7 +317,6 @@ public class OverFrameAutoArtComposerTests
         var hole = new Rectangle(89, 191, 527, 400);
         ClearRect(frame, hole);
 
-        // Type-line + gold border with a few bright speckles (old detector used these).
         for (var y = hole.Bottom; y < hole.Bottom + 40; y++)
         for (var x = hole.Left; x < hole.Right; x++)
             frame[x, y] = new Rgba32(60, 40, 30, 255);
@@ -341,12 +339,56 @@ public class OverFrameAutoArtComposerTests
         var window = OverFrameAutoArtComposer.ArtWindow;
         for (var y = window.Top; y < window.Bottom; y++)
         for (var x = window.Left; x < window.Right; x++)
-            of[x, y] = new Rgba32(10, 200, 20, 4);
+            of[x, y] = new Rgba32(10, 200, 20, 255);
 
         using var extracted = OverFrameAutoArtComposer.ExtractIllustrationSource(of);
         Assert.Equal(512, extracted.Width);
         Assert.Equal(512, extracted.Height);
         Assert.True(extracted[256, 256].G > 100, $"expected green art hole content, got {extracted[256, 256]}");
+        Assert.False(OverFrameAutoArtComposer.LooksLikeFramedCardArt(extracted));
+    }
+
+    [Fact]
+    public void LooksLikeFramedCardArt_DetectsLorePanelAndFoilMask()
+    {
+        using var clean = new Image<Rgba32>(512, 512, new Rgba32(40, 80, 120, 255));
+        Assert.False(OverFrameAutoArtComposer.LooksLikeFramedCardArt(clean));
+
+        using var vividArt = new Image<Rgba32>(1024, 1024, new Rgba32(30, 40, 80, 255));
+        for (var y = 600; y < 1000; y++)
+        for (var x = 0; x < 1024; x++)
+            vividArt[x, y] = (x + y) % 3 == 0
+                ? new Rgba32(255, 180, 200, 255)
+                : new Rgba32(250, 250, 250, 255);
+        Assert.False(OverFrameAutoArtComposer.LooksLikeFramedCardArt(vividArt));
+
+        using var withLore = new Image<Rgba32>(512, 512, new Rgba32(40, 80, 120, 255));
+        var cream = new Rgba32(233, 207, 183, 255);
+        for (var y = 320; y < 500; y++)
+        for (var x = 40; x < 470; x++)
+            withLore[x, y] = cream;
+        Assert.True(OverFrameAutoArtComposer.LooksLikeFramedCardArt(withLore));
+
+        using var foil = new Image<Rgba32>(512, 512, new Rgba32(40, 80, 120, OverFrameAutoArtComposer.FoilMaskAlpha));
+        Assert.True(OverFrameAutoArtComposer.LooksLikeFramedCardArt(foil));
+
+        using var ofSize = new Image<Rgba32>(704, 1024, new Rgba32(40, 80, 120, 255));
+        Assert.True(OverFrameAutoArtComposer.LooksLikeFramedCardArt(ofSize));
+    }
+
+    [Fact]
+    public void RequireCleanIllustrationSource_ThrowsOnFramedArt()
+    {
+        using var framed = new Image<Rgba32>(512, 512, new Rgba32(40, 80, 120, 255));
+        var cream = new Rgba32(233, 207, 183, 255);
+        for (var y = 320; y < 500; y++)
+        for (var x = 40; x < 470; x++)
+            framed[x, y] = cream;
+
+        Assert.Throws<InvalidOperationException>(() =>
+        {
+            using var _ = OverFrameAutoArtComposer.RequireCleanIllustrationSource(framed);
+        });
     }
 
     [Fact]
@@ -363,28 +405,21 @@ public class OverFrameAutoArtComposerTests
             mask[x, y] = new L8(255);
 
         using var frame = CreateSolidFrame();
-        var hole = new Rectangle(89, 191, 527, 400);
+        var hole = OverFrameAutoArtComposer.ArtWindow;
         ClearRect(frame, hole);
-        // Dark type-line strip, then cream lore (as on real Effect frames).
-        for (var y = hole.Bottom; y < hole.Bottom + 40; y++)
-        for (var x = hole.Left; x < hole.Right; x++)
-            frame[x, y] = new Rgba32(60, 40, 30, 255);
         var cream = new Rgba32(233, 207, 183, 255);
-        for (var y = hole.Bottom + 40; y < hole.Bottom + 200; y++)
-        for (var x = hole.Left; x < hole.Right; x++)
-            frame[x, y] = cream;
+        PaintEffectStyleLore(frame, cream);
 
         using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
 
         var midX = hole.Left + hole.Width / 2;
-        // Type-line strip: foil art meets lore (not solid frame brown).
-        var typeLine = result[midX, hole.Bottom + 20];
+        var cut = OverFrameAutoArtComposer.EffectLoreCutTop;
+        var typeLine = result[midX, (hole.Bottom + cut) / 2];
         Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, typeLine.A);
         Assert.False(typeLine.R < 80 && typeLine.G < 60,
             $"type-line must not stay dark frame chrome, got {typeLine}");
 
-        // Lore panel: stays cream / opaque.
-        var lore = result[midX, hole.Bottom + 80];
+        var lore = result[midX, OverFrameAutoArtComposer.EffectLoreCream.Top + 40];
         Assert.True(lore.A >= 200, $"lore must stay opaque, got {lore}");
         Assert.True(Math.Abs(lore.R - cream.R) < 40, $"expected lore cream, got {lore}");
     }
@@ -392,7 +427,6 @@ public class OverFrameAutoArtComposerTests
     [Fact]
     public void Compose_TypeLineStrip_AlwaysShowsArt_EvenWithoutSubjectThere()
     {
-        // Subject only in the upper art hole — type-line must still be foil art, not chrome.
         using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 180, 40, 255));
         using var mask = new Image<L8>(100, 100, new L8(0));
         for (var y = 0; y < 30; y++)
@@ -403,26 +437,94 @@ public class OverFrameAutoArtComposerTests
         }
 
         using var frame = CreateSolidFrame();
-        var hole = new Rectangle(89, 191, 527, 400);
+        var hole = OverFrameAutoArtComposer.ArtWindow;
         ClearRect(frame, hole);
-        for (var y = hole.Bottom; y < hole.Bottom + 40; y++)
-        for (var x = hole.Left; x < hole.Right; x++)
-            frame[x, y] = new Rgba32(60, 40, 30, 255);
         var cream = new Rgba32(233, 207, 183, 255);
-        for (var y = hole.Bottom + 40; y < hole.Bottom + 200; y++)
-        for (var x = hole.Left; x < hole.Right; x++)
-            frame[x, y] = cream;
+        PaintEffectStyleLore(frame, cream);
 
         using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
 
         var midX = hole.Left + hole.Width / 2;
-        var typeLine = result[midX, hole.Bottom + 20];
-        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, typeLine.A);
-        Assert.True(typeLine.G > 100, $"expected foil art in type-line gap, got {typeLine}");
+        var cut = OverFrameAutoArtComposer.EffectLoreCutTop;
+        var typeLinePix = result[midX, (hole.Bottom + cut) / 2];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, typeLinePix.A);
+        Assert.True(typeLinePix.G > 100, $"expected foil art in type-line gap, got {typeLinePix}");
 
-        var loreTop = result[midX, hole.Bottom + 40];
+        var loreTop = result[midX, OverFrameAutoArtComposer.EffectLoreCream.Top];
         Assert.True(loreTop.A >= 200, $"lore top must stay opaque, got {loreTop}");
         Assert.True(Math.Abs(loreTop.R - cream.R) < 40, $"expected cream at lore top, got {loreTop}");
+    }
+
+    [Fact]
+    public void Compose_LoreSideWings_KeepChrome_WithoutSubject()
+    {
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 180, 40, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 0; y < 100; y++)
+        for (var x = 40; x < 60; x++)
+        {
+            source[x, y] = new Rgba32(20, 200, 50, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var gold = new Rgba32(180, 100, 50, 255);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream, gold);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var outer = OverFrameAutoArtComposer.EffectLoreOuter;
+        var loreY = creamR.Top + 40;
+        var leftWing = result[(outer.Left + creamR.Left) / 2, loreY];
+        Assert.True(leftWing.A >= 200, $"left wing must stay chrome without subject, got {leftWing}");
+        Assert.True(Math.Abs(leftWing.R - gold.R) < 40, $"expected gold left wing, got {leftWing}");
+
+        var rightWing = result[(creamR.Right + outer.Right) / 2, loreY];
+        Assert.True(rightWing.A >= 200, $"right wing must stay chrome without subject, got {rightWing}");
+        Assert.True(Math.Abs(rightWing.R - gold.R) < 40, $"expected gold right wing, got {rightWing}");
+
+        var lore = result[creamR.Left + creamR.Width / 2, loreY];
+        Assert.True(lore.A >= 200, $"lore interior must stay opaque, got {lore}");
+        Assert.True(Math.Abs(lore.R - cream.R) < 40, $"expected lore cream, got {lore}");
+    }
+
+    [Fact]
+    public void Compose_LoreSideWings_PunchOnlyWhereSubjectPresent()
+    {
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 180, 40, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 0; y < 100; y++)
+        for (var x = 5; x < 95; x++)
+        {
+            source[x, y] = new Rgba32(20, 200, 50, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var gold = new Rgba32(180, 100, 50, 255);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream, gold);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var outer = OverFrameAutoArtComposer.EffectLoreOuter;
+        var loreY = creamR.Top + 40;
+        var leftWing = result[(outer.Left + creamR.Left) / 2, loreY];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, leftWing.A);
+        Assert.True(leftWing.G > 80, $"expected subject punch in left lore wing, got {leftWing}");
+
+        var rightWing = result[(creamR.Right + outer.Right) / 2, loreY];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, rightWing.A);
+        Assert.True(rightWing.G > 80, $"expected subject punch in right lore wing, got {rightWing}");
+
+        var lore = result[creamR.Left + creamR.Width / 2, loreY];
+        Assert.True(lore.A >= 200, $"lore interior must stay opaque, got {lore}");
+        Assert.True(Math.Abs(lore.R - cream.R) < 40, $"expected lore cream, got {lore}");
     }
 
     [Fact]
@@ -430,7 +532,6 @@ public class OverFrameAutoArtComposerTests
     {
         using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 80, 200, 255));
         using var mask = new Image<L8>(100, 100, new L8(0));
-        // Wide subject columns on both sides — without a lore-top cut they cover outer chrome.
         for (var y = 0; y < 100; y++)
         for (var x = 0; x < 100; x++)
         {
@@ -442,30 +543,23 @@ public class OverFrameAutoArtComposerTests
         }
 
         using var frame = CreateSolidFrame();
-        var hole = new Rectangle(89, 191, 527, 400);
-        ClearRect(frame, hole);
-        var cream = new Rgba32(233, 207, 183, 255);
-        for (var y = hole.Bottom + 40; y < hole.Bottom + 200; y++)
-        for (var x = hole.Left; x < hole.Right; x++)
-            frame[x, y] = cream;
-        for (var y = hole.Bottom; y < hole.Bottom + 40; y++)
-        for (var x = hole.Left; x < hole.Right; x++)
-            frame[x, y] = new Rgba32(60, 40, 30, 255);
-
-        // Outer chrome left of lore.
-        var chrome = new Rgba32(180, 90, 40, 255);
-        for (var y = hole.Bottom + 40; y < hole.Bottom + 200; y++)
-        for (var x = 10; x < hole.Left - 5; x++)
+        var chrome = new Rgba32(40, 30, 90, 255);
+        for (var y = 0; y < frame.Height; y++)
+        for (var x = 0; x < frame.Width; x++)
             frame[x, y] = chrome;
+
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
 
         using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
 
-        var loreTop = hole.Bottom + 40;
-        var side = result[20, loreTop + 30];
-        Assert.True(side.A >= 200, $"outer chrome below lore top must stay frame, got {side}");
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var side = result[20, creamR.Top + 30];
+        Assert.True(side.A >= 200, $"outer chrome beyond lore wings must stay frame, got {side}");
         Assert.True(Math.Abs(side.R - chrome.R) < 40, $"expected outer chrome, got {side}");
 
-        var lore = result[hole.Left + hole.Width / 2, loreTop + 30];
+        var lore = result[creamR.Left + creamR.Width / 2, creamR.Top + 30];
         Assert.True(lore.A >= 200, $"lore interior must stay opaque, got {lore}");
         Assert.True(Math.Abs(lore.R - cream.R) < 40, $"expected lore cream, got {lore}");
     }
@@ -474,54 +568,76 @@ public class OverFrameAutoArtComposerTests
     public void Compose_CutsRembgOutOfLoreBox_NoHardVerticalBleed()
     {
         using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 80, 200, 255));
-        // Bright vertical stripe in source (would look like a glitch line if cutout bled into lore).
-        for (var y = 0; y < 100; y++)
-            source[50, y] = new Rgba32(255, 0, 255, 255);
-        for (var y = 0; y < 100; y++)
-        for (var x = 40; x < 60; x++)
-            if (x != 50)
-                source[x, y] = new Rgba32(220, 30, 20, 255);
-
         using var mask = new Image<L8>(100, 100, new L8(0));
         for (var y = 0; y < 100; y++)
-        for (var x = 40; x < 60; x++)
+        for (var x = 48; x < 52; x++)
+        {
+            source[x, y] = new Rgba32(241, 12, 164, 255);
             mask[x, y] = new L8(255);
+        }
 
         using var frame = CreateSolidFrame();
-        var hole = new Rectangle(89, 191, 527, 400);
-        ClearRect(frame, hole);
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
         var cream = new Rgba32(233, 207, 183, 255);
-        for (var y = hole.Bottom; y < hole.Bottom + 200; y++)
-        for (var x = hole.Left; x < hole.Right; x++)
-            frame[x, y] = cream;
+        PaintEffectStyleLore(frame, cream);
 
         using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
 
-        var midX = hole.Left + hole.Width / 2;
-        var textY = hole.Bottom + 40;
-        var lore = result[midX, textY];
-
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var midX = creamR.Left + creamR.Width / 2;
+        var lore = result[midX, creamR.Top + 40];
         Assert.True(lore.A >= 200, $"lore must be opaque, got {lore}");
-        // Panel-dominant: must not be pure magenta cutout stripe.
         Assert.True(lore.R < 250 || lore.B < 250, $"magenta cutout bled into lore: {lore}");
         Assert.True(Math.Abs(lore.R - cream.R) < 40 && Math.Abs(lore.G - cream.G) < 40,
             $"expected cream-dominant lore panel, got {lore}");
 
+        var hole = OverFrameAutoArtComposer.ArtWindow;
         var inArt = result[midX, hole.Top + hole.Height / 2];
         Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, inArt.A);
     }
 
     [Fact]
-    public void InferStyle_DetectsNormalAndFusionKeywords()
+    public void InferStyle_UsesTypeLineNotEffectBody()
     {
         Assert.Equal(CardFrameStyle.Normal, CardFrameTemplates.InferStyle("Fish", "[Fish/Normal] lore"));
-        Assert.Equal(CardFrameStyle.Fusion, CardFrameTemplates.InferStyle("Mirrorjade", "Fusion Monster text"));
+        Assert.Equal(CardFrameStyle.Fusion, CardFrameTemplates.InferStyle("Mirrorjade", "[Wyrm/Fusion/Effect] Fusion Monster text"));
+        Assert.Equal(CardFrameStyle.Link, CardFrameTemplates.InferStyle("Accesscode", "[Cyberse/Link/Effect] Link-4"));
         Assert.Equal(CardFrameStyle.Trap, CardFrameTemplates.InferStyle("Impulse", "[Trap] card text"));
         Assert.Equal(CardFrameStyle.Spell, CardFrameTemplates.InferStyle("Raigeki", "Spell Card"));
+
+        Assert.Equal(
+            CardFrameStyle.EffectExt,
+            CardFrameTemplates.InferStyle(
+                "Some Effect",
+                "[Fiend/Effect] You can Special Summon 1 Link Monster from your Extra Deck."));
     }
 
     private static Image<Rgba32> CreateSolidFrame() =>
         new(OverFrameConstants.Width, OverFrameConstants.Height, new Rgba32(220, 200, 40, 255));
+
+    private static void PaintEffectStyleLore(
+        Image<Rgba32> frame,
+        Rgba32 cream,
+        Rgba32? gold = null)
+    {
+        var goldC = gold ?? new Rgba32(180, 100, 50, 255);
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var outer = OverFrameAutoArtComposer.EffectLoreOuter;
+        var cut = OverFrameAutoArtComposer.EffectLoreCutTop;
+
+        for (var y = art.Bottom; y < cut; y++)
+        for (var x = art.Left; x < art.Right; x++)
+            frame[x, y] = new Rgba32(60, 40, 30, 255);
+
+        for (var y = cut; y < creamR.Bottom; y++)
+        for (var x = outer.Left; x < outer.Right; x++)
+            frame[x, y] = goldC;
+
+        for (var y = creamR.Top; y < creamR.Bottom; y++)
+        for (var x = creamR.Left; x < creamR.Right; x++)
+            frame[x, y] = cream;
+    }
 
     private static void ClearRect(Image<Rgba32> image, Rectangle rect)
     {

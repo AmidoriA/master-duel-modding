@@ -1,4 +1,6 @@
+using Floowan.Core.Assets;
 using Floowan.Core.Data;
+using Floowan.Core.Services;
 using Microsoft.Data.Sqlite;
 
 namespace Floowan.Core.Tests;
@@ -61,6 +63,34 @@ public class OverframeDatabaseTests
                 Assert.Equal(1001, db2.GetById(1)!.ArtId);
                 Assert.Equal("abcd1234", db2.GetOfCardAssetBundleId());
             }
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
+    public void TryRemoveLegacyPkGateEntry_DoesNotDeleteOtherCardsArtIdTrigger()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "floowan-of-pk-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            CreateMinimalDatabase(path);
+            using var db = new CardDatabase(path);
+            // Card 1's real MD art id equals card 2's Floowandereeze PK (common collision).
+            db.SetArtId(1, 2);
+
+            var gate = OfCardAssetGate.FromEntries([(2, 2), (99, 99)]);
+            // Applying / cleaning card 2 must NOT remove card 1's art-id trigger.
+            Assert.False(OverFrameModService.TryRemoveLegacyPkGateEntry(gate, cardPk: 2, thisCardArtId: 99, db));
+            Assert.True(gate.Contains(2));
+            Assert.True(gate.Contains(99));
+
+            // True legacy junk: PK entry with no art_id owner.
+            gate.Add(3, 3);
+            Assert.True(OverFrameModService.TryRemoveLegacyPkGateEntry(gate, cardPk: 3, thisCardArtId: 50, db));
+            Assert.False(gate.Contains(3));
         }
         finally
         {
