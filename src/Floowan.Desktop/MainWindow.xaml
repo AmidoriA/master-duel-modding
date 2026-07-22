@@ -40,11 +40,7 @@
       </StatusBarItem>
     </StatusBar>
 
-<<<<<<< HEAD
     <TabControl x:Name="MainTabs" Background="{StaticResource BgBrush}" BorderBrush="#3A4652" SelectionChanged="MainTabs_SelectionChanged">
-=======
-    <TabControl x:Name="MainTabs">
->>>>>>> origin/master
       <TabItem Header="Card Art">
         <Grid Margin="0,8,0,0">
           <Grid.ColumnDefinitions>
