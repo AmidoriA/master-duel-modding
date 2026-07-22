@@ -43,34 +43,54 @@ public class OfCardAssetGateTests
     }
 
     [Fact]
-    public void Parse_CountPrefixed_And_ByteLengthPrefixed()
+    public void Parse_PrefersRawPairs_OverAmbiguousCountPrefix()
     {
-        byte[] pairs = [0x5A, 0x50, 0x5A, 0x50];
+        // Bytes that are BOTH valid raw pairs [(1,0),(18472,18472)] AND count-prefixed [1×(18472,18472)].
+        // Live Master Duel uses raw pairs — must keep both entries.
+        var bytes = new byte[8];
+        BitConverter.TryWriteBytes(bytes.AsSpan(0, 2), (ushort)1);
+        BitConverter.TryWriteBytes(bytes.AsSpan(2, 2), (ushort)0);
+        BitConverter.TryWriteBytes(bytes.AsSpan(4, 2), (ushort)18472);
+        BitConverter.TryWriteBytes(bytes.AsSpan(6, 2), (ushort)18472);
 
-        var countPrefixed = new byte[8];
-        BitConverter.TryWriteBytes(countPrefixed.AsSpan(0, 4), 1u);
-        pairs.CopyTo(countPrefixed, 4);
-        var g1 = OfCardAssetGate.Parse(countPrefixed);
-        Assert.Equal(OfCardAssetGate.PayloadFormat.CountPrefixed, g1.Format);
-        Assert.True(g1.Contains(20570));
-        Assert.Equal(countPrefixed, g1.ToBytes());
+        var gate = OfCardAssetGate.Parse(bytes);
+        Assert.Equal(OfCardAssetGate.PayloadFormat.RawPairs, gate.Format);
+        Assert.Equal(2, gate.Entries.Count);
+        Assert.True(gate.Contains(1));
+        Assert.True(gate.Contains(18472));
+    }
 
-        var lenPrefixed = new byte[8];
-        BitConverter.TryWriteBytes(lenPrefixed.AsSpan(0, 4), 4u);
-        pairs.CopyTo(lenPrefixed, 4);
-        // Ambiguous with count=4 when body isn't 16 bytes — use two pairs so count vs length differ.
+    [Fact]
+    public void FromEntries_CountPrefixed_RoundTrip()
+    {
+        var gate = OfCardAssetGate.FromEntries(
+            [(20570, 20570)],
+            OfCardAssetGate.PayloadFormat.CountPrefixed);
+        var bytes = gate.ToBytes();
+        Assert.Equal(8, bytes.Length);
+        Assert.Equal(1u, BitConverter.ToUInt32(bytes));
+
+        // Auto-parse prefers raw (ambiguous); explicit format is preserved on ToBytes only.
+        var asRaw = OfCardAssetGate.Parse(bytes);
+        Assert.Equal(OfCardAssetGate.PayloadFormat.RawPairs, asRaw.Format);
+        Assert.Equal(2, asRaw.Entries.Count);
+    }
+
+    [Fact]
+    public void FromEntries_ByteLengthPrefixed_RoundTrip()
+    {
         byte[] twoPairs =
         [
             0x5A, 0x50, 0x5A, 0x50,
             0x01, 0x00, 0x01, 0x00
         ];
-        var lenPrefixed2 = new byte[4 + twoPairs.Length];
-        BitConverter.TryWriteBytes(lenPrefixed2.AsSpan(0, 4), (uint)twoPairs.Length);
-        twoPairs.CopyTo(lenPrefixed2, 4);
-        var g2 = OfCardAssetGate.Parse(lenPrefixed2);
-        Assert.Equal(OfCardAssetGate.PayloadFormat.ByteLengthPrefixed, g2.Format);
-        Assert.Equal(2, g2.Entries.Count);
-        Assert.Equal(lenPrefixed2, g2.ToBytes());
+        var gate = OfCardAssetGate.FromEntries(
+            [(20570, 20570), (1, 1)],
+            OfCardAssetGate.PayloadFormat.ByteLengthPrefixed);
+        var bytes = gate.ToBytes();
+        Assert.Equal(4 + twoPairs.Length, bytes.Length);
+        Assert.Equal((uint)twoPairs.Length, BitConverter.ToUInt32(bytes));
+        Assert.Equal(twoPairs, bytes.AsSpan(4).ToArray());
     }
 
     [Fact]
