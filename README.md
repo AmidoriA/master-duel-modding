@@ -13,13 +13,14 @@
 - Restore from backup
 - **Over-frame tab**: apply **704×1024** art, register the card in `of_card_asset`, enable/remove gate entries, restore backups
 - **Auto-create over-frame art**: remove the current art background with rembg’s `isnet-anime` model, trim/resize the subject, and preview it on a transparent 704×1024 canvas
+- **Cut-in Animation tab**: for cards that already ship a summon cut-in, generate a simple Spine bob from one PNG (optional ONNX subject crop) and overwrite texture + atlas + skeleton TextAssets
 
 ## Projects
 
 | Project | Role |
 |---------|------|
 | `src/Floowan.Core` | Non-UI logic: DB, paths, image prep, bundle read/write, over-frame gate |
-| `src/Floowan.Desktop` | WPF UI (Card Art + Over-frame tabs) |
+| `src/Floowan.Desktop` | WPF UI (Card Art + Over-frame + Cut-in Animation tabs) |
 | `tests/Floowan.Core.Tests` | Unit + optional integration tests |
 
 ## Requirements
@@ -60,10 +61,23 @@ Automates the [Nexus Mods over-frame guide](https://www.nexusmods.com/yugiohmast
 
 Game updates may reset `of_card_asset` (and card bundles). Keep backups under `backups/bundles/cards` and `backups/bundles/gate`.
 
+## Cut-in animation workflow
+
+v1 only works for cards that **already** have a Master Duel summon cut-in (`P####` texture + atlas + skeleton):
+
+1. Open the **Cut-in Animation** tab and pick a card marked `[cut-in]` (catalog from known monstercutin IDs).
+2. Select a source PNG. Optionally keep **Crop subject (ONNX)** enabled to reuse the same `isnet-anime` cutout as over-frame.
+3. Floowan builds a minimal Spine 4.0 package with a gentle bone translate bob (no AssetStudio / UABEA / Spine editor / Python).
+4. **Apply simple animation** backs up touched cut-in bundles, then replaces the Texture2D + atlas + JSON TextAssets and LZ4-repacks.
+5. Restart Master Duel to preview. **Restore backup** reverts the cut-in bundles for that `P####` id.
+
+Optional **Build cut-in index** scans LocalData once and caches bundle locations for faster applies.
+
 ## Limitations
 
 - **Card text / names / descriptions** are not edited (those use encrypted metadata + crypto key in Floowandereeze).
 - **Sleeves, fields, icons, wallpapers** are out of scope for this MVP (architecture is ready to extend).
+- **Brand-new cut-ins** for cards that never shipped one are out of scope for v1 (replace-existing only).
 - Replacement forces **RGBA32** (larger than BC7). This matches Floowandereeze’s UnityPy `set_image(..., RGBA32)` approach and is the reliably writable path without native texture encoders.
 - Automatic background removal is an AI-assisted starting point. Complex artwork may need manual cleanup before applying.
 - Orphaned `.resS` directory entries may remain inside the bundle after inlining texture bytes; the Texture2D no longer references them.

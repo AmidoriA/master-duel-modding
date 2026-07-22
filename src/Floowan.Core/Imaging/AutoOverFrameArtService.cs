@@ -79,6 +79,56 @@ public sealed class AutoOverFrameArtService : IDisposable
         progress?.Report("Automatic over-frame art is ready for review.");
     }
 
+    /// <summary>
+    /// Crops the subject with isnet-anime and writes a transparent PNG (no card frame).
+    /// Used by cut-in animation generation.
+    /// </summary>
+    public async Task CreateSubjectCutoutAsync(
+        string sourceImagePath,
+        string outputPngPath,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(sourceImagePath))
+            throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
+
+        await EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
+        progress?.Report("Removing background with isnet-anime…");
+
+        await Task.Run(() =>
+        {
+            using var loaded = Image.Load<Rgba32>(sourceImagePath);
+            using var source = OverFrameAutoArtComposer.ExtractIllustrationSource(loaded);
+            using var mask = PredictMask(source);
+            using var cutout = ApplyMaskAsAlpha(source, mask);
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPngPath))!);
+            cutout.Save(outputPngPath, new PngEncoder());
+        }, cancellationToken).ConfigureAwait(false);
+
+        progress?.Report("Subject cutout is ready.");
+    }
+
+    /// <summary>Applies an L8 mask as the alpha channel of <paramref name="source"/>.</summary>
+    public static Image<Rgba32> ApplyMaskAsAlpha(Image<Rgba32> source, Image<L8> mask)
+    {
+        if (source.Width != mask.Width || source.Height != mask.Height)
+            throw new ArgumentException("Source and mask dimensions must match.");
+
+        var result = source.Clone();
+        for (var y = 0; y < result.Height; y++)
+        {
+            var row = result.DangerousGetPixelRowMemory(y).Span;
+            var maskRow = mask.DangerousGetPixelRowMemory(y).Span;
+            for (var x = 0; x < row.Length; x++)
+            {
+                ref var pixel = ref row[x];
+                pixel.A = (byte)((pixel.A * maskRow[x].PackedValue + 127) / 255);
+            }
+        }
+
+        return result;
+    }
+
     private async Task EnsureModelAsync(
         IProgress<string>? progress,
         CancellationToken cancellationToken)

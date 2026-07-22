@@ -54,3 +54,23 @@ public sealed class OverFrameResult
     public static OverFrameResult Fail(string message) =>
         new() { Success = false, Message = message };
 }
+
+public sealed class CutInReplacementResult
+{
+    public bool Success { get; init; }
+    public string Message { get; init; } = "";
+    public int CutInId { get; init; }
+    public IReadOnlyList<string> BundlePaths { get; init; } = [];
+
+    public static CutInReplacementResult Ok(string message, int cutInId, IReadOnlyList<string> bundlePaths) =>
+        new()
+        {
+            Success = true,
+            Message = message,
+            CutInId = cutInId,
+            BundlePaths = bundlePaths
+        };
+
+    public static CutInReplacementResult Fail(string message) =>
+        new() { Success = false, Message = message };
+}
