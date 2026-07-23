@@ -196,6 +196,83 @@
         </Grid>
       </TabItem>
 
+      <TabItem x:Name="CutInTab" Header="Cut-in Animation">
+        <Grid Margin="0,8,0,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="1.2*"/>
+            <ColumnDefinition Width="12"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+
+          <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Text="Cards with summon cut-ins" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <TextBlock DockPanel.Dock="Top"
+                         Text="v1 replaces an existing cut-in with a simple bob from one PNG (optional isnet-anime subject crop)."
+                         Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8" TextWrapping="Wrap"/>
+              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <TextBox x:Name="CiSearchBox" Width="220" KeyDown="CiSearchBox_KeyDown"/>
+                <Button Content="Search" Click="CiSearch_Click" Background="{StaticResource AccentBrush}"/>
+                <CheckBox x:Name="CiCutInOnlyBox" Content="Known cut-ins only" IsChecked="True"
+                          VerticalAlignment="Center" Foreground="{StaticResource TextBrush}" Margin="8,0,0,0"
+                          Checked="CiFilter_Changed" Unchecked="CiFilter_Changed"/>
+              </StackPanel>
+              <Button DockPanel.Dock="Top" Content="Build cut-in index…" Click="CiBuildIndex_Click"
+                      Margin="0,0,0,8" HorizontalAlignment="Left"/>
+              <ListBox x:Name="CiCardList" SelectionChanged="CiCardList_SelectionChanged">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <StackPanel Orientation="Horizontal">
+                      <TextBlock Text="{Binding DisplayName}"/>
+                      <TextBlock Text="  [cut-in]" Foreground="#7DCEA0" FontWeight="SemiBold"
+                                 Visibility="{Binding HasCutIn, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </DockPanel>
+          </Border>
+
+          <Border Grid.Column="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Text="Simple bob cut-in" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <WrapPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+                <Button Content="Select image…" Click="CiSelectImage_Click"/>
+                <Button x:Name="CiApplyButton" Content="Apply simple animation" Click="CiApply_Click" Background="{StaticResource AccentBrush}"/>
+                <Button Content="Restore backup" Click="CiRestore_Click"/>
+              </WrapPanel>
+              <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                  <TextBlock Text="Cut-in ID" Width="70" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <TextBox x:Name="CiIdBox" Width="100"/>
+                  <CheckBox x:Name="CiCropSubjectBox" Content="Crop subject (ONNX)" IsChecked="True"
+                            Foreground="{StaticResource TextBrush}" Margin="16,0,0,0" VerticalAlignment="Center"/>
+                  <CheckBox x:Name="CiCreateBackupBox" Content="Backup before write" IsChecked="True"
+                            Foreground="{StaticResource TextBrush}" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+              </StackPanel>
+              <Grid>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="*"/>
+                  <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <StackPanel>
+                  <TextBlock x:Name="CiCardTitleText" Text="(none selected)" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                  <TextBlock x:Name="CiCardMetaText" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                  <TextBlock x:Name="CiImagePathText" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+                <Border Grid.Row="1" Background="#12161A" Margin="0,12,0,0" CornerRadius="4">
+                  <Image x:Name="CiPreviewImage" Stretch="Uniform" Margin="8"/>
+                </Border>
+                <TextBlock Grid.Row="2" x:Name="CiDetailText" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"
+                           Text="Only cards that already ship a summon cut-in can be modded. Apply overwrites texture + atlas + skeleton JSON."/>
+              </Grid>
+            </DockPanel>
+          </Border>
+        </Grid>
+      </TabItem>
+
       <TabItem Header="Database">
         <Grid Margin="0,8,0,0">
           <Grid.RowDefinitions>
