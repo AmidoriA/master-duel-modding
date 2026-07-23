@@ -53,7 +53,7 @@
             <DockPanel>
               <TextBlock DockPanel.Dock="Top" Text="Cards" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
               <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                <TextBox x:Name="SearchBox" Width="260" KeyDown="SearchBox_KeyDown"/>
+                <TextBox x:Name="SearchBox" Width="260" KeyDown="SearchBox_KeyDown" TextChanged="SearchBox_TextChanged"/>
                 <Button Content="Search" Click="Search_Click" Background="{StaticResource AccentBrush}"/>
                 <CheckBox x:Name="FavoritesOnlyBox" Content="Favorites" VerticalAlignment="Center" Foreground="{StaticResource TextBrush}" Margin="4,0,0,0"/>
                 <CheckBox x:Name="SearchDescBox" Content="Include description" VerticalAlignment="Center" Foreground="{StaticResource TextBrush}" Margin="8,0,0,0"/>
@@ -113,7 +113,7 @@
                          Foreground="{StaticResource MutedBrush}"
                          Margin="0,0,0,8" TextWrapping="Wrap"/>
               <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                <TextBox x:Name="OfSearchBox" Width="220" KeyDown="OfSearchBox_KeyDown"/>
+                <TextBox x:Name="OfSearchBox" Width="220" KeyDown="OfSearchBox_KeyDown" TextChanged="OfSearchBox_TextChanged"/>
                 <Button Content="Search" Click="OfSearch_Click" Background="{StaticResource AccentBrush}"/>
                 <CheckBox x:Name="OfOverframeOnlyBox" Content="Over-frame only" VerticalAlignment="Center"
                           Foreground="{StaticResource TextBrush}" Margin="4,0,0,0"
