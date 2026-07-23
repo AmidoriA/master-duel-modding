@@ -12,7 +12,6 @@ public static class CardFrameTemplates
     private static readonly IReadOnlyDictionary<CardFrameStyle, string> FileNames =
         new Dictionary<CardFrameStyle, string>
         {
-            [CardFrameStyle.EffectExt] = "EffectExt.png",
             [CardFrameStyle.Effect] = "Effect.png",
             [CardFrameStyle.Normal] = "Normal.png",
             [CardFrameStyle.Fusion] = "Fusion.png",
@@ -24,7 +23,7 @@ public static class CardFrameTemplates
         };
 
     public static string GetFileName(CardFrameStyle style) =>
-        FileNames.TryGetValue(style, out var name) ? name : FileNames[CardFrameStyle.EffectExt];
+        FileNames.TryGetValue(style, out var name) ? name : FileNames[CardFrameStyle.Effect];
 
     public static string ResolveTemplatePath(CardFrameStyle style, string? overrideDirectory = null)
     {
@@ -70,7 +69,7 @@ public static class CardFrameTemplates
         if (ContainsAny(text, "trap card", "[trap"))
             return CardFrameStyle.Trap;
 
-        return CardFrameStyle.EffectExt;
+        return CardFrameStyle.Effect;
     }
 
     private static string? ExtractTypeLine(string lowerText)
@@ -120,9 +119,9 @@ public static class CardFrameTemplates
     private static CardFrameStyle InferFromTypeLine(string typeLine)
     {
         // Order matters: Xyz/Synchro/… before generic /effect.
-        // Link monsters are not a supported frame template — use Effect (ext).
+        // Link monsters are not a supported frame template — use Effect.
         if (typeLine.Contains("/link", StringComparison.Ordinal) || typeLine.StartsWith("[link", StringComparison.Ordinal))
-            return CardFrameStyle.EffectExt;
+            return CardFrameStyle.Effect;
         if (typeLine.Contains("/xyz", StringComparison.Ordinal) || typeLine.Contains("rank", StringComparison.Ordinal))
             return CardFrameStyle.Xyz;
         if (typeLine.Contains("/synchro", StringComparison.Ordinal))
@@ -138,9 +137,9 @@ public static class CardFrameTemplates
         if (typeLine.Contains("/normal", StringComparison.Ordinal))
             return CardFrameStyle.Normal;
         if (typeLine.Contains("/effect", StringComparison.Ordinal) || typeLine.Contains("effect]", StringComparison.Ordinal))
-            return CardFrameStyle.EffectExt;
+            return CardFrameStyle.Effect;
 
-        return CardFrameStyle.EffectExt;
+        return CardFrameStyle.Effect;
     }
 
     private static bool ContainsAny(string text, params string[] needles) =>
