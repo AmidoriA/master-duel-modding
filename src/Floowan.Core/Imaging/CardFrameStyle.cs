@@ -13,5 +13,6 @@ public enum CardFrameStyle
     Xyz,
     Ritual,
     Spell,
-    Trap
+    Trap,
+    Link
 }
