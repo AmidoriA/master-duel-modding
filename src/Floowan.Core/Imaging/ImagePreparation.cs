@@ -22,17 +22,42 @@ public static class ImagePreparation
         try
         {
             using var image = Image.Load(imagePath);
-            string? warning = null;
-            if (expectedWidth is int w && expectedHeight is int h && (image.Width != w || image.Height != h))
-            {
-                warning =
-                    $"Image is {image.Width}x{image.Height}; target texture is {w}x{h}. It will be resized on replace.";
-            }
-
             if (image.Width <= 0 || image.Height <= 0)
                 return ImageValidationResult.Fail("Image has invalid dimensions.");
 
-            return ImageValidationResult.Ok(image.Width, image.Height, warning);
+            string? warning = null;
+            string? info = null;
+            var sourceKind = CardArtTextureSizes.Classify(image.Width, image.Height);
+
+            if (sourceKind == CardArtSizeKind.Pendulum)
+            {
+                info = CardArtTextureSizes.IsPendulum(image.Width, image.Height)
+                    ? "Accepted as Pendulum illust (512×1024)."
+                    : $"Accepted as Pendulum aspect ({image.Width}×{image.Height}).";
+            }
+            else if (CardArtTextureSizes.IsNormal(image.Width, image.Height))
+            {
+                info = "Accepted as normal illust (512×512).";
+            }
+
+            if (expectedWidth is int w && expectedHeight is int h && (image.Width != w || image.Height != h))
+            {
+                var targetDesc = CardArtTextureSizes.Describe(w, h);
+                var sourceDesc = CardArtTextureSizes.Describe(image.Width, image.Height);
+                if (CardArtTextureSizes.SameAspect(image.Width, image.Height, w, h))
+                {
+                    warning =
+                        $"Image is {sourceDesc}; target texture is {targetDesc}. It will be scaled to match.";
+                }
+                else
+                {
+                    warning =
+                        $"Image is {sourceDesc}; target texture is {targetDesc}. " +
+                        "It will be letterboxed (aspect preserved) — not stretched.";
+                }
+            }
+
+            return ImageValidationResult.Ok(image.Width, image.Height, warning, info);
         }
         catch (Exception ex)
         {
@@ -43,17 +68,28 @@ public static class ImagePreparation
     /// <summary>
     /// Prepares Unity Texture2D RGBA32 pixel bytes (vertically flipped).
     /// Matches the Floowandereeze/UnityPy RGBA32 replacement approach.
+    /// When <paramref name="preserveAspect"/> is true (card-art default), mismatched
+    /// aspect ratios are letterboxed instead of squashed — important for Pendulum 512×1024.
     /// </summary>
-    public static byte[] PrepareRgba32TextureBytes(string imagePath, int width, int height)
+    public static byte[] PrepareRgba32TextureBytes(
+        string imagePath,
+        int width,
+        int height,
+        bool preserveAspect = false)
     {
         using var image = Image.Load<Rgba32>(imagePath);
         if (image.Width != width || image.Height != height)
         {
+            var mode = preserveAspect && !CardArtTextureSizes.SameAspect(image.Width, image.Height, width, height)
+                ? ResizeMode.Pad
+                : ResizeMode.Stretch;
+
             image.Mutate(ctx => ctx.Resize(new ResizeOptions
             {
                 Size = new Size(width, height),
-                Mode = ResizeMode.Stretch,
-                Sampler = KnownResamplers.Lanczos3
+                Mode = mode,
+                Sampler = KnownResamplers.Lanczos3,
+                PadColor = Color.Transparent
             }));
         }
 
