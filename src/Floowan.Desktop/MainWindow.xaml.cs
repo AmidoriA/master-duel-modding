@@ -1,8 +1,9 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using Floowan.Core.Assets;
 using Floowan.Core.Data;
 using Floowan.Core.Game;
@@ -16,6 +17,8 @@ namespace Floowan.Desktop;
 public partial class MainWindow : Window
 {
     private const int DbPageSize = 100;
+    private const int AutoSearchMinLength = 3;
+    private const int SearchDebounceMs = 250;
 
     private CardDatabase? _database;
     private CardArtModService? _modService;
@@ -35,11 +38,23 @@ public partial class MainWindow : Window
     private int _dbOffset;
     private int _dbTotalMatching;
 
+    private readonly DispatcherTimer _cardSearchDebounceTimer;
+    private readonly DispatcherTimer _ofSearchDebounceTimer;
+
     public MainWindow()
     {
         InitializeComponent();
+        _cardSearchDebounceTimer = CreateSearchDebounceTimer(OnCardSearchDebounceTick);
+        _ofSearchDebounceTimer = CreateSearchDebounceTimer(OnOfSearchDebounceTick);
         Loaded += OnLoaded;
         Closed += (_, _) => Cleanup();
+    }
+
+    private static DispatcherTimer CreateSearchDebounceTimer(EventHandler tick)
+    {
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(SearchDebounceMs) };
+        timer.Tick += tick;
+        return timer;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -194,10 +209,36 @@ public partial class MainWindow : Window
     private void SearchBox_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter)
+        {
+            _cardSearchDebounceTimer.Stop();
             RunSearch();
+        }
     }
 
-    private void Search_Click(object sender, RoutedEventArgs e) => RunSearch();
+    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        _cardSearchDebounceTimer.Stop();
+        _cardSearchDebounceTimer.Start();
+    }
+
+    private void OnCardSearchDebounceTick(object? sender, EventArgs e)
+    {
+        _cardSearchDebounceTimer.Stop();
+        ApplyDebouncedTextSearch(
+            SearchBox.Text,
+            RunSearch,
+            () =>
+            {
+                CardList.ItemsSource = Array.Empty<CardRecord>();
+                Status("Type at least 3 characters to search.");
+            });
+    }
+
+    private void Search_Click(object sender, RoutedEventArgs e)
+    {
+        _cardSearchDebounceTimer.Stop();
+        RunSearch();
+    }
 
     private void RunSearch()
     {
@@ -383,10 +424,36 @@ public partial class MainWindow : Window
     private void OfSearchBox_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter)
+        {
+            _ofSearchDebounceTimer.Stop();
             RunOfSearch();
+        }
     }
 
-    private void OfSearch_Click(object sender, RoutedEventArgs e) => RunOfSearch();
+    private void OfSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        _ofSearchDebounceTimer.Stop();
+        _ofSearchDebounceTimer.Start();
+    }
+
+    private void OnOfSearchDebounceTick(object? sender, EventArgs e)
+    {
+        _ofSearchDebounceTimer.Stop();
+        ApplyDebouncedTextSearch(
+            OfSearchBox.Text,
+            RunOfSearch,
+            () =>
+            {
+                OfCardList.ItemsSource = Array.Empty<CardRecord>();
+                Status("Type at least 3 characters to search.");
+            });
+    }
+
+    private void OfSearch_Click(object sender, RoutedEventArgs e)
+    {
+        _ofSearchDebounceTimer.Stop();
+        RunOfSearch();
+    }
 
     private void OfFilter_Changed(object sender, RoutedEventArgs e) => RunOfSearch();
 
@@ -401,10 +468,29 @@ public partial class MainWindow : Window
         var results = _database.SearchCards(
             OfSearchBox.Text,
             favoritesOnly: OfFavoritesOnlyBox.IsChecked == true,
+            searchDescription: true,
             overframeOnly: OfOverframeOnlyBox.IsChecked == true,
             limit: 400);
         OfCardList.ItemsSource = results;
         Status($"Over-frame tab: {results.Count} card(s).");
+    }
+
+    private static void ApplyDebouncedTextSearch(string? text, Action runSearch, Action clearPartialQuery)
+    {
+        var trimmed = text?.Trim() ?? "";
+        if (trimmed.Length == 0)
+        {
+            runSearch();
+            return;
+        }
+
+        if (trimmed.Length < AutoSearchMinLength)
+        {
+            clearPartialQuery();
+            return;
+        }
+
+        runSearch();
     }
 
     private void OfCardList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1088,6 +1174,8 @@ public partial class MainWindow : Window
 
     private void Cleanup()
     {
+        _cardSearchDebounceTimer.Stop();
+        _ofSearchDebounceTimer.Stop();
         CleanupPreviewTemp();
         CleanupOfPreviewTemp();
         CleanupOfAutoGeneratedTemp();
