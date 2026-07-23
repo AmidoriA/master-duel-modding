@@ -468,6 +468,26 @@ public partial class MainWindow : Window
             : CardFrameTemplates.InferStyle(card.Name, card.Description);
     }
 
+    /// <summary>
+    /// Blocks Over-frame mutating actions when the Frame dropdown is Link (or would resolve to Link).
+    /// Link punch/layout is unreliable — warn and abort rather than proceed.
+    /// </summary>
+    /// <returns><c>true</c> if the caller should abort.</returns>
+    private bool WarnIfLinkFrameSelected()
+    {
+        var style = GetSelectedOfFrameStyle(_ofSelected);
+        if (style != CardFrameStyle.Link)
+            return false;
+
+        MessageBox.Show(
+            "Link frames are not reliably supported for over-frame punch/layout.\n\n" +
+            "This action has been cancelled. Choose a different frame style (for example Effect (ext)) if you still want to continue.",
+            "Floowan — Link frame unsupported",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
+        return true;
+    }
+
     private void RefreshOfGateEntryStatus()
     {
         if (_ofSelected is null || _overFrameService is null || string.IsNullOrWhiteSpace(GamePathBox.Text) || !_ofGateReady)
@@ -634,6 +654,8 @@ public partial class MainWindow : Window
             MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
             return;
         }
+        if (WarnIfLinkFrameSelected())
+            return;
 
         IsEnabled = false;
         var card = _ofSelected;
@@ -704,6 +726,8 @@ public partial class MainWindow : Window
             MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
             return;
         }
+        if (WarnIfLinkFrameSelected())
+            return;
 
         if (!_ofGateReady)
             await EnsureOfGateAsync(showErrors: true);
@@ -789,6 +813,8 @@ public partial class MainWindow : Window
             MessageBox.Show("Select a 704×1024 replacement image first.", "Floowan");
             return;
         }
+        if (WarnIfLinkFrameSelected())
+            return;
 
         if (!_ofGateReady)
             await EnsureOfGateAsync(showErrors: true);
@@ -835,6 +861,8 @@ public partial class MainWindow : Window
             MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
             return;
         }
+        if (WarnIfLinkFrameSelected())
+            return;
 
         if (!_ofGateReady)
             await EnsureOfGateAsync(showErrors: true);
@@ -878,6 +906,8 @@ public partial class MainWindow : Window
             MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
             return;
         }
+        if (WarnIfLinkFrameSelected())
+            return;
 
         if (!_ofGateReady)
             await EnsureOfGateAsync(showErrors: true);
@@ -912,6 +942,8 @@ public partial class MainWindow : Window
     private async void OfRestore_Click(object sender, RoutedEventArgs e)
     {
         if (_overFrameService is null || _ofSelected is null || string.IsNullOrWhiteSpace(GamePathBox.Text))
+            return;
+        if (WarnIfLinkFrameSelected())
             return;
 
         if (!_ofGateReady)
