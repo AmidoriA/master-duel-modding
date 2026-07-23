@@ -14,5 +14,7 @@ public enum CardFrameStyle
     Ritual,
     Spell,
     Trap,
-    Link
+    Link,
+    /// <summary>Master Duel <c>card_frame14</c> — Effect Pendulum face (taller-illust / shorter hole).</summary>
+    Pendulum
 }

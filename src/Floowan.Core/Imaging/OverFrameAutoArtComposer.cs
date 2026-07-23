@@ -41,6 +41,18 @@ public static class OverFrameAutoArtComposer
     public static Rectangle ArtWindow { get; } = new(89, 191, 527, 528);
 
     /// <summary>
+    /// Fallback art window for Master Duel Pendulum faces (<c>card_frame13</c>–<c>19</c>):
+    /// wider and shorter (~604×451) to leave room for pendulum scales / text.
+    /// </summary>
+    public static Rectangle PendulumArtWindow { get; } = new(50, 186, 604, 451);
+
+    /// <summary>
+    /// Top crop height from a native 512×1024 Pendulum illust that maps into the
+    /// frame art hole (community UV / MD-Card-Mod-Tool convention).
+    /// </summary>
+    public const int PendulumIllustArtHeight = 596;
+
+    /// <summary>
     /// Canonical lore cream panel from <c>Effect.png</c>. All frame styles use this
     /// layout for punch/cut (color detection fails on Synchro white, Link dark, Normal yellow).
     /// </summary>
@@ -72,13 +84,20 @@ public static class OverFrameAutoArtComposer
         ArgumentNullException.ThrowIfNull(mask);
 
         using var frame = CardFrameTemplates.Load(frameStyle, frameDirectory);
-        return Compose(source, mask, frame);
+        return Compose(source, mask, frame, useSharedEffectLayout: frameStyle != CardFrameStyle.Pendulum);
     }
 
     public static Image<Rgba32> Compose(
         Image<Rgba32> source,
         Image<L8> mask,
-        Image<Rgba32> frameTemplate)
+        Image<Rgba32> frameTemplate) =>
+        Compose(source, mask, frameTemplate, useSharedEffectLayout: true);
+
+    public static Image<Rgba32> Compose(
+        Image<Rgba32> source,
+        Image<L8> mask,
+        Image<Rgba32> frameTemplate,
+        bool useSharedEffectLayout)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(mask);
@@ -136,10 +155,21 @@ public static class OverFrameAutoArtComposer
             Sampler = KnownResamplers.Lanczos3
         }));
 
-        // All styles share Effect art-hole + lore geometry. Styles with a larger hole used to
-        // shift scale / type-line / wings — patch oversized holes, then use ArtWindow.
-        NormalizeFrameToSharedArtLayout(frame);
-        var artWindow = ArtWindow;
+        Rectangle artWindow;
+        if (useSharedEffectLayout)
+        {
+            // All non-Pendulum styles share Effect art-hole + lore geometry.
+            NormalizeFrameToSharedArtLayout(frame);
+            artWindow = ArtWindow;
+        }
+        else
+        {
+            // Pendulum faces keep their native wider/shorter hole (≈603×450).
+            artWindow = DetectArtWindow(frame);
+            if (artWindow.IsEmpty)
+                artWindow = PendulumArtWindow;
+            EnsureArtWindowHole(frame, artWindow);
+        }
 
         var cover = Math.Max(
             artWindow.Width / (float)source.Width,
@@ -166,9 +196,9 @@ public static class OverFrameAutoArtComposer
         var yOffset = bgY + (int)MathF.Round(bounds.Top * scale);
 
         // 1) Art window + type-line strip + soft lore underlay (not lore side wings).
-        var textBox = ResolveTextBox(frame, artWindow);
-        var loreCutTop = ResolveLoreCutTop(frame, textBox, artWindow);
-        var loreOuter = ResolveLoreOuterBorder(frame, textBox, artWindow);
+        var textBox = ResolveTextBox(frame, artWindow, useSharedEffectLayout);
+        var loreCutTop = ResolveLoreCutTop(frame, textBox, artWindow, useSharedEffectLayout);
+        var loreOuter = ResolveLoreOuterBorder(frame, textBox, artWindow, useSharedEffectLayout);
         // Type-line fill stays art-hole-wide (avoids horizontal corner stubs).
         var typeLineStrip = ResolveTypeLineStrip(artWindow, loreCutTop);
         var canvas = CreateFoilMaskArtBase(source, artWindow, scaledSourceW, scaledSourceH, bgX, bgY);
@@ -223,7 +253,7 @@ public static class OverFrameAutoArtComposer
             return Rectangle.Empty;
 
         var hole = Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
-        // Ignore stray transparent edge pixels; real MD holes are ~500px+.
+        // Ignore stray transparent edge pixels; real MD holes are ~450px+ (Pendulum) / ~500px+.
         return hole.Width >= 400 && hole.Height >= 400 ? hole : Rectangle.Empty;
     }
 
@@ -515,9 +545,10 @@ public static class OverFrameAutoArtComposer
     }
 
     /// <summary>
-    /// Master Duel illustrations are 512×512. An existing over-frame texture is
-    /// 704×1024; Cover-scaling that full card face into the art hole misaligns the
-    /// lore cut and produces frame-in-frame. Re-extract the art-hole pixels as 512×512.
+    /// Master Duel illustrations are 512×512 (normal) or 512×1024 (Pendulum). An existing
+    /// over-frame texture is 704×1024; Cover-scaling that full card face into the art hole
+    /// misaligns the lore cut and produces frame-in-frame. Re-extract the art-hole pixels.
+    /// Pendulum illusts keep the top art crop (not the full tall canvas / scale strip).
     /// </summary>
     public static Image<Rgba32> ExtractIllustrationSource(Image<Rgba32> source)
     {
@@ -540,6 +571,20 @@ public static class OverFrameAutoArtComposer
                     Sampler = KnownResamplers.Lanczos3
                 });
             });
+        }
+
+        if (CardArtTextureSizes.IsPendulum(source.Width, source.Height) ||
+            (CardArtTextureSizes.HasPendulumAspect(source.Width, source.Height) &&
+             source.Height > source.Width))
+        {
+            var cropHeight = Math.Min(
+                source.Height,
+                Math.Max(1, (int)Math.Round(source.Width * (PendulumIllustArtHeight / 512.0))));
+            if (CardArtTextureSizes.IsPendulum(source.Width, source.Height))
+                cropHeight = Math.Min(source.Height, PendulumIllustArtHeight);
+
+            var crop = new Rectangle(0, 0, source.Width, cropHeight);
+            return source.Clone(ctx => ctx.Crop(crop));
         }
 
         return source.Clone();
@@ -651,17 +696,45 @@ public static class OverFrameAutoArtComposer
         width == Assets.OverFrameConstants.Width && height == Assets.OverFrameConstants.Height;
 
     public static bool IsLikelyOriginalIllustrationSize(int width, int height) =>
-        width == 512 && height == 512;
+        CardArtTextureSizes.IsNormal(width, height) ||
+        CardArtTextureSizes.IsPendulum(width, height) ||
+        CardArtTextureSizes.HasPendulumAspect(width, height);
 
-    private static Rectangle ResolveTextBox(Image<Rgba32> frame, Rectangle artWindow)
+    private static Rectangle ResolveTextBox(
+        Image<Rgba32> frame,
+        Rectangle artWindow,
+        bool useSharedEffectLayout)
     {
+        if (!useSharedEffectLayout)
+        {
+            var detected = DetectTextBox(frame, artWindow);
+            if (!detected.IsEmpty)
+                return detected;
+            // Pendulum cream starts just under the shorter art hole.
+            var fallbackTop = Math.Min(frame.Height - 1, artWindow.Bottom + 8);
+            return ClampToFrame(
+                new Rectangle(44, fallbackTop, 615, Math.Max(80, frame.Height - fallbackTop - 40)),
+                frame.Width,
+                frame.Height);
+        }
+
         // Always use Effect lore geometry so Normal/Synchro/Link/… match Effect punch layout.
-        _ = artWindow;
         return ClampToFrame(EffectLoreCream, frame.Width, frame.Height);
     }
 
-    private static int ResolveLoreCutTop(Image<Rgba32> frame, Rectangle creamPanel, Rectangle artWindow)
+    private static int ResolveLoreCutTop(
+        Image<Rgba32> frame,
+        Rectangle creamPanel,
+        Rectangle artWindow,
+        bool useSharedEffectLayout)
     {
+        if (!useSharedEffectLayout)
+        {
+            if (!creamPanel.IsEmpty)
+                return Math.Clamp(creamPanel.Top - 4, artWindow.Bottom, frame.Height - 1);
+            return Math.Clamp(artWindow.Bottom + 4, 0, frame.Height - 1);
+        }
+
         _ = frame;
         _ = creamPanel;
         _ = artWindow;
@@ -671,8 +744,17 @@ public static class OverFrameAutoArtComposer
     private static Rectangle ResolveLoreOuterBorder(
         Image<Rgba32> frame,
         Rectangle creamPanel,
-        Rectangle artWindow)
+        Rectangle artWindow,
+        bool useSharedEffectLayout)
     {
+        if (!useSharedEffectLayout)
+        {
+            if (creamPanel.IsEmpty)
+                return creamPanel;
+            var inflated = Rectangle.Inflate(creamPanel, 12, 4);
+            return ClampToFrame(inflated, frame.Width, frame.Height);
+        }
+
         _ = creamPanel;
         _ = artWindow;
         return ClampToFrame(EffectLoreOuter, frame.Width, frame.Height);

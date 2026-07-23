@@ -61,11 +61,18 @@ public sealed class AutoOverFrameArtService : IDisposable
         {
             using var loaded = Image.Load<Rgba32>(sourceImagePath);
             // Refuse framed / OF sources — cropping a nested card still nests frames.
+            // Pendulum 512×1024 is cropped to the top art band before rembg.
             using var source = OverFrameAutoArtComposer.RequireCleanIllustrationSource(loaded);
             if (OverFrameAutoArtComposer.IsOverFrameTextureSize(loaded.Width, loaded.Height))
             {
                 progress?.Report(
-                    "Source was 704×1024 — verified clean 512×512 illustration before rembg…");
+                    "Source was 704×1024 — verified clean illustration before rembg…");
+            }
+            else if (CardArtTextureSizes.IsPendulum(loaded.Width, loaded.Height) ||
+                     CardArtTextureSizes.HasPendulumAspect(loaded.Width, loaded.Height))
+            {
+                progress?.Report(
+                    $"Source was Pendulum {loaded.Width}×{loaded.Height} — using top art crop for rembg…");
             }
 
             using var mask = PredictMask(source);

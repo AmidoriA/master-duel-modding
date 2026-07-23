@@ -1100,7 +1100,10 @@ public partial class MainWindow : Window
 
             OfDetailText.Text = _ofLiveTextureIsOverframe
                 ? $"Live over-frame '{info.Name}' {info.Width}x{info.Height} format={info.Format}. Showing full {OverFrameConstants.Width}x{OverFrameConstants.Height} canvas (foil-mask flattened for preview)."
-                : $"Texture '{info.Name}' {info.Width}x{info.Height} format={info.Format}. Normal art ? Auto-create builds {OverFrameConstants.Width}x{OverFrameConstants.Height} RGBA32.";
+                : $"Texture '{info.Name}' {CardArtTextureSizes.Describe(info.Width, info.Height)} format={info.Format}. " +
+                  (CardArtTextureSizes.Classify(info.Width, info.Height) == CardArtSizeKind.Pendulum
+                      ? "Pendulum art ? Auto-create with Frame=Pendulum builds 704x1024 RGBA32."
+                      : $"Normal art ? Auto-create builds {OverFrameConstants.Width}x{OverFrameConstants.Height} RGBA32.");
         }
         catch (Exception ex)
         {
@@ -1276,7 +1279,19 @@ public partial class MainWindow : Window
             return;
 
         _ofReplacementImagePath = dlg.FileName;
-        OfImagePathText.Text = "Replacement (prefer 704?1024): " + dlg.FileName;
+        var validation = ImagePreparation.Validate(
+            dlg.FileName, OverFrameConstants.Width, OverFrameConstants.Height);
+        var sizeNote = validation.IsValid
+            ? CardArtTextureSizes.Describe(validation.Width, validation.Height)
+            : "unreadable";
+        var pendulumNote = validation.IsValid &&
+                           CardArtTextureSizes.Classify(validation.Width, validation.Height) == CardArtSizeKind.Pendulum
+            ? " Pendulum-aspect source ? prefer Auto-create (Pendulum frame) to build 704x1024 before Apply."
+            : "";
+        OfImagePathText.Text =
+            $"Replacement (prefer 704x1024, got {sizeNote}): {dlg.FileName}{pendulumNote}";
+        if (!string.IsNullOrEmpty(pendulumNote))
+            Status("Pendulum-sized image selected for Over-frame. Auto-create maps it into the Pendulum frame hole.");
         OfReplacementImage.Source = LoadOfComposePreview(dlg.FileName);
         ApplyOfPreviewLayout(hasReplacement: true);
     }

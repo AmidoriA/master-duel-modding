@@ -13,6 +13,7 @@
 - Restore from backup
 - **Pendulum card art**: export PNG at the live Texture2D size (typically **512×1024**); import accepts **512×512**, **512×1024**, and Pendulum 1:2 aspect — letterboxed on aspect mismatch (never squashed into a square)
 - **Over-frame tab**: apply **704×1024** art, register the card in `of_card_asset`, enable/remove gate entries, restore backups
+- **Pendulum over-frame**: Frame dropdown includes **Pendulum** (`card_frame14`); Auto-create crops 512×1024 sources to the top art band and composites into the wider/shorter Pendulum art hole
 - **Auto-create over-frame art**: remove the current art background with rembg’s `isnet-anime` model, trim/resize the subject, and preview it on a transparent 704×1024 canvas
 
 ## Projects
