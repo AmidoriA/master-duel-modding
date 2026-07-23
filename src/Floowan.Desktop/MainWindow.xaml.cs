@@ -112,8 +112,10 @@ public partial class MainWindow : Window
     private void OpenDatabase(string path)
     {
         _database?.Dispose();
-        _database = new CardDatabase(path);
+        var userPath = UserDatabasePaths.ResolveDefaultPath();
+        _database = new CardDatabase(path, userPath);
         DatabasePathBox.Text = path;
+        UserDatabasePathBox.Text = _database.UserDatabasePath;
         var flag = _database.GetCreateBackupFlag();
         if (flag is bool b)
             CreateBackupBox.IsChecked = b;
@@ -193,7 +195,7 @@ public partial class MainWindow : Window
     {
         var dlg = new OpenFileDialog
         {
-            Title = "Open Floowandereeze database.db",
+            Title = "Open master card catalog (database.db)",
             Filter = "SQLite DB (*.db)|*.db|All files|*.*"
         };
         if (dlg.ShowDialog(this) == true)
@@ -202,7 +204,9 @@ public partial class MainWindow : Window
             RunSearch();
             RunOfSearch();
             RunDatabaseQuery(resetOffset: true);
-            Status("Opened database: " + dlg.FileName);
+            Status(
+                "Opened master: " + dlg.FileName +
+                " · user: " + (_database?.UserDatabasePath ?? UserDatabasePaths.ResolveDefaultPath()));
         }
     }
 

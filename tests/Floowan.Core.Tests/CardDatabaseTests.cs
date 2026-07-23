@@ -16,41 +16,49 @@ public class CardDatabaseTests
         return candidates.FirstOrDefault(File.Exists);
     }
 
+    private static string TempPath(string prefix) =>
+        Path.Combine(Path.GetTempPath(), prefix + Guid.NewGuid().ToString("N") + ".db");
+
     private static string? CopyDatabaseToTemp()
     {
         var source = FindDatabase();
         if (source is null)
             return null;
 
-        var dest = Path.Combine(Path.GetTempPath(), $"floowan-db-test-{Guid.NewGuid():N}.db");
+        var dest = TempPath("floowan-db-test-");
         File.Copy(source, dest, overwrite: true);
         return dest;
     }
 
-    [Fact]
-    public void SearchCards_WithSearchDescription_MatchesDescriptionAndModdedDescription()
+    private static void TryDelete(params string?[] paths)
     {
-        var path = Path.Combine(Path.GetTempPath(), "floowan-search-desc-" + Guid.NewGuid().ToString("N") + ".db");
-        try
+        foreach (var path in paths)
         {
-            using (var conn = new SqliteConnection(new SqliteConnectionStringBuilder
-            {
-                DataSource = path,
-                Mode = SqliteOpenMode.ReadWriteCreate
-            }.ToString()))
-            {
-                conn.Open();
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = @"
+            if (string.IsNullOrEmpty(path)) continue;
+            try { File.Delete(path); } catch { /* ignore */ }
+        }
+    }
+
+    private static void CreateLegacyMonolithicDatabase(string path)
+    {
+        using var conn = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Mode = SqliteOpenMode.ReadWriteCreate
+        }.ToString());
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
 CREATE TABLE app_config (
   id INTEGER PRIMARY KEY,
   mipmap_count INTEGER NOT NULL,
   game_path VARCHAR(610) NOT NULL,
   packer VARCHAR(5) NOT NULL,
-  create_backup BOOLEAN NOT NULL
+  create_backup BOOLEAN NOT NULL,
+  of_card_asset_bundle VARCHAR(8)
 );
-INSERT INTO app_config (id, mipmap_count, game_path, packer, create_backup)
-VALUES (1, 1, 'C:\game', 'lz4', 1);
+INSERT INTO app_config (id, mipmap_count, game_path, packer, create_backup, of_card_asset_bundle)
+VALUES (1, 10, 'C:\legacy\game', 'lz4', 0, 'deadbeef');
 
 CREATE TABLE card (
   name VARCHAR(255) NOT NULL,
@@ -62,17 +70,118 @@ CREATE TABLE card (
   id INTEGER NOT NULL PRIMARY KEY,
   favorite BOOLEAN NOT NULL,
   has_backup BOOLEAN NOT NULL,
+  is_overframe INTEGER NOT NULL DEFAULT 0,
+  overframe_base_id INTEGER,
+  art_id INTEGER,
   UNIQUE (bundle)
 );
-INSERT INTO card (name, description, bundle, modded_name, modded_description, data_index, id, favorite, has_backup)
-VALUES ('Alpha', 'Summons a unique token', 'aaa11111', NULL, NULL, 0, 1, 0, 0),
-       ('Beta', 'plain desc', 'bbb22222', NULL, 'Modded unique effect', 0, 2, 0, 0),
-       ('Gamma', 'unrelated', 'ccc33333', NULL, NULL, 0, 3, 0, 0);
+INSERT INTO card (name, description, bundle, modded_name, modded_description, data_index, id, favorite, has_backup, is_overframe, overframe_base_id, art_id)
+VALUES ('Alpha', 'Summons a unique token', 'aaa11111', 'Mod Alpha', NULL, 0, 1, 1, 1, 1, 9, 1001),
+       ('Beta', 'plain desc', 'bbb22222', NULL, 'Modded unique effect', 0, 2, 0, 0, 0, NULL, NULL),
+       ('Gamma', 'unrelated', 'ccc33333', NULL, NULL, 0, 3, 0, 0, 0, NULL, NULL);
 ";
-                cmd.ExecuteNonQuery();
+        cmd.ExecuteNonQuery();
+    }
+
+    [Fact]
+    public void Open_SeedsUserDb_WhenMissing()
+    {
+        var master = TempPath("floowan-seed-master-");
+        var user = TempPath("floowan-seed-user-");
+        try
+        {
+            CreateLegacyMonolithicDatabase(master);
+            Assert.False(File.Exists(user));
+
+            using (var db = new CardDatabase(master, user))
+            {
+                Assert.True(File.Exists(user));
+                Assert.Equal(user, db.UserDatabasePath);
+                Assert.Equal(3, db.CountCards());
+                // Defaults were overwritten by legacy migration from master app_config.
+                Assert.Equal(@"C:\legacy\game", db.GetStoredGamePath());
+                Assert.Equal("deadbeef", db.GetOfCardAssetBundleId());
+                Assert.False(db.GetCreateBackupFlag());
             }
 
-            using var db = new CardDatabase(path);
+            // Re-open: schema already present, no exception.
+            using (var db2 = new CardDatabase(master, user))
+            {
+                Assert.Equal(3, db2.CountCards());
+                Assert.Equal("deadbeef", db2.GetOfCardAssetBundleId());
+            }
+        }
+        finally
+        {
+            TryDelete(master, user);
+        }
+    }
+
+    [Fact]
+    public void Open_MigratesLegacyUserColumns_IntoUserDb_AndStopsWritingMasterUserFields()
+    {
+        var master = TempPath("floowan-mig-master-");
+        var user = TempPath("floowan-mig-user-");
+        try
+        {
+            CreateLegacyMonolithicDatabase(master);
+
+            using (var db = new CardDatabase(master, user))
+            {
+                var alpha = db.GetById(1)!;
+                Assert.True(alpha.Favorite);
+                Assert.True(alpha.HasBackup);
+                Assert.True(alpha.IsOverframe);
+                Assert.Equal(9, alpha.OverframeBaseId);
+                Assert.Equal(1001, alpha.ArtId);
+                Assert.Equal("Mod Alpha", alpha.ModdedName);
+
+                db.SetHasBackup(1, false);
+                db.SetOverframe(1, false);
+                db.UpdateCard(1, alpha.Name, alpha.Description, moddedName: null, moddedDescription: null, favorite: false);
+            }
+
+            // Master legacy user columns should still hold pre-migration values (not stripped / not rewritten).
+            using (var conn = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = master,
+                Mode = SqliteOpenMode.ReadOnly
+            }.ToString()))
+            {
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT favorite, has_backup, is_overframe, modded_name FROM card WHERE id = 1;";
+                using var reader = cmd.ExecuteReader();
+                Assert.True(reader.Read());
+                Assert.Equal(1, Convert.ToInt32(reader.GetValue(0)));
+                Assert.Equal(1, Convert.ToInt32(reader.GetValue(1)));
+                Assert.Equal(1, Convert.ToInt32(reader.GetValue(2)));
+                Assert.Equal("Mod Alpha", reader.GetString(3));
+            }
+
+            using var db2 = new CardDatabase(master, user);
+            var after = db2.GetById(1)!;
+            Assert.False(after.Favorite);
+            Assert.False(after.HasBackup);
+            Assert.False(after.IsOverframe);
+            Assert.Null(after.ModdedName);
+        }
+        finally
+        {
+            TryDelete(master, user);
+        }
+    }
+
+    [Fact]
+    public void SearchCards_WithSearchDescription_MatchesDescriptionAndModdedDescription()
+    {
+        var path = TempPath("floowan-search-desc-");
+        var user = TempPath("floowan-search-desc-user-");
+        try
+        {
+            CreateLegacyMonolithicDatabase(path);
+
+            using var db = new CardDatabase(path, user);
 
             var nameOnly = db.SearchCards("unique", searchDescription: false);
             Assert.Empty(nameOnly);
@@ -84,7 +193,7 @@ VALUES ('Alpha', 'Summons a unique token', 'aaa11111', NULL, NULL, 0, 1, 0, 0),
         }
         finally
         {
-            try { File.Delete(path); } catch { /* ignore */ }
+            TryDelete(path, user);
         }
     }
 
@@ -98,11 +207,19 @@ VALUES ('Alpha', 'Summons a unique token', 'aaa11111', NULL, NULL, 0, 1, 0, 0),
             return;
         }
 
-        using var db = new CardDatabase(dbPath);
-        Assert.True(db.CountCards() > 0);
-        var hits = db.SearchCards("Dragon", limit: 20);
-        Assert.NotEmpty(hits);
-        Assert.All(hits, c => Assert.False(string.IsNullOrWhiteSpace(c.Bundle)));
+        var user = TempPath("floowan-search-user-");
+        try
+        {
+            using var db = new CardDatabase(dbPath, user);
+            Assert.True(db.CountCards() > 0);
+            var hits = db.SearchCards("Dragon", limit: 20);
+            Assert.NotEmpty(hits);
+            Assert.All(hits, c => Assert.False(string.IsNullOrWhiteSpace(c.Bundle)));
+        }
+        finally
+        {
+            TryDelete(user);
+        }
     }
 
     [Fact]
@@ -112,29 +229,37 @@ VALUES ('Alpha', 'Summons a unique token', 'aaa11111', NULL, NULL, 0, 1, 0, 0),
         if (dbPath is null)
             return;
 
-        using var db = new CardDatabase(dbPath);
-        var sample = db.QueryCards(new CardQueryFilters { Limit = 1 }).First();
-
-        var filters = new CardQueryFilters
+        var user = TempPath("floowan-query-user-");
+        try
         {
-            CardId = sample.Id,
-            NameContains = sample.Name.Length >= 3 ? sample.Name[..3] : sample.Name,
-            Favorite = sample.Favorite,
-            HasBackup = sample.HasBackup,
-            HasModdedName = !string.IsNullOrWhiteSpace(sample.ModdedName),
-            HasModdedDescription = !string.IsNullOrWhiteSpace(sample.ModdedDescription),
-            Limit = 25,
-            Offset = 0
-        };
+            using var db = new CardDatabase(dbPath, user);
+            var sample = db.QueryCards(new CardQueryFilters { Limit = 1 }).First();
 
-        var hits = db.QueryCards(filters);
-        Assert.Single(hits);
-        Assert.Equal(sample.Id, hits[0].Id);
-        Assert.Equal(1, db.CountCards(filters));
+            var filters = new CardQueryFilters
+            {
+                CardId = sample.Id,
+                NameContains = sample.Name.Length >= 3 ? sample.Name[..3] : sample.Name,
+                Favorite = sample.Favorite,
+                HasBackup = sample.HasBackup,
+                HasModdedName = !string.IsNullOrWhiteSpace(sample.ModdedName),
+                HasModdedDescription = !string.IsNullOrWhiteSpace(sample.ModdedDescription),
+                Limit = 25,
+                Offset = 0
+            };
 
-        var page = db.QueryCards(new CardQueryFilters { Limit = 50, Offset = 0 });
-        Assert.True(page.Count <= 50);
-        Assert.True(page.Count < db.CountCards());
+            var hits = db.QueryCards(filters);
+            Assert.Single(hits);
+            Assert.Equal(sample.Id, hits[0].Id);
+            Assert.Equal(1, db.CountCards(filters));
+
+            var page = db.QueryCards(new CardQueryFilters { Limit = 50, Offset = 0 });
+            Assert.True(page.Count <= 50);
+            Assert.True(page.Count < db.CountCards());
+        }
+        finally
+        {
+            TryDelete(user);
+        }
     }
 
     [Fact]
@@ -144,9 +269,10 @@ VALUES ('Alpha', 'Summons a unique token', 'aaa11111', NULL, NULL, 0, 1, 0, 0),
         if (dbPath is null)
             return;
 
+        var user = TempPath("floowan-update-user-");
         try
         {
-            using var db = new CardDatabase(dbPath);
+            using var db = new CardDatabase(dbPath, user);
             var card = db.QueryCards(new CardQueryFilters { Limit = 1 }).Single();
 
             db.UpdateCard(
@@ -185,7 +311,7 @@ VALUES ('Alpha', 'Summons a unique token', 'aaa11111', NULL, NULL, 0, 1, 0, 0),
         }
         finally
         {
-            try { File.Delete(dbPath); } catch { /* ignore */ }
+            TryDelete(dbPath, user);
         }
     }
 
@@ -196,9 +322,10 @@ VALUES ('Alpha', 'Summons a unique token', 'aaa11111', NULL, NULL, 0, 1, 0, 0),
         if (dbPath is null)
             return;
 
+        var user = TempPath("floowan-missing-user-");
         try
         {
-            using var db = new CardDatabase(dbPath);
+            using var db = new CardDatabase(dbPath, user);
             var missingId = 2_000_000_001;
             Assert.Null(db.GetById(missingId));
 
@@ -208,7 +335,7 @@ VALUES ('Alpha', 'Summons a unique token', 'aaa11111', NULL, NULL, 0, 1, 0, 0),
         }
         finally
         {
-            try { File.Delete(dbPath); } catch { /* ignore */ }
+            TryDelete(dbPath, user);
         }
     }
 
@@ -219,15 +346,16 @@ VALUES ('Alpha', 'Summons a unique token', 'aaa11111', NULL, NULL, 0, 1, 0, 0),
         if (dbPath is null)
             return;
 
+        var user = TempPath("floowan-nonpos-user-");
         try
         {
-            using var db = new CardDatabase(dbPath);
+            using var db = new CardDatabase(dbPath, user);
             Assert.Throws<ArgumentOutOfRangeException>(() =>
                 db.UpdateCard(0, "Name", "Desc", null, null, false));
         }
         finally
         {
-            try { File.Delete(dbPath); } catch { /* ignore */ }
+            TryDelete(dbPath, user);
         }
     }
 }
