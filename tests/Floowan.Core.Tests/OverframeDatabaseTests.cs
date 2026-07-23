@@ -11,11 +11,13 @@ public class OverframeDatabaseTests
     public void Ctor_Migrates_OverframeColumns_And_SetOverframe()
     {
         var path = Path.Combine(Path.GetTempPath(), "floowan-of-db-" + Guid.NewGuid().ToString("N") + ".db");
+        var user = Path.Combine(Path.GetTempPath(), "floowan-of-user-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
             CreateMinimalDatabase(path);
-            using (var db = new CardDatabase(path))
+            using (var db = new CardDatabase(path, user))
             {
+                Assert.True(File.Exists(user));
                 Assert.Null(db.GetById(1)!.OverframeBaseId);
                 Assert.False(db.GetById(1)!.IsOverframe);
 
@@ -57,7 +59,7 @@ public class OverframeDatabaseTests
             }
 
             // Idempotent migration on reopen
-            using (var db2 = new CardDatabase(path))
+            using (var db2 = new CardDatabase(path, user))
             {
                 Assert.True(db2.GetById(1)!.IsOverframe);
                 Assert.Equal(1001, db2.GetById(1)!.ArtId);
@@ -67,6 +69,7 @@ public class OverframeDatabaseTests
         finally
         {
             try { File.Delete(path); } catch { /* ignore */ }
+            try { File.Delete(user); } catch { /* ignore */ }
         }
     }
 
@@ -74,10 +77,11 @@ public class OverframeDatabaseTests
     public void TryRemoveLegacyPkGateEntry_DoesNotDeleteOtherCardsArtIdTrigger()
     {
         var path = Path.Combine(Path.GetTempPath(), "floowan-of-pk-" + Guid.NewGuid().ToString("N") + ".db");
+        var user = Path.Combine(Path.GetTempPath(), "floowan-of-pk-user-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
             CreateMinimalDatabase(path);
-            using var db = new CardDatabase(path);
+            using var db = new CardDatabase(path, user);
             // Card 1's real MD art id equals card 2's Floowandereeze PK (common collision).
             db.SetArtId(1, 2);
 
@@ -95,6 +99,7 @@ public class OverframeDatabaseTests
         finally
         {
             try { File.Delete(path); } catch { /* ignore */ }
+            try { File.Delete(user); } catch { /* ignore */ }
         }
     }
 

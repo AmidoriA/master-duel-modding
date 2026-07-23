@@ -10,6 +10,8 @@
 **/images/
 **/bundles/
 *.log
+user.db
+**/user.db
 
 # Cloned reference trees (large) — keep local only
 .temp-refs/

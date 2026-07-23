@@ -57,8 +57,12 @@
             <TextBox x:Name="GamePathBox" IsReadOnly="True"/>
           </DockPanel>
           <DockPanel Margin="0,6,0,0">
-            <TextBlock Text="database.db" Width="100" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+            <TextBlock Text="Master DB" Width="100" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
             <TextBox x:Name="DatabasePathBox" IsReadOnly="True"/>
+          </DockPanel>
+          <DockPanel Margin="0,6,0,0">
+            <TextBlock Text="User DB" Width="100" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+            <TextBox x:Name="UserDatabasePathBox" IsReadOnly="True"/>
           </DockPanel>
         </StackPanel>
         <StackPanel Grid.Column="1" Orientation="Vertical" Margin="12,0,0,0">
