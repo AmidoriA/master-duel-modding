@@ -20,16 +20,27 @@ public class FrameLoreLayoutTests
         Assert.Equal(OverFrameAutoArtComposer.EffectLoreCutTop, cut);
     }
 
-    [Fact]
-    public void PendulumTemplate_HasWiderShorterArtHole()
+    [Theory]
+    [InlineData(CardFrameStyle.PendulumNormal)]
+    [InlineData(CardFrameStyle.PendulumEffect)]
+    [InlineData(CardFrameStyle.PendulumFusion)]
+    [InlineData(CardFrameStyle.PendulumSynchro)]
+    [InlineData(CardFrameStyle.PendulumXyz)]
+    [InlineData(CardFrameStyle.PendulumToken)]
+    public void PendulumTemplates_HaveWiderShorterArtHole(CardFrameStyle style)
     {
-        using var pend = CardFrameTemplates.Load(CardFrameStyle.Pendulum);
+        using var pend = CardFrameTemplates.Load(style);
         var art = OverFrameAutoArtComposer.DetectArtWindow(pend);
+        var layout = OverFrameAutoArtComposer.GetPendulumLayout(style);
         Assert.False(art.IsEmpty);
-        Assert.Equal(OverFrameAutoArtComposer.PendulumArtWindow.Width, art.Width);
-        Assert.Equal(OverFrameAutoArtComposer.PendulumArtWindow.Height, art.Height);
+        Assert.Equal(layout.ArtWindow.Width, art.Width);
+        Assert.Equal(layout.ArtWindow.Height, art.Height);
+        Assert.Equal(layout.ArtWindow.X, art.X);
+        Assert.Equal(layout.ArtWindow.Y, art.Y);
         Assert.True(art.Width > OverFrameAutoArtComposer.ArtWindow.Width);
         Assert.True(art.Height < OverFrameAutoArtComposer.ArtWindow.Height);
+        Assert.Equal(OverFrameAutoArtComposer.PendulumLoreCream, layout.LoreCream);
+        Assert.Equal(OverFrameAutoArtComposer.PendulumLoreCutTop, layout.LoreCutTop);
     }
 
     [Theory]

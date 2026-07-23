@@ -537,7 +537,7 @@ public partial class MainWindow : Window
 
         try
         {
-            // Export at native Texture2D size (512×512 normal; Pendulum canvas often 512×1024).
+            // Export at native Texture2D size (512?512 normal; Pendulum canvas often 512?1024).
             _modService.ExtractCardArt(GamePathBox.Text, _selected, dlg.FileName);
             var info = _modService.GetTextureInfo(GamePathBox.Text, _selected);
             var sizeLabel = CardArtTextureSizes.Describe(info.Width, info.Height);
@@ -1102,7 +1102,7 @@ public partial class MainWindow : Window
                 ? $"Live over-frame '{info.Name}' {info.Width}x{info.Height} format={info.Format}. Showing full {OverFrameConstants.Width}x{OverFrameConstants.Height} canvas (foil-mask flattened for preview)."
                 : $"Texture '{info.Name}' {CardArtTextureSizes.Describe(info.Width, info.Height)} format={info.Format}. " +
                   (CardArtTextureSizes.Classify(info.Width, info.Height) == CardArtSizeKind.Pendulum
-                      ? "Pendulum art ? Auto-create with Frame=Pendulum builds 704x1024 RGBA32."
+                      ? "Pendulum art ? Auto-create with a Pendulum frame builds 704x1024 RGBA32."
                       : $"Normal art ? Auto-create builds {OverFrameConstants.Width}x{OverFrameConstants.Height} RGBA32.");
         }
         catch (Exception ex)
@@ -1286,12 +1286,12 @@ public partial class MainWindow : Window
             : "unreadable";
         var pendulumNote = validation.IsValid &&
                            CardArtTextureSizes.Classify(validation.Width, validation.Height) == CardArtSizeKind.Pendulum
-            ? " Pendulum-aspect source ? prefer Auto-create (Pendulum frame) to build 704x1024 before Apply."
+            ? " Pendulum 3:4 source ? prefer Auto-create with the matching Pendulum frame to build 704x1024 before Apply."
             : "";
         OfImagePathText.Text =
             $"Replacement (prefer 704x1024, got {sizeNote}): {dlg.FileName}{pendulumNote}";
         if (!string.IsNullOrEmpty(pendulumNote))
-            Status("Pendulum-sized image selected for Over-frame. Auto-create maps it into the Pendulum frame hole.");
+            Status("Pendulum-sized image selected for Over-frame. Auto-create maps it into the selected Pendulum frame hole.");
         OfReplacementImage.Source = LoadOfComposePreview(dlg.FileName);
         ApplyOfPreviewLayout(hasReplacement: true);
     }

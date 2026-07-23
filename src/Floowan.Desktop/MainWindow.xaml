@@ -210,7 +210,7 @@
               </Expander>
               <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
                 <TextBlock Text="Frame" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,8,0"/>
-                <ComboBox x:Name="OfFrameStyleBox" Width="140">
+                <ComboBox x:Name="OfFrameStyleBox" Width="170">
                   <ComboBoxItem Content="Effect" Tag="Effect"/>
                   <ComboBoxItem Content="Normal" Tag="Normal"/>
                   <ComboBoxItem Content="Fusion" Tag="Fusion"/>
@@ -220,7 +220,13 @@
                   <ComboBoxItem Content="Spell" Tag="Spell"/>
                   <ComboBoxItem Content="Trap" Tag="Trap"/>
                   <ComboBoxItem Content="Link" Tag="Link"/>
-                  <ComboBoxItem Content="Pendulum" Tag="Pendulum"/>
+                  <ComboBoxItem Content="Token" Tag="Token"/>
+                  <ComboBoxItem Content="Pendulum Normal" Tag="PendulumNormal"/>
+                  <ComboBoxItem Content="Pendulum Effect" Tag="PendulumEffect"/>
+                  <ComboBoxItem Content="Pendulum Fusion" Tag="PendulumFusion"/>
+                  <ComboBoxItem Content="Pendulum Synchro" Tag="PendulumSynchro"/>
+                  <ComboBoxItem Content="Pendulum Xyz" Tag="PendulumXyz"/>
+                  <ComboBoxItem Content="Pendulum Token" Tag="PendulumToken"/>
                 </ComboBox>
               </StackPanel>
               <Grid>

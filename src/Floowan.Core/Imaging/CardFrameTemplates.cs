@@ -21,11 +21,25 @@ public static class CardFrameTemplates
             [CardFrameStyle.Spell] = "Spell.png",
             [CardFrameStyle.Trap] = "Trap.png",
             [CardFrameStyle.Link] = "Link.png",
-            [CardFrameStyle.Pendulum] = "Pendulum.png",
+            [CardFrameStyle.Token] = "Token.png",
+            [CardFrameStyle.PendulumNormal] = "PendulumNormal.png",
+            [CardFrameStyle.PendulumEffect] = "PendulumEffect.png",
+            [CardFrameStyle.PendulumFusion] = "PendulumFusion.png",
+            [CardFrameStyle.PendulumSynchro] = "PendulumSynchro.png",
+            [CardFrameStyle.PendulumXyz] = "PendulumXyz.png",
+            [CardFrameStyle.PendulumToken] = "PendulumToken.png",
         };
 
     public static string GetFileName(CardFrameStyle style) =>
         FileNames.TryGetValue(style, out var name) ? name : FileNames[CardFrameStyle.Effect];
+
+    public static bool IsPendulumStyle(CardFrameStyle style) =>
+        style is CardFrameStyle.PendulumNormal
+            or CardFrameStyle.PendulumEffect
+            or CardFrameStyle.PendulumFusion
+            or CardFrameStyle.PendulumSynchro
+            or CardFrameStyle.PendulumXyz
+            or CardFrameStyle.PendulumToken;
 
     public static string ResolveTemplatePath(CardFrameStyle style, string? overrideDirectory = null)
     {
@@ -118,6 +132,7 @@ public static class CardFrameTemplates
                 "/pendulum",
                 "/tuner",
                 "/token",
+                "pendulum ",
                 "spell]",
                 "trap]",
                 "spell card",
@@ -143,7 +158,32 @@ public static class CardFrameTemplates
 
     private static CardFrameStyle InferFromTypeLine(string typeLine)
     {
-        // Special frames first (Link/Xyz/Pendulum/...) -- even when the line also contains /effect.
+        var hasPendulum = typeLine.Contains("pendulum", StringComparison.Ordinal);
+
+        // Pendulum subtypes before plain Extra Deck / Token frames.
+        if (hasPendulum)
+        {
+            if (typeLine.Contains("/xyz", StringComparison.Ordinal) || typeLine.Contains("rank", StringComparison.Ordinal))
+                return CardFrameStyle.PendulumXyz;
+            if (typeLine.Contains("/synchro", StringComparison.Ordinal))
+                return CardFrameStyle.PendulumSynchro;
+            if (typeLine.Contains("/fusion", StringComparison.Ordinal))
+                return CardFrameStyle.PendulumFusion;
+            if (typeLine.Contains("/token", StringComparison.Ordinal) || typeLine.Contains("token]", StringComparison.Ordinal))
+                return CardFrameStyle.PendulumToken;
+            if (typeLine.Contains("/normal", StringComparison.Ordinal) ||
+                typeLine.Contains("pendulum normal", StringComparison.Ordinal) ||
+                typeLine.Contains("[pendulum/normal", StringComparison.Ordinal))
+                return CardFrameStyle.PendulumNormal;
+            // Floowan DB often stores "[Pendulum Effect]" / "[Dragon/Pendulum/Effect]".
+            if (typeLine.Contains("/effect", StringComparison.Ordinal) ||
+                typeLine.Contains("pendulum effect", StringComparison.Ordinal) ||
+                typeLine.Contains("effect]", StringComparison.Ordinal))
+                return CardFrameStyle.PendulumEffect;
+            return CardFrameStyle.PendulumEffect;
+        }
+
+        // Special frames first (Link/Xyz/Token/...) -- even when the line also contains /effect.
         if (typeLine.Contains("/link", StringComparison.Ordinal) || typeLine.StartsWith("[link", StringComparison.Ordinal))
             return CardFrameStyle.Link;
         if (typeLine.Contains("/xyz", StringComparison.Ordinal) || typeLine.Contains("rank", StringComparison.Ordinal))
@@ -154,10 +194,8 @@ public static class CardFrameTemplates
             return CardFrameStyle.Fusion;
         if (typeLine.Contains("/ritual", StringComparison.Ordinal))
             return CardFrameStyle.Ritual;
-        // Pendulum before /effect — e.g. [Dragon/Pendulum/Effect].
-        if (typeLine.Contains("/pendulum", StringComparison.Ordinal) ||
-            typeLine.Contains("pendulum]", StringComparison.Ordinal))
-            return CardFrameStyle.Pendulum;
+        if (typeLine.Contains("/token", StringComparison.Ordinal) || typeLine.Contains("token]", StringComparison.Ordinal))
+            return CardFrameStyle.Token;
         if (ContainsAny(typeLine, "spell]", "spell card", "[spell"))
             return CardFrameStyle.Spell;
         if (ContainsAny(typeLine, "trap]", "trap card", "[trap"))

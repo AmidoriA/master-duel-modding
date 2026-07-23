@@ -15,6 +15,19 @@ public enum CardFrameStyle
     Spell,
     Trap,
     Link,
-    /// <summary>Master Duel <c>card_frame14</c> — Effect Pendulum face (taller-illust / shorter hole).</summary>
-    Pendulum
+    /// <summary>Master Duel <c>card_frame02</c> — Token face.</summary>
+    Token,
+
+    /// <summary>Master Duel <c>card_frame13</c> — Normal Pendulum.</summary>
+    PendulumNormal,
+    /// <summary>Master Duel <c>card_frame14</c> — Effect Pendulum.</summary>
+    PendulumEffect,
+    /// <summary>Master Duel <c>card_frame17</c> — Fusion Pendulum.</summary>
+    PendulumFusion,
+    /// <summary>Master Duel <c>card_frame16</c> — Synchro Pendulum.</summary>
+    PendulumSynchro,
+    /// <summary>Master Duel <c>card_frame15</c> — Xyz Pendulum.</summary>
+    PendulumXyz,
+    /// <summary>Master Duel <c>card_frame19</c> — Token Pendulum.</summary>
+    PendulumToken
 }
