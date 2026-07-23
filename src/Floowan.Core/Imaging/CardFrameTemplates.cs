@@ -21,7 +21,6 @@ public static class CardFrameTemplates
             [CardFrameStyle.Ritual] = "Ritual.png",
             [CardFrameStyle.Spell] = "Spell.png",
             [CardFrameStyle.Trap] = "Trap.png",
-            [CardFrameStyle.Link] = "Link.png",
         };
 
     public static string GetFileName(CardFrameStyle style) =>
@@ -120,9 +119,10 @@ public static class CardFrameTemplates
 
     private static CardFrameStyle InferFromTypeLine(string typeLine)
     {
-        // Order matters: Link/Xyz/… before generic /effect.
+        // Order matters: Xyz/Synchro/… before generic /effect.
+        // Link monsters are not a supported frame template — use Effect (ext).
         if (typeLine.Contains("/link", StringComparison.Ordinal) || typeLine.StartsWith("[link", StringComparison.Ordinal))
-            return CardFrameStyle.Link;
+            return CardFrameStyle.EffectExt;
         if (typeLine.Contains("/xyz", StringComparison.Ordinal) || typeLine.Contains("rank", StringComparison.Ordinal))
             return CardFrameStyle.Xyz;
         if (typeLine.Contains("/synchro", StringComparison.Ordinal))
