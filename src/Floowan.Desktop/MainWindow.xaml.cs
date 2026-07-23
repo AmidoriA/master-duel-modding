@@ -464,7 +464,7 @@ public partial class MainWindow : Window
         }
 
         return card is null
-            ? CardFrameStyle.EffectExt
+            ? CardFrameStyle.Effect
             : CardFrameTemplates.InferStyle(card.Name, card.Description);
     }
 

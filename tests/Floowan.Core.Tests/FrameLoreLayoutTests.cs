@@ -28,7 +28,6 @@ public class FrameLoreLayoutTests
     [InlineData(CardFrameStyle.Ritual)]
     [InlineData(CardFrameStyle.Spell)]
     [InlineData(CardFrameStyle.Trap)]
-    [InlineData(CardFrameStyle.EffectExt)]
     public void Compose_NonEffectStyles_UseEffectLoreWingAndCutGeometry(CardFrameStyle style)
     {
         // Narrow center subject — lore side wings must keep chrome (Effect layout), not be
@@ -75,10 +74,8 @@ public class FrameLoreLayoutTests
     }
 
     [Theory]
-    [InlineData(CardFrameStyle.EffectExt)]
     [InlineData(CardFrameStyle.Synchro)]
-    public void Compose_OtherStyles_MatchEffectArtWindowScale(CardFrameStyle style)
-    {
+    public void Compose_OtherStyles_MatchEffectArtWindowScale(CardFrameStyle style)    {
         using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 180, 40, 255));
         using var mask = new Image<L8>(100, 100, new L8(0));
         for (var y = 0; y < 100; y++)
