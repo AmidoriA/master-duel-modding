@@ -23,6 +23,7 @@ public class FrameLoreLayoutTests
     [Theory]
     [InlineData(CardFrameStyle.Normal)]
     [InlineData(CardFrameStyle.Synchro)]
+    [InlineData(CardFrameStyle.Link)]
     [InlineData(CardFrameStyle.Fusion)]
     [InlineData(CardFrameStyle.Xyz)]
     [InlineData(CardFrameStyle.Ritual)]
@@ -75,6 +76,7 @@ public class FrameLoreLayoutTests
 
     [Theory]
     [InlineData(CardFrameStyle.Synchro)]
+    [InlineData(CardFrameStyle.Link)]
     public void Compose_OtherStyles_MatchEffectArtWindowScale(CardFrameStyle style)    {
         using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 180, 40, 255));
         using var mask = new Image<L8>(100, 100, new L8(0));
