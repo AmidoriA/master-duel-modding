@@ -4,12 +4,18 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Floowan.Core.Assets;
 using Floowan.Core.Game;
+using Floowan.Core.Imaging;
 using Floowan.Core.Models;
+using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.PixelFormats;
+using ImageSharpImage = SixLabors.ImageSharp.Image;
 
 namespace Floowan.Desktop;
 
 /// <summary>
 /// Loads and caches small card-art previews for thumbnail list views.
+/// Over-frame (704×1024 / <see cref="CardRecord.IsOverframe"/>) thumbs show the full
+/// foil-flattened canvas so overflow outside the art hole is visible.
 /// Missing/unreadable bundles resolve to <see cref="Placeholder"/> without throwing.
 /// </summary>
 internal sealed class CardThumbnailCache : IDisposable
@@ -26,7 +32,12 @@ internal sealed class CardThumbnailCache : IDisposable
 
     public ImageSource Placeholder => _placeholder;
 
-    public static string CacheKey(CardRecord card) => $"{card.Id}\u001f{card.Bundle}";
+    /// <summary>
+    /// Cache key includes an OF marker so normal illustration thumbs and full-canvas
+    /// OF thumbs never collide when a card's over-frame state changes.
+    /// </summary>
+    public static string CacheKey(CardRecord card) =>
+        $"{card.Id}\u001f{card.Bundle}\u001f{(card.IsOverframe ? "of" : "n")}";
 
     public bool TryGet(CardRecord card, out ImageSource image)
     {
@@ -40,7 +51,12 @@ internal sealed class CardThumbnailCache : IDisposable
         return false;
     }
 
-    public void Invalidate(CardRecord card) => _cache.TryRemove(CacheKey(card), out _);
+    public void Invalidate(CardRecord card)
+    {
+        // Drop both OF and normal keys — apply/restore may flip IsOverframe.
+        _cache.TryRemove($"{card.Id}\u001f{card.Bundle}\u001fof", out _);
+        _cache.TryRemove($"{card.Id}\u001f{card.Bundle}\u001fn", out _);
+    }
 
     public async Task<ImageSource> GetOrLoadAsync(string? gamePath, CardRecord card, CancellationToken cancellationToken = default)
     {
@@ -66,7 +82,8 @@ internal sealed class CardThumbnailCache : IDisposable
                     await Task.Run(() => _bundles.ExtractTexturePng(bundlePath, tempPath), cancellationToken)
                         .ConfigureAwait(false);
 
-                    var bmp = LoadThumbnail(tempPath);
+                    var bmp = await Task.Run(() => LoadThumbnail(tempPath, card.IsOverframe), cancellationToken)
+                        .ConfigureAwait(false);
                     _cache[key] = bmp;
                     return bmp;
                 }
@@ -98,13 +115,49 @@ internal sealed class CardThumbnailCache : IDisposable
         }
     }
 
-    private static BitmapImage LoadThumbnail(string path)
+    /// <summary>
+    /// Normal arts: decode a small illustration thumb.
+    /// OF / 704×1024: foil-flatten the full canvas (same strategy as OF live preview)
+    /// so overflow above/beside the frame remains visible at Uniform stretch.
+    /// </summary>
+    private static ImageSource LoadThumbnail(string path, bool preferOverframe)
     {
+        var identity = ImageSharpImage.Identify(path);
+        var isOverframeCanvas = preferOverframe
+            || (identity is not null
+                && OverFrameAutoArtComposer.IsOverFrameTextureSize(identity.Width, identity.Height));
+
+        if (isOverframeCanvas)
+            return LoadOverframeThumbnail(path);
+
         var bmp = new BitmapImage();
         bmp.BeginInit();
         bmp.CacheOption = BitmapCacheOption.OnLoad;
         bmp.DecodePixelWidth = 96;
         bmp.UriSource = new Uri(path);
+        bmp.EndInit();
+        bmp.Freeze();
+        return bmp;
+    }
+
+    /// <summary>
+    /// Full 704×1024 OF face with foil-mask alpha raised for WPF visibility.
+    /// Decode width keeps the tall card aspect (overflow not cropped to the art hole).
+    /// </summary>
+    private static ImageSource LoadOverframeThumbnail(string path)
+    {
+        using var image = ImageSharpImage.Load<Rgba32>(path);
+        using var flat = OverFrameAutoArtComposer.FlattenFoilMaskForPreview(image);
+        using var ms = new MemoryStream();
+        flat.Save(ms, new PngEncoder());
+        ms.Position = 0;
+
+        var bmp = new BitmapImage();
+        bmp.BeginInit();
+        bmp.CacheOption = BitmapCacheOption.OnLoad;
+        // ~704:1024 → ~96×140; Uniform in the 72×104 slot shows full-canvas overflow.
+        bmp.DecodePixelWidth = 96;
+        bmp.StreamSource = ms;
         bmp.EndInit();
         bmp.Freeze();
         return bmp;
@@ -118,8 +171,8 @@ internal sealed class CardThumbnailCache : IDisposable
         using (var dc = visual.RenderOpen())
         {
             dc.DrawRectangle(
-                new SolidColorBrush(Color.FromRgb(0x12, 0x16, 0x1A)),
-                new Pen(new SolidColorBrush(Color.FromRgb(0x3A, 0x46, 0x52)), 1),
+                new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x12, 0x16, 0x1A)),
+                new Pen(new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x3A, 0x46, 0x52)), 1),
                 new System.Windows.Rect(0.5, 0.5, w - 1, h - 1));
         }
 
