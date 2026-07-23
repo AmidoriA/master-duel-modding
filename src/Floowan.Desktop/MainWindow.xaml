@@ -184,6 +184,7 @@
               <TextBlock DockPanel.Dock="Top" Text="Over-frame editor" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
               <WrapPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
                 <Button Content="Auto-create &amp; apply" Click="OfAutoCreateAndApply_Click" Background="{StaticResource AccentBrush}"/>
+                <Button Content="Preview" Click="OfPreview_Click"/>
                 <Button Content="Restore backups" Click="OfRestore_Click"/>
               </WrapPanel>
               <Expander DockPanel.Dock="Bottom"
@@ -226,9 +227,13 @@
                   <TextBlock x:Name="OfImagePathText" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
                 </StackPanel>
                 <Border Grid.Row="1" Background="#12161A" Margin="0,12,0,0" CornerRadius="4">
-                  <Grid>
+                  <Grid x:Name="OfPreviewGrid">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition x:Name="OfCurrentPreviewCol" Width="*"/>
+                      <ColumnDefinition x:Name="OfReplacementPreviewCol" Width="0"/>
+                    </Grid.ColumnDefinitions>
                     <Image x:Name="OfCurrentArtImage" Stretch="Uniform" Margin="8"/>
-                    <Image x:Name="OfReplacementImage" Stretch="Uniform" Margin="8" Opacity="0.0"/>
+                    <Image x:Name="OfReplacementImage" Grid.Column="1" Stretch="Uniform" Margin="8" Opacity="0.0"/>
                   </Grid>
                 </Border>
                 <TextBlock Grid.Row="2" x:Name="OfDetailText" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"
