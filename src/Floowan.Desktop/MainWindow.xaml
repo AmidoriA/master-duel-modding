@@ -351,6 +351,38 @@
           </Grid>
         </Grid>
       </TabItem>
+
+      <TabItem x:Name="ToolsTab" Header="Tools">
+        <Grid Margin="0,8,0,0">
+          <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Text="Backups" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <TextBlock DockPanel.Dock="Top"
+                         Text="Browse original files saved before card art and over-frame changes."
+                         Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+
+              <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                <TextBlock Text="Backup folder" Width="100" VerticalAlignment="Center"
+                           Foreground="{StaticResource MutedBrush}"/>
+                <Button DockPanel.Dock="Right" Content="Open in Explorer" Click="ToolsOpenBackupRoot_Click"
+                        Margin="8,0,0,0"/>
+                <TextBox x:Name="ToolsBackupPathBox" IsReadOnly="True"/>
+              </DockPanel>
+
+              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <Button Content="Refresh" Click="ToolsRefreshBackups_Click" Background="{StaticResource AccentBrush}"/>
+                <Button Content="Open selected" Click="ToolsOpenSelected_Click"/>
+              </StackPanel>
+
+              <TextBlock x:Name="ToolsBackupStatusText" DockPanel.Dock="Bottom"
+                         Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+
+              <TreeView x:Name="ToolsBackupTree"
+                        MouseDoubleClick="ToolsBackupTree_MouseDoubleClick"/>
+            </DockPanel>
+          </Border>
+        </Grid>
+      </TabItem>
     </TabControl>
   </DockPanel>
 </Window>
