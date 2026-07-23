@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -38,6 +39,8 @@ public partial class MainWindow : Window
     private int _dbOffset;
     private int _dbTotalMatching;
 
+    private string _backupRoot = Path.Combine(AppContext.BaseDirectory, "backups");
+
     private readonly DispatcherTimer _cardSearchDebounceTimer;
     private readonly DispatcherTimer _ofSearchDebounceTimer;
 
@@ -61,9 +64,10 @@ public partial class MainWindow : Window
     {
         try
         {
-            var backupRoot = Path.Combine(AppContext.BaseDirectory, "backups");
-            _modService = new CardArtModService(backupRoot: backupRoot);
-            _overFrameService = new OverFrameModService(backupRoot: backupRoot);
+            _backupRoot = Path.Combine(AppContext.BaseDirectory, "backups");
+            ToolsBackupPathBox.Text = _backupRoot;
+            _modService = new CardArtModService(backupRoot: _backupRoot);
+            _overFrameService = new OverFrameModService(backupRoot: _backupRoot);
             _autoOverFrameArtService = new AutoOverFrameArtService();
 
             var defaultDb = FindDefaultDatabase();
@@ -370,7 +374,7 @@ public partial class MainWindow : Window
         {
             Title = "Extract card art",
             Filter = "PNG|*.png",
-            FileName = _selected.Bundle + ".png"
+            FileName = DefaultPngExportFileName(_selected)
         };
         if (dlg.ShowDialog(this) != true)
             return;
@@ -404,11 +408,198 @@ public partial class MainWindow : Window
         }
     }
 
+    // --- Tools tab (backup browser) ---
+
+    private void ToolsRefreshBackups_Click(object sender, RoutedEventArgs e) =>
+        EnsureAndRefreshBackupBrowser();
+
+    private void ToolsOpenBackupRoot_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            EnsureBackupRootExists();
+            OpenPathInExplorer(_backupRoot);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void ToolsOpenSelected_Click(object sender, RoutedEventArgs e) =>
+        OpenSelectedBackupItem();
+
+    private void ToolsBackupTree_MouseDoubleClick(object sender, MouseButtonEventArgs e) =>
+        OpenSelectedBackupItem();
+
+    private void EnsureAndRefreshBackupBrowser()
+    {
+        try
+        {
+            EnsureBackupRootExists();
+            ToolsBackupPathBox.Text = _backupRoot;
+            RefreshBackupTree();
+        }
+        catch (Exception ex)
+        {
+            ToolsBackupStatusText.Text = "Error: " + ex.Message;
+            Status("Backup browser error: " + ex.Message);
+        }
+    }
+
+    private void EnsureBackupRootExists()
+    {
+        Directory.CreateDirectory(_backupRoot);
+    }
+
+    private void RefreshBackupTree()
+    {
+        ToolsBackupTree.Items.Clear();
+
+        if (!Directory.Exists(_backupRoot))
+        {
+            ToolsBackupStatusText.Text = "Backup folder does not exist.";
+            return;
+        }
+
+        var dirs = 0;
+        var files = 0;
+        foreach (var entry in EnumerateBackupEntries(_backupRoot))
+        {
+            ToolsBackupTree.Items.Add(CreateBackupTreeItem(entry.path, entry.isDirectory));
+            if (entry.isDirectory)
+                dirs++;
+            else
+                files++;
+        }
+
+        ToolsBackupStatusText.Text = dirs + files == 0
+            ? "Backup folder is empty."
+            : $"Showing {dirs} folder(s), {files} file(s) at root.";
+        Status("Backup browser refreshed.");
+    }
+
+    private static IEnumerable<(string path, bool isDirectory)> EnumerateBackupEntries(string directory)
+    {
+        IEnumerable<string> SafeEnumerate(Func<string, IEnumerable<string>> enumerator)
+        {
+            try
+            {
+                return enumerator(directory);
+            }
+            catch
+            {
+                return Array.Empty<string>();
+            }
+        }
+
+        foreach (var dir in SafeEnumerate(Directory.EnumerateDirectories).OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
+            yield return (dir, true);
+        foreach (var file in SafeEnumerate(Directory.EnumerateFiles).OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
+            yield return (file, false);
+    }
+
+    private TreeViewItem CreateBackupTreeItem(string path, bool isDirectory)
+    {
+        var item = new TreeViewItem
+        {
+            Header = Path.GetFileName(path),
+            Tag = path,
+            IsExpanded = false
+        };
+
+        if (isDirectory)
+        {
+            // Placeholder so the expand arrow appears; children load on expand.
+            item.Items.Add(new TreeViewItem { Header = "…" });
+            item.Expanded += BackupTreeItem_Expanded;
+        }
+
+        return item;
+    }
+
+    private void BackupTreeItem_Expanded(object sender, RoutedEventArgs e)
+    {
+        if (!ReferenceEquals(sender, e.OriginalSource))
+            return;
+        if (sender is not TreeViewItem item || item.Tag is not string path)
+            return;
+
+        item.Expanded -= BackupTreeItem_Expanded;
+        item.Items.Clear();
+
+        if (!Directory.Exists(path))
+            return;
+
+        foreach (var entry in EnumerateBackupEntries(path))
+            item.Items.Add(CreateBackupTreeItem(entry.path, entry.isDirectory));
+    }
+
+    private void OpenSelectedBackupItem()
+    {
+        try
+        {
+            if (ToolsBackupTree.SelectedItem is not TreeViewItem item || item.Tag is not string path)
+            {
+                Status("Select a backup file or folder first.");
+                return;
+            }
+
+            if (!File.Exists(path) && !Directory.Exists(path))
+            {
+                Status("Selected path no longer exists. Refresh and try again.");
+                return;
+            }
+
+            OpenPathInExplorer(path);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static void OpenPathInExplorer(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = path,
+                UseShellExecute = true
+            });
+            return;
+        }
+
+        if (File.Exists(path))
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = "/select,\"" + path + "\"",
+                UseShellExecute = true
+            });
+            return;
+        }
+
+        throw new FileNotFoundException("Path not found: " + path, path);
+    }
+
     // --- Over-frame tab ---
 
     private void MainTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!IsLoaded || OverFrameTab is null)
+        if (!IsLoaded)
+            return;
+
+        if (ToolsTab is not null && ReferenceEquals(MainTabs.SelectedItem, ToolsTab))
+        {
+            EnsureAndRefreshBackupBrowser();
+            return;
+        }
+
+        if (OverFrameTab is null)
             return;
         if (!ReferenceEquals(MainTabs.SelectedItem, OverFrameTab))
             return;
@@ -1290,6 +1481,22 @@ public partial class MainWindow : Window
             Limit = DbPageSize,
             Offset = _dbOffset
         };
+    }
+
+    private static string DefaultPngExportFileName(CardRecord? card)
+    {
+        if (card is null)
+            return "card.png";
+
+        var slug = ImagePreparation.Slugify(card.DisplayName);
+        if (string.IsNullOrWhiteSpace(slug))
+            slug = ImagePreparation.Slugify(card.Name);
+        if (string.IsNullOrWhiteSpace(slug))
+            slug = ImagePreparation.Slugify(card.Bundle);
+        if (string.IsNullOrWhiteSpace(slug))
+            slug = "card";
+
+        return slug + ".png";
     }
 
     private static string? NullIfBlank(string? value)
