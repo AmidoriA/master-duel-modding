@@ -2,6 +2,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Floowan.Core.Assets;
@@ -40,6 +41,12 @@ public partial class MainWindow : Window
 
     private readonly DispatcherTimer _cardSearchDebounceTimer;
     private readonly DispatcherTimer _ofSearchDebounceTimer;
+    private readonly CardThumbnailCache _thumbnailCache = new();
+
+    /// <summary>Session-scoped results view: list vs thumbnails (shared by Card Art and Over-frame).</summary>
+    private bool _useThumbnailView;
+    private bool _viewModeUpdating;
+    private int _thumbnailLoadGeneration;
 
     public MainWindow()
     {
@@ -82,6 +89,7 @@ public partial class MainWindow : Window
             }
 
             Status($"Loaded. Cards in DB: {_database?.CountCards() ?? 0}. Discovered installs: {discovered.Count}.");
+            ApplyResultsViewMode(_useThumbnailView);
             if (_database is not null)
             {
                 RunSearch();
@@ -254,7 +262,112 @@ public partial class MainWindow : Window
             searchDescription: SearchDescBox.IsChecked == true,
             limit: 400);
         CardList.ItemsSource = results;
+        BumpThumbnailLoadGeneration();
         Status($"Showing {results.Count} card(s).");
+    }
+
+    private void CardResultsViewMode_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_viewModeUpdating || CardArtViewThumbRadio is null)
+            return;
+        ApplyResultsViewMode(CardArtViewThumbRadio.IsChecked == true);
+    }
+
+    private void OfResultsViewMode_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_viewModeUpdating || OfViewThumbRadio is null)
+            return;
+        ApplyResultsViewMode(OfViewThumbRadio.IsChecked == true);
+    }
+
+    private void ApplyResultsViewMode(bool thumbnails)
+    {
+        if (CardList is null || OfCardList is null)
+            return;
+
+        _viewModeUpdating = true;
+        try
+        {
+            _useThumbnailView = thumbnails;
+            if (CardArtViewListRadio is not null)
+                CardArtViewListRadio.IsChecked = !thumbnails;
+            if (CardArtViewThumbRadio is not null)
+                CardArtViewThumbRadio.IsChecked = thumbnails;
+            if (OfViewListRadio is not null)
+                OfViewListRadio.IsChecked = !thumbnails;
+            if (OfViewThumbRadio is not null)
+                OfViewThumbRadio.IsChecked = thumbnails;
+
+            ApplyListBoxViewMode(CardList, thumbnails, useDisplayMemberPath: true, listItemTemplate: null);
+            ApplyListBoxViewMode(
+                OfCardList,
+                thumbnails,
+                useDisplayMemberPath: false,
+                listItemTemplate: TryFindResource("OfCardListItemTemplate") as DataTemplate);
+            BumpThumbnailLoadGeneration();
+        }
+        finally
+        {
+            _viewModeUpdating = false;
+        }
+    }
+
+    private void ApplyListBoxViewMode(
+        ListBox list,
+        bool thumbnails,
+        bool useDisplayMemberPath,
+        DataTemplate? listItemTemplate)
+    {
+        if (thumbnails)
+        {
+            list.DisplayMemberPath = null;
+            list.ItemTemplate = TryFindResource("CardThumbnailItemTemplate") as DataTemplate;
+            list.ItemsPanel = (ItemsPanelTemplate)FindResource("CardThumbnailItemsPanel");
+        }
+        else
+        {
+            list.ItemTemplate = listItemTemplate;
+            list.DisplayMemberPath = useDisplayMemberPath ? "DisplayName" : null;
+            list.ItemsPanel = (ItemsPanelTemplate)FindResource("CardListItemsPanel");
+        }
+    }
+
+    private void BumpThumbnailLoadGeneration() => Interlocked.Increment(ref _thumbnailLoadGeneration);
+
+    private async void CardThumbnailImage_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (!_useThumbnailView)
+            return;
+        if (sender is not Image image || image.DataContext is not CardRecord card)
+            return;
+
+        var generation = _thumbnailLoadGeneration;
+        if (_thumbnailCache.TryGet(card, out var cached) && !ReferenceEquals(cached, _thumbnailCache.Placeholder))
+        {
+            image.Source = cached;
+            return;
+        }
+
+        image.Source = _thumbnailCache.Placeholder;
+
+        try
+        {
+            var loaded = await _thumbnailCache.GetOrLoadAsync(GamePathBox.Text, card);
+            if (generation != _thumbnailLoadGeneration)
+                return;
+            if (!image.IsLoaded || image.DataContext is not CardRecord current || current.Id != card.Id)
+                return;
+            image.Source = loaded;
+        }
+        catch (OperationCanceledException)
+        {
+            /* ignore */
+        }
+        catch
+        {
+            if (image.IsLoaded)
+                image.Source = _thumbnailCache.Placeholder;
+        }
     }
 
     private void CardList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -352,6 +465,7 @@ public partial class MainWindow : Window
             {
                 CurrentArtImage.Opacity = 1.0;
                 ReplacementImage.Opacity = 0.0;
+                _thumbnailCache.Invalidate(card);
                 LoadCurrentPreview();
             }
         }
@@ -396,7 +510,10 @@ public partial class MainWindow : Window
             var ok = _modService.RestoreCardArt(GamePathBox.Text, _selected, _database);
             Status(ok ? "Restored from backup." : "No bundle backup found for this card.");
             if (ok)
+            {
+                _thumbnailCache.Invalidate(_selected);
                 LoadCurrentPreview();
+            }
         }
         catch (Exception ex)
         {
@@ -472,6 +589,7 @@ public partial class MainWindow : Window
             overframeOnly: OfOverframeOnlyBox.IsChecked == true,
             limit: 400);
         OfCardList.ItemsSource = results;
+        BumpThumbnailLoadGeneration();
         Status($"Over-frame tab: {results.Count} card(s).");
     }
 
@@ -896,6 +1014,7 @@ public partial class MainWindow : Window
             {
                 OfCurrentArtImage.Opacity = 1.0;
                 OfReplacementImage.Opacity = 0.0;
+                _thumbnailCache.Invalidate(card);
                 RunOfSearch();
                 ReselectOfCard(card.Id);
             }
@@ -958,6 +1077,7 @@ public partial class MainWindow : Window
             {
                 OfCurrentArtImage.Opacity = 1.0;
                 OfReplacementImage.Opacity = 0.0;
+                _thumbnailCache.Invalidate(card);
                 RunOfSearch();
                 ReselectOfCard(card.Id);
             }
@@ -1080,6 +1200,7 @@ public partial class MainWindow : Window
                 result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
             if (result.Success)
             {
+                _thumbnailCache.Invalidate(card);
                 RunOfSearch();
                 ReselectOfCard(card.Id);
             }
@@ -1174,11 +1295,13 @@ public partial class MainWindow : Window
 
     private void Cleanup()
     {
+        BumpThumbnailLoadGeneration();
         _cardSearchDebounceTimer.Stop();
         _ofSearchDebounceTimer.Stop();
         CleanupPreviewTemp();
         CleanupOfPreviewTemp();
         CleanupOfAutoGeneratedTemp();
+        _thumbnailCache.Dispose();
         _modService?.Dispose();
         _overFrameService?.Dispose();
         _autoOverFrameArtService?.Dispose();
