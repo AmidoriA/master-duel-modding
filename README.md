@@ -11,7 +11,7 @@
 - Back up the original bundle file before writing
 - Replace card art in the Unity AssetBundle via **AssetsTools.NET** (UABEA family)
 - Restore from backup
-- **Pendulum card art**: export PNG at the live Texture2D size (typically **512×1024**); import accepts **512×512**, **512×1024**, and Pendulum 1:2 aspect — letterboxed on aspect mismatch (never squashed into a square)
+- **Pendulum card art**: art aspect is **3:4** (typically **512×683**). Export PNG at the live Texture2D size (often a **512×1024** native canvas). Import accepts **512×512**, **512×683**, **512×1024**, and other **3:4** images — letterboxed on aspect mismatch (never squashed)
 - **Over-frame tab**: apply **704×1024** art, register the card in `of_card_asset`, enable/remove gate entries, restore backups
 - **Pendulum over-frame**: Frame dropdown includes **Pendulum** (`card_frame14`); Auto-create crops 512×1024 sources to the top art band and composites into the wider/shorter Pendulum art hole
 - **Auto-create over-frame art**: remove the current art background with rembg’s `isnet-anime` model, trim/resize the subject, and preview it on a transparent 704×1024 canvas
