@@ -220,6 +220,7 @@
                   <ComboBoxItem Content="Spell" Tag="Spell"/>
                   <ComboBoxItem Content="Trap" Tag="Trap"/>
                   <ComboBoxItem Content="Link" Tag="Link"/>
+                  <ComboBoxItem Content="Token" Tag="Token"/>
                 </ComboBox>
               </StackPanel>
               <Grid>

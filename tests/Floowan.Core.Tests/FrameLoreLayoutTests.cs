@@ -29,6 +29,7 @@ public class FrameLoreLayoutTests
     [InlineData(CardFrameStyle.Ritual)]
     [InlineData(CardFrameStyle.Spell)]
     [InlineData(CardFrameStyle.Trap)]
+    [InlineData(CardFrameStyle.Token)]
     public void Compose_NonEffectStyles_UseEffectLoreWingAndCutGeometry(CardFrameStyle style)
     {
         // Narrow center subject — lore side wings must keep chrome (Effect layout), not be
