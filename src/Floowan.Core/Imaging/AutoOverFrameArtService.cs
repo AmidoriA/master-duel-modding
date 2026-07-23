@@ -47,7 +47,7 @@ public sealed class AutoOverFrameArtService : IDisposable
     public async Task CreateAsync(
         string sourceImagePath,
         string outputPngPath,
-        CardFrameStyle frameStyle = CardFrameStyle.EffectExt,
+        CardFrameStyle frameStyle = CardFrameStyle.Effect,
         IProgress<string>? progress = null,
         CancellationToken cancellationToken = default)
     {
