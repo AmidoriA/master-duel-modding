@@ -6,7 +6,6 @@ namespace Floowan.Core.Imaging;
 /// </summary>
 public enum CardFrameStyle
 {
-    EffectExt,
     Effect,
     Normal,
     Fusion,

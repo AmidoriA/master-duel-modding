@@ -151,7 +151,6 @@
               <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
                 <TextBlock Text="Frame" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,8,0"/>
                 <ComboBox x:Name="OfFrameStyleBox" Width="140" SelectedIndex="0">
-                  <ComboBoxItem Content="Effect (ext)" Tag="EffectExt"/>
                   <ComboBoxItem Content="Effect" Tag="Effect"/>
                   <ComboBoxItem Content="Normal" Tag="Normal"/>
                   <ComboBoxItem Content="Fusion" Tag="Fusion"/>
