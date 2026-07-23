@@ -80,12 +80,18 @@ public sealed class CardArtBundleService : IDisposable
             var baseField = am.GetBaseField(assetsInst, texInfo);
             var texture = TextureFile.ReadTextureFile(baseField);
 
+            // Prefer live Texture2D dimensions so Pendulum (512×1024) and normal
+            // (512×512) illusts keep their native canvas. Override only for OF.
             var targetWidth = options.Width
-                ?? (texture.m_Width > 0 ? texture.m_Width : 512);
+                ?? (texture.m_Width > 0 ? texture.m_Width : CardArtTextureSizes.NormalWidth);
             var targetHeight = options.Height
-                ?? (texture.m_Height > 0 ? texture.m_Height : 512);
+                ?? (texture.m_Height > 0 ? texture.m_Height : CardArtTextureSizes.NormalHeight);
 
-            var rgba = ImagePreparation.PrepareRgba32TextureBytes(replacementImagePath, targetWidth, targetHeight);
+            // Card-art path (no size override): letterbox on aspect mismatch so
+            // Pendulum art is never squashed into a square. OF overrides keep Stretch.
+            var preserveAspect = options.Width is null && options.Height is null;
+            var rgba = ImagePreparation.PrepareRgba32TextureBytes(
+                replacementImagePath, targetWidth, targetHeight, preserveAspect);
 
             texture.m_TextureFormat = (int)TextureFormat.RGBA32;
             texture.m_Width = targetWidth;

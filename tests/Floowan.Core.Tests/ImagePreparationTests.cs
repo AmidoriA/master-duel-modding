@@ -37,6 +37,108 @@ public class ImagePreparationTests
     }
 
     [Fact]
+    public void Validate_AcceptsPendulumExactSize_WithInfo()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "floowan-pend-" + Guid.NewGuid().ToString("N") + ".png");
+        try
+        {
+            using (var img = new Image<Rgba32>(512, 1024, Color.Blue))
+                img.SaveAsPng(path);
+
+            var validation = ImagePreparation.Validate(path, expectedWidth: 512, expectedHeight: 1024);
+            Assert.True(validation.IsValid);
+            Assert.Equal(512, validation.Width);
+            Assert.Equal(1024, validation.Height);
+            Assert.Null(validation.Warning);
+            Assert.Contains("Pendulum", validation.Info);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Validate_AcceptsNormalSize_AndWarnsWhenTargetIsPendulum()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "floowan-norm-" + Guid.NewGuid().ToString("N") + ".png");
+        try
+        {
+            using (var img = new Image<Rgba32>(512, 512, Color.Green))
+                img.SaveAsPng(path);
+
+            var validation = ImagePreparation.Validate(path, expectedWidth: 512, expectedHeight: 1024);
+            Assert.True(validation.IsValid);
+            Assert.Contains("letterboxed", validation.Warning, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("normal", validation.Info, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Prepare_PendulumIntoSquare_LetterboxesWithoutSquash()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "floowan-pend-prep-" + Guid.NewGuid().ToString("N") + ".png");
+        try
+        {
+            // Opaque magenta fill — after letterbox into 512×512, left/right bars stay transparent.
+            using (var img = new Image<Rgba32>(512, 1024, new Rgba32(255, 0, 255, 255)))
+                img.SaveAsPng(path);
+
+            var bytes = ImagePreparation.PrepareRgba32TextureBytes(path, 512, 512, preserveAspect: true);
+            Assert.Equal(512 * 512 * 4, bytes.Length);
+
+            // Vertically flipped RGBA. Letterbox Pad centers a 256×512 image in 512×512,
+            // so columns 0 and 511 should be transparent pad, center column opaque.
+            static Rgba32 At(byte[] data, int x, int y)
+            {
+                var i = (y * 512 + x) * 4;
+                return new Rgba32(data[i], data[i + 1], data[i + 2], data[i + 3]);
+            }
+
+            Assert.Equal(0, At(bytes, 0, 256).A);
+            Assert.Equal(0, At(bytes, 511, 256).A);
+            Assert.Equal(255, At(bytes, 256, 256).A);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Prepare_ExactPendulumSize_KeepsPixelCount()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "floowan-pend-exact-" + Guid.NewGuid().ToString("N") + ".png");
+        try
+        {
+            using (var img = new Image<Rgba32>(512, 1024, Color.Orange))
+                img.SaveAsPng(path);
+
+            var bytes = ImagePreparation.PrepareRgba32TextureBytes(path, 512, 1024, preserveAspect: true);
+            Assert.Equal(512 * 1024 * 4, bytes.Length);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void CardArtTextureSizes_ClassifiesKnownSizes()
+    {
+        Assert.Equal(CardArtSizeKind.Normal, CardArtTextureSizes.Classify(512, 512));
+        Assert.Equal(CardArtSizeKind.Pendulum, CardArtTextureSizes.Classify(512, 1024));
+        Assert.Equal(CardArtSizeKind.Pendulum, CardArtTextureSizes.Classify(256, 512));
+        Assert.True(CardArtTextureSizes.IsSupportedCardArtSize(512, 512));
+        Assert.True(CardArtTextureSizes.IsSupportedCardArtSize(512, 1024));
+        Assert.Contains("Pendulum", CardArtTextureSizes.Describe(512, 1024));
+    }
+
+    [Fact]
     public void Slugify_RemovesUnsafeCharacters()
     {
         Assert.Equal("blue-eyes-white-dragon", ImagePreparation.Slugify("Blue-Eyes White Dragon!"));
