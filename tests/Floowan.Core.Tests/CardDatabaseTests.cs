@@ -1,4 +1,5 @@
 using Floowan.Core.Data;
+using Microsoft.Data.Sqlite;
 
 namespace Floowan.Core.Tests;
 
@@ -24,6 +25,67 @@ public class CardDatabaseTests
         var dest = Path.Combine(Path.GetTempPath(), $"floowan-db-test-{Guid.NewGuid():N}.db");
         File.Copy(source, dest, overwrite: true);
         return dest;
+    }
+
+    [Fact]
+    public void SearchCards_WithSearchDescription_MatchesDescriptionAndModdedDescription()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "floowan-search-desc-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            using (var conn = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = path,
+                Mode = SqliteOpenMode.ReadWriteCreate
+            }.ToString()))
+            {
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+CREATE TABLE app_config (
+  id INTEGER PRIMARY KEY,
+  mipmap_count INTEGER NOT NULL,
+  game_path VARCHAR(610) NOT NULL,
+  packer VARCHAR(5) NOT NULL,
+  create_backup BOOLEAN NOT NULL
+);
+INSERT INTO app_config (id, mipmap_count, game_path, packer, create_backup)
+VALUES (1, 1, 'C:\game', 'lz4', 1);
+
+CREATE TABLE card (
+  name VARCHAR(255) NOT NULL,
+  description VARCHAR(255) NOT NULL,
+  bundle VARCHAR(8) NOT NULL,
+  modded_name VARCHAR(255),
+  modded_description VARCHAR(255),
+  data_index INTEGER NOT NULL,
+  id INTEGER NOT NULL PRIMARY KEY,
+  favorite BOOLEAN NOT NULL,
+  has_backup BOOLEAN NOT NULL,
+  UNIQUE (bundle)
+);
+INSERT INTO card (name, description, bundle, modded_name, modded_description, data_index, id, favorite, has_backup)
+VALUES ('Alpha', 'Summons a unique token', 'aaa11111', NULL, NULL, 0, 1, 0, 0),
+       ('Beta', 'plain desc', 'bbb22222', NULL, 'Modded unique effect', 0, 2, 0, 0),
+       ('Gamma', 'unrelated', 'ccc33333', NULL, NULL, 0, 3, 0, 0);
+";
+                cmd.ExecuteNonQuery();
+            }
+
+            using var db = new CardDatabase(path);
+
+            var nameOnly = db.SearchCards("unique", searchDescription: false);
+            Assert.Empty(nameOnly);
+
+            var withDesc = db.SearchCards("unique", searchDescription: true);
+            Assert.Equal(2, withDesc.Count);
+            Assert.Contains(withDesc, c => c.Id == 1);
+            Assert.Contains(withDesc, c => c.Id == 2);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* ignore */ }
+        }
     }
 
     [Fact]

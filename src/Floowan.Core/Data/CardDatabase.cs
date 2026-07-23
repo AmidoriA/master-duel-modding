@@ -118,9 +118,15 @@ public sealed class CardDatabase : IDisposable
         if (query.Length >= 1)
         {
             if (searchDescription)
-                clauses.Add("(name LIKE $q OR description LIKE $q OR IFNULL(modded_name,'') LIKE $q)");
+            {
+                clauses.Add(
+                    "(name LIKE $q OR description LIKE $q OR IFNULL(modded_name,'') LIKE $q OR IFNULL(modded_description,'') LIKE $q)");
+            }
             else
+            {
                 clauses.Add("(name LIKE $q OR IFNULL(modded_name,'') LIKE $q)");
+            }
+
             cmd.Parameters.AddWithValue("$q", $"%{query}%");
         }
 
