@@ -21,6 +21,7 @@ public static class CardFrameTemplates
             [CardFrameStyle.Spell] = "Spell.png",
             [CardFrameStyle.Trap] = "Trap.png",
             [CardFrameStyle.Link] = "Link.png",
+            [CardFrameStyle.Pendulum] = "Pendulum.png",
         };
 
     public static string GetFileName(CardFrameStyle style) =>
@@ -142,7 +143,7 @@ public static class CardFrameTemplates
 
     private static CardFrameStyle InferFromTypeLine(string typeLine)
     {
-        // Special frames first (Link/Xyz/...) -- even when the line also contains /effect.
+        // Special frames first (Link/Xyz/Pendulum/...) -- even when the line also contains /effect.
         if (typeLine.Contains("/link", StringComparison.Ordinal) || typeLine.StartsWith("[link", StringComparison.Ordinal))
             return CardFrameStyle.Link;
         if (typeLine.Contains("/xyz", StringComparison.Ordinal) || typeLine.Contains("rank", StringComparison.Ordinal))
@@ -153,6 +154,10 @@ public static class CardFrameTemplates
             return CardFrameStyle.Fusion;
         if (typeLine.Contains("/ritual", StringComparison.Ordinal))
             return CardFrameStyle.Ritual;
+        // Pendulum before /effect — e.g. [Dragon/Pendulum/Effect].
+        if (typeLine.Contains("/pendulum", StringComparison.Ordinal) ||
+            typeLine.Contains("pendulum]", StringComparison.Ordinal))
+            return CardFrameStyle.Pendulum;
         if (ContainsAny(typeLine, "spell]", "spell card", "[spell"))
             return CardFrameStyle.Spell;
         if (ContainsAny(typeLine, "trap]", "trap card", "[trap"))

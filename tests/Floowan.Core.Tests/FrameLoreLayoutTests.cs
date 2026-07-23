@@ -20,6 +20,18 @@ public class FrameLoreLayoutTests
         Assert.Equal(OverFrameAutoArtComposer.EffectLoreCutTop, cut);
     }
 
+    [Fact]
+    public void PendulumTemplate_HasWiderShorterArtHole()
+    {
+        using var pend = CardFrameTemplates.Load(CardFrameStyle.Pendulum);
+        var art = OverFrameAutoArtComposer.DetectArtWindow(pend);
+        Assert.False(art.IsEmpty);
+        Assert.Equal(OverFrameAutoArtComposer.PendulumArtWindow.Width, art.Width);
+        Assert.Equal(OverFrameAutoArtComposer.PendulumArtWindow.Height, art.Height);
+        Assert.True(art.Width > OverFrameAutoArtComposer.ArtWindow.Width);
+        Assert.True(art.Height < OverFrameAutoArtComposer.ArtWindow.Height);
+    }
+
     [Theory]
     [InlineData(CardFrameStyle.Normal)]
     [InlineData(CardFrameStyle.Synchro)]

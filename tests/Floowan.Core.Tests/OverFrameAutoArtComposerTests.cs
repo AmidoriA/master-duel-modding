@@ -349,6 +349,51 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
+    public void ExtractIllustrationSource_CropsPendulumIllustToTopArtBand()
+    {
+        using var pend = new Image<Rgba32>(512, 1024, new Rgba32(20, 20, 20, 255));
+        for (var y = 0; y < OverFrameAutoArtComposer.PendulumIllustArtHeight; y++)
+        for (var x = 0; x < 512; x++)
+            pend[x, y] = new Rgba32(40, 180, 220, 255);
+        // Bottom half mimics pendulum scales / text — must not remain after extract.
+        for (var y = OverFrameAutoArtComposer.PendulumIllustArtHeight; y < 1024; y++)
+        for (var x = 0; x < 512; x++)
+            pend[x, y] = new Rgba32(233, 207, 183, 255);
+
+        using var extracted = OverFrameAutoArtComposer.ExtractIllustrationSource(pend);
+        Assert.Equal(512, extracted.Width);
+        Assert.Equal(OverFrameAutoArtComposer.PendulumIllustArtHeight, extracted.Height);
+        Assert.True(extracted[256, 100].B > 150);
+        Assert.True(OverFrameAutoArtComposer.IsLikelyOriginalIllustrationSize(512, 1024));
+    }
+
+    [Fact]
+    public void Compose_Pendulum_KeepsNativeWiderArtWindow()
+    {
+        using var source = new Image<Rgba32>(512, 596, new Rgba32(10, 180, 40, 255));
+        using var mask = new Image<L8>(512, 596, new L8(0));
+        for (var y = 100; y < 400; y++)
+        for (var x = 150; x < 360; x++)
+            mask[x, y] = new L8(255);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, CardFrameStyle.Pendulum);
+        Assert.Equal(OverFrameConstants.Width, result.Width);
+        Assert.Equal(OverFrameConstants.Height, result.Height);
+
+        using var frame = CardFrameTemplates.Load(CardFrameStyle.Pendulum);
+        var hole = OverFrameAutoArtComposer.DetectArtWindow(frame);
+        Assert.False(hole.IsEmpty);
+        Assert.True(hole.Width > OverFrameAutoArtComposer.ArtWindow.Width,
+            $"Pendulum hole should be wider than Effect, got {hole}");
+        Assert.True(hole.Height < OverFrameAutoArtComposer.ArtWindow.Height,
+            $"Pendulum hole should be shorter than Effect, got {hole}");
+
+        // Foil art present inside the Pendulum hole (not squashed into Effect square).
+        var sample = result[hole.Left + hole.Width / 2, hole.Top + hole.Height / 2];
+        Assert.True(sample.A > 0, $"expected art in Pendulum hole, got {sample}");
+    }
+
+    [Fact]
     public void LooksLikeFramedCardArt_DetectsLorePanelAndFoilMask()
     {
         using var clean = new Image<Rgba32>(512, 512, new Rgba32(40, 80, 120, 255));
@@ -608,6 +653,12 @@ public class OverFrameAutoArtComposerTests
         Assert.Equal(CardFrameStyle.Ritual, CardFrameTemplates.InferStyle("Relinquished", "[Spellcaster/Ritual/Effect]"));
         Assert.Equal(CardFrameStyle.Trap, CardFrameTemplates.InferStyle("Impulse", "[Trap] card text"));
         Assert.Equal(CardFrameStyle.Spell, CardFrameTemplates.InferStyle("Raigeki", "Spell Card"));
+        Assert.Equal(
+            CardFrameStyle.Pendulum,
+            CardFrameTemplates.InferStyle("Odd-Eyes", "[Dragon/Pendulum/Effect]"));
+        Assert.Equal(
+            CardFrameStyle.Pendulum,
+            CardFrameTemplates.InferStyle("Performapal", "[Spellcaster/Pendulum/Normal]"));
 
         Assert.Equal(
             CardFrameStyle.Effect,
