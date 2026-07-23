@@ -65,7 +65,7 @@ public static class OverFrameAutoArtComposer
     public static Image<Rgba32> Compose(
         Image<Rgba32> source,
         Image<L8> mask,
-        CardFrameStyle frameStyle = CardFrameStyle.EffectExt,
+        CardFrameStyle frameStyle = CardFrameStyle.Effect,
         string? frameDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -136,8 +136,8 @@ public static class OverFrameAutoArtComposer
             Sampler = KnownResamplers.Lanczos3
         }));
 
-        // All styles share Effect art-hole + lore geometry (EffectExt's larger hole used to
-        // shift scale / type-line / wings). Patch oversized holes, then use ArtWindow.
+        // All styles share Effect art-hole + lore geometry. Styles with a larger hole used to
+        // shift scale / type-line / wings — patch oversized holes, then use ArtWindow.
         NormalizeFrameToSharedArtLayout(frame);
         var artWindow = ArtWindow;
 
@@ -228,7 +228,7 @@ public static class OverFrameAutoArtComposer
     }
 
     /// <summary>
-    /// EffectExt (and slight Link offsets) detect a different transparent hole than Effect.
+    /// Non-Effect styles (and slight Link offsets) may detect a different transparent hole.
     /// Fill any extra transparent ring with Effect chrome, then force the shared Effect hole.
     /// </summary>
     private static void NormalizeFrameToSharedArtLayout(Image<Rgba32> frame)

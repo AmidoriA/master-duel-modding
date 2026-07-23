@@ -202,7 +202,7 @@ public class OverFrameAutoArtComposerTests
     [Fact]
     public void Compose_UsesSharedEffectArtWindow_EvenWhenFrameHoleIsLarger()
     {
-        // EffectExt-like hole larger than Effect — compose must still use ArtWindow.
+        // Oversized hole larger than Effect — compose must still use ArtWindow.
         using var frame = CreateSolidFrame();
         var largeHole = new Rectangle(76, 178, 555, 555);
         ClearRect(frame, largeHole);
@@ -599,17 +599,27 @@ public class OverFrameAutoArtComposerTests
     [Fact]
     public void InferStyle_UsesTypeLineNotEffectBody()
     {
+        Assert.Equal(CardFrameStyle.Link, CardFrameTemplates.InferStyle("Accesscode", "[Cyberse/Link/Effect] Link-4"));
+        Assert.Equal(CardFrameStyle.Synchro, CardFrameTemplates.InferStyle("Stardust", "[Dragon/Synchro/Effect]"));
+        Assert.Equal(CardFrameStyle.Effect, CardFrameTemplates.InferStyle("Some Effect", "[Fiend/Effect]"));
         Assert.Equal(CardFrameStyle.Normal, CardFrameTemplates.InferStyle("Fish", "[Fish/Normal] lore"));
         Assert.Equal(CardFrameStyle.Fusion, CardFrameTemplates.InferStyle("Mirrorjade", "[Wyrm/Fusion/Effect] Fusion Monster text"));
-        Assert.Equal(CardFrameStyle.Link, CardFrameTemplates.InferStyle("Accesscode", "[Cyberse/Link/Effect] Link-4"));
+        Assert.Equal(CardFrameStyle.Xyz, CardFrameTemplates.InferStyle("Utopia", "[Warrior/Xyz/Effect]"));
+        Assert.Equal(CardFrameStyle.Ritual, CardFrameTemplates.InferStyle("Relinquished", "[Spellcaster/Ritual/Effect]"));
         Assert.Equal(CardFrameStyle.Trap, CardFrameTemplates.InferStyle("Impulse", "[Trap] card text"));
         Assert.Equal(CardFrameStyle.Spell, CardFrameTemplates.InferStyle("Raigeki", "Spell Card"));
 
         Assert.Equal(
-            CardFrameStyle.EffectExt,
+            CardFrameStyle.Effect,
             CardFrameTemplates.InferStyle(
                 "Some Effect",
                 "[Fiend/Effect] You can Special Summon 1 Link Monster from your Extra Deck."));
+
+        Assert.Null(CardFrameTemplates.InferStyle("No Type Line", "A monster with no bracket type line."));
+        Assert.Null(
+            CardFrameTemplates.InferStyle(
+                "False Spell",
+                "Destroy 1 monster on the field. This card is treated as a Spell Card while face-up."));
     }
 
     private static Image<Rgba32> CreateSolidFrame() =>
