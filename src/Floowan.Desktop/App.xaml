@@ -177,6 +177,13 @@
       <Setter Property="Margin" Value="0,0,12,0"/>
     </Style>
 
+    <Style TargetType="RadioButton">
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Margin" Value="0,0,12,0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+    </Style>
+
     <Style TargetType="ComboBox">
       <Setter Property="Background" Value="{StaticResource ControlBgBrush}"/>
       <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
