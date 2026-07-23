@@ -32,8 +32,10 @@ public static class ImagePreparation
             if (sourceKind == CardArtSizeKind.Pendulum)
             {
                 info = CardArtTextureSizes.IsPendulum(image.Width, image.Height)
-                    ? "Accepted as Pendulum illust (512×1024)."
-                    : $"Accepted as Pendulum aspect ({image.Width}×{image.Height}).";
+                    ? "Accepted as Pendulum art (512×683, 3:4)."
+                    : CardArtTextureSizes.IsPendulumNativeCanvas(image.Width, image.Height)
+                        ? "Accepted as Pendulum native Texture2D canvas (512×1024)."
+                        : $"Accepted as Pendulum 3:4 aspect ({image.Width}×{image.Height}).";
             }
             else if (CardArtTextureSizes.IsNormal(image.Width, image.Height))
             {
@@ -69,7 +71,7 @@ public static class ImagePreparation
     /// Prepares Unity Texture2D RGBA32 pixel bytes (vertically flipped).
     /// Matches the Floowandereeze/UnityPy RGBA32 replacement approach.
     /// When <paramref name="preserveAspect"/> is true (card-art default), mismatched
-    /// aspect ratios are letterboxed instead of squashed — important for Pendulum 512×1024.
+    /// aspect ratios are letterboxed instead of squashed — important for Pendulum 3:4 art.
     /// </summary>
     public static byte[] PrepareRgba32TextureBytes(
         string imagePath,
