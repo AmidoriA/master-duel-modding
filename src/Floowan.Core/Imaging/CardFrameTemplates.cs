@@ -20,6 +20,7 @@ public static class CardFrameTemplates
             [CardFrameStyle.Ritual] = "Ritual.png",
             [CardFrameStyle.Spell] = "Spell.png",
             [CardFrameStyle.Trap] = "Trap.png",
+            [CardFrameStyle.Link] = "Link.png",
         };
 
     public static string GetFileName(CardFrameStyle style) =>
@@ -53,40 +54,46 @@ public static class CardFrameTemplates
     }
 
     /// <summary>
-    /// Best-effort style guess from the card type line (e.g. <c>[Dragon/Effect]</c>).
-    /// Does not scan effect body text — phrases like "Link Monster" there caused false Link predictions.
+    /// Best-effort style guess from the card type line (first lore line starting with <c>[</c>).
+    /// Returns <c>null</c> when there is no confident type line / leading Spell|Trap label —
+    /// never forces Effect from mid-body phrases like "Spell Card".
     /// </summary>
-    public static CardFrameStyle InferStyle(string? name, string? description)
+    public static CardFrameStyle? InferStyle(string? name, string? description)
     {
-        var text = $"{name}\n{description}".ToLowerInvariant();
-        var typeLine = ExtractTypeLine(text);
+        _ = name; // name is unused for inference; kept for call-site compatibility
+        var descriptionText = description ?? string.Empty;
+        var lowerDescription = descriptionText.ToLowerInvariant();
+        var typeLine = ExtractTypeLine(lowerDescription);
         if (typeLine is not null)
             return InferFromTypeLine(typeLine);
 
-        // No bracket type line — only accept explicit spell/trap card labels.
-        if (ContainsAny(text, "spell card", "[spell"))
+        // Spell/Trap usually lack a [type] line — only accept an explicit leading label.
+        var leading = lowerDescription.TrimStart();
+        if (leading.StartsWith("spell card", StringComparison.Ordinal))
             return CardFrameStyle.Spell;
-        if (ContainsAny(text, "trap card", "[trap"))
+        if (leading.StartsWith("trap card", StringComparison.Ordinal))
             return CardFrameStyle.Trap;
 
-        return CardFrameStyle.Effect;
+        return null;
     }
 
     private static string? ExtractTypeLine(string lowerText)
     {
-        // Prefer the first [Race/Types…] line; ignore later bracketed reminders in effects.
-        var start = lowerText.IndexOf('[');
-        while (start >= 0)
+        // Prefer the first lore line that starts with [Race/Types…] — ignore mid-body brackets.
+        foreach (var rawLine in lowerText.Split(new[] { '\r', '\n' }, StringSplitOptions.None))
         {
-            var end = lowerText.IndexOf(']', start + 1);
+            var line = rawLine.TrimStart();
+            if (line.Length == 0)
+                continue;
+            if (!line.StartsWith('['))
+                continue;
+
+            var end = line.IndexOf(']');
             if (end < 0)
-                break;
+                return null;
 
-            var segment = lowerText[start..(end + 1)];
-            if (LooksLikeTypeLine(segment))
-                return segment;
-
-            start = lowerText.IndexOf('[', end + 1);
+            var segment = line[..(end + 1)];
+            return LooksLikeTypeLine(segment) ? segment : null;
         }
 
         return null;
@@ -94,34 +101,50 @@ public static class CardFrameTemplates
 
     private static bool LooksLikeTypeLine(string bracketed)
     {
-        // Real type lines are short and use / separators, e.g. [fiend/effect], [cyberse/link/effect].
-        if (bracketed.Length is < 5 or > 80)
+        // Real type lines are short, e.g. [fiend/effect], [cyberse/link/effect], [dragon], [trap].
+        if (bracketed.Length is < 3 or > 80)
             return false;
 
-        return ContainsAny(
-            bracketed,
-            "/effect",
-            "/normal",
-            "/fusion",
-            "/synchro",
-            "/xyz",
-            "/link",
-            "/ritual",
-            "/pendulum",
-            "/tuner",
-            "/token",
-            "spell]",
-            "trap]",
-            "spell card",
-            "trap card");
+        if (ContainsAny(
+                bracketed,
+                "/effect",
+                "/normal",
+                "/fusion",
+                "/synchro",
+                "/xyz",
+                "/link",
+                "/ritual",
+                "/pendulum",
+                "/tuner",
+                "/token",
+                "spell]",
+                "trap]",
+                "spell card",
+                "trap card"))
+        {
+            return true;
+        }
+
+        // Bare race / short label without known markers → still a type line (→ Normal).
+        var inner = bracketed[1..^1].Trim();
+        if (inner.Length is < 1 or > 40)
+            return false;
+        if (ContainsAny(inner, "once per", "you can", "this card", "special summon"))
+            return false;
+        foreach (var c in inner)
+        {
+            if (!(char.IsLetter(c) || c is ' ' or '/' or '-'))
+                return false;
+        }
+
+        return true;
     }
 
     private static CardFrameStyle InferFromTypeLine(string typeLine)
     {
-        // Order matters: Xyz/Synchro/… before generic /effect.
-        // Link monsters are not a supported frame template — use Effect.
+        // Special frames first — even when the line also contains /Effect.
         if (typeLine.Contains("/link", StringComparison.Ordinal) || typeLine.StartsWith("[link", StringComparison.Ordinal))
-            return CardFrameStyle.Effect;
+            return CardFrameStyle.Link;
         if (typeLine.Contains("/xyz", StringComparison.Ordinal) || typeLine.Contains("rank", StringComparison.Ordinal))
             return CardFrameStyle.Xyz;
         if (typeLine.Contains("/synchro", StringComparison.Ordinal))
@@ -134,12 +157,13 @@ public static class CardFrameTemplates
             return CardFrameStyle.Spell;
         if (ContainsAny(typeLine, "trap]", "trap card", "[trap"))
             return CardFrameStyle.Trap;
-        if (typeLine.Contains("/normal", StringComparison.Ordinal))
-            return CardFrameStyle.Normal;
         if (typeLine.Contains("/effect", StringComparison.Ordinal) || typeLine.Contains("effect]", StringComparison.Ordinal))
             return CardFrameStyle.Effect;
+        if (typeLine.Contains("/normal", StringComparison.Ordinal))
+            return CardFrameStyle.Normal;
 
-        return CardFrameStyle.Effect;
+        // Usable [type] line without special/effect markers → Normal (e.g. [Dragon]).
+        return CardFrameStyle.Normal;
     }
 
     private static bool ContainsAny(string text, params string[] needles) =>
