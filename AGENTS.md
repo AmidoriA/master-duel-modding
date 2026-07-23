@@ -23,7 +23,9 @@ dotnet test  tests/Floowan.Core.Tests/Floowan.Core.Tests.csproj -c Release -p:En
 3 tests fail on Linux and this is expected (not an environment problem): `GamePathLocatorTests.ResolveInstallRoot_WalksUpFromLocalData`, `GamePathLocatorTests.ResolveUnity3dPath_PointsAtMasterduelData`, and `BundlePathResolverTests.StreamingAssetsPath_UsesInstallRoot`. They assert against hardcoded Windows paths (`C:\...`, `D:\...`) with backslash separators, which `Path`/`Directory.GetParent` only interpret correctly on Windows. The other 10 tests pass. Run these tests on Windows for a full green suite.
 
 ### Data / resources
-- `database.db` (repo root, ~5.6 MB, ~14k cards) is the bundled SQLite card DB used by `Floowan.Core.Data.CardDatabase`.
+- `database.db` (repo root, ~5.6 MB, ~14k cards) is the **master** SQLite card catalog (identity fields: `id`, `name`, `description`, `bundle`, `data_index`). Shipped with the app; treat as read-mostly.
+- `user.db` holds writable state (`app_config`, per-card `favorite` / `has_backup` / modded text / over-frame / `art_id`). Default path is beside the exe (`AppContext.BaseDirectory/user.db`), same root as `backups/`. Do not commit `user.db`.
+- `CardDatabase` opens master and `ATTACH`es `user.db`. On first open it migrates legacy user columns from a monolithic `database.db` into `user.db` (does not strip the shipped master file).
 - `src/Floowan.Core/Resources/classdata.tpk` is required by AssetsTools.NET and is copied next to build output.
 - The integration test (`CardArtBundleServiceIntegrationTests`) self-skips unless a real Master Duel install is present at a hardcoded Steam path, so it is a no-op here.
 
