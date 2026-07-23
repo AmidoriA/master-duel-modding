@@ -80,8 +80,9 @@ public sealed class CardArtBundleService : IDisposable
             var baseField = am.GetBaseField(assetsInst, texInfo);
             var texture = TextureFile.ReadTextureFile(baseField);
 
-            // Prefer live Texture2D dimensions so Pendulum (512×1024) and normal
-            // (512×512) illusts keep their native canvas. Override only for OF.
+            // Prefer live Texture2D dimensions so Pendulum (native canvas often
+            // 512×1024; art aspect 3:4) and normal (512×512) keep their canvas.
+            // Override only for OF.
             var targetWidth = options.Width
                 ?? (texture.m_Width > 0 ? texture.m_Width : CardArtTextureSizes.NormalWidth);
             var targetHeight = options.Height

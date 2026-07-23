@@ -2,38 +2,53 @@ namespace Floowan.Core.Imaging;
 
 /// <summary>
 /// Master Duel card-illustration Texture2D sizes used by LocalData illust bundles.
-/// Normal monsters / spells / traps use a square canvas; Pendulum cards use a taller
-/// 1:2 texture (community-confirmed as 512×1024).
+/// Normal monsters / spells / traps use a square canvas (512×512).
+/// Pendulum <em>art</em> is <strong>3:4</strong> (typically 512×683). The live MD
+/// Texture2D canvas is still often 512×1024; UV / OF paths use the top 3:4 band.
 /// </summary>
 public static class CardArtTextureSizes
 {
     public const int NormalWidth = 512;
     public const int NormalHeight = 512;
 
+    /// <summary>Canonical Pendulum illustration width (3:4).</summary>
     public const int PendulumWidth = 512;
-    public const int PendulumHeight = 1024;
+
+    /// <summary>Canonical Pendulum illustration height — round(512 × 4/3).</summary>
+    public const int PendulumHeight = 683;
+
+    /// <summary>Live Master Duel Pendulum Texture2D canvas width.</summary>
+    public const int PendulumNativeWidth = 512;
+
+    /// <summary>Live Master Duel Pendulum Texture2D canvas height (taller storage).</summary>
+    public const int PendulumNativeHeight = 1024;
 
     /// <summary>Width / height for a normal illust (1.0).</summary>
     public const double NormalAspect = (double)NormalWidth / NormalHeight;
 
-    /// <summary>Width / height for a Pendulum illust (0.5).</summary>
-    public const double PendulumAspect = (double)PendulumWidth / PendulumHeight;
+    /// <summary>Width / height for Pendulum art (3:4 = 0.75).</summary>
+    public const double PendulumAspect = 3.0 / 4.0;
 
     public static bool IsNormal(int width, int height) =>
         width == NormalWidth && height == NormalHeight;
 
+    /// <summary>Exact canonical Pendulum art size (512×683).</summary>
     public static bool IsPendulum(int width, int height) =>
         width == PendulumWidth && height == PendulumHeight;
 
+    /// <summary>Live MD Pendulum Texture2D canvas (512×1024).</summary>
+    public static bool IsPendulumNativeCanvas(int width, int height) =>
+        width == PendulumNativeWidth && height == PendulumNativeHeight;
+
     /// <summary>
-    /// True when the size is an exact MD illust size or matches the Pendulum 1:2 aspect
-    /// (within a small tolerance for near-exact exports).
+    /// True when the size is an exact MD illust size, the live Pendulum canvas,
+    /// or matches the Pendulum 3:4 art aspect (within a small tolerance).
     /// </summary>
     public static bool IsSupportedCardArtSize(int width, int height)
     {
         if (width <= 0 || height <= 0)
             return false;
-        if (IsNormal(width, height) || IsPendulum(width, height))
+        if (IsNormal(width, height) || IsPendulum(width, height) || IsPendulumNativeCanvas(width, height))
             return true;
         return HasPendulumAspect(width, height);
     }
@@ -65,7 +80,9 @@ public static class CardArtTextureSizes
 
     public static CardArtSizeKind Classify(int width, int height)
     {
-        if (IsPendulum(width, height) || HasPendulumAspect(width, height))
+        if (IsPendulum(width, height) ||
+            IsPendulumNativeCanvas(width, height) ||
+            HasPendulumAspect(width, height))
             return CardArtSizeKind.Pendulum;
         if (IsNormal(width, height) || HasNormalAspect(width, height))
             return CardArtSizeKind.Normal;
@@ -78,9 +95,11 @@ public static class CardArtTextureSizes
         return kind switch
         {
             CardArtSizeKind.Pendulum when IsPendulum(width, height) =>
-                $"{width}×{height} (Pendulum)",
+                $"{width}×{height} (Pendulum 3:4)",
+            CardArtSizeKind.Pendulum when IsPendulumNativeCanvas(width, height) =>
+                $"{width}×{height} (Pendulum native canvas)",
             CardArtSizeKind.Pendulum =>
-                $"{width}×{height} (Pendulum aspect)",
+                $"{width}×{height} (Pendulum 3:4 aspect)",
             CardArtSizeKind.Normal when IsNormal(width, height) =>
                 $"{width}×{height} (normal illust)",
             CardArtSizeKind.Normal =>
