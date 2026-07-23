@@ -7,6 +7,39 @@
         Background="{StaticResource BgBrush}"
         Foreground="{StaticResource TextBrush}"
         FontFamily="Segoe UI">
+  <Window.Resources>
+    <ItemsPanelTemplate x:Key="CardListItemsPanel">
+      <VirtualizingStackPanel/>
+    </ItemsPanelTemplate>
+    <ItemsPanelTemplate x:Key="CardThumbnailItemsPanel">
+      <WrapPanel/>
+    </ItemsPanelTemplate>
+    <DataTemplate x:Key="OfCardListItemTemplate">
+      <StackPanel Orientation="Horizontal">
+        <TextBlock Text="{Binding DisplayName}"/>
+        <TextBlock Text="  [OF]" Foreground="#7DCEA0" FontWeight="SemiBold"
+                   Visibility="{Binding IsOverframe, Converter={StaticResource BoolToVisibilityConverter}}"/>
+      </StackPanel>
+    </DataTemplate>
+    <DataTemplate x:Key="CardThumbnailItemTemplate">
+      <StackPanel Width="92" Margin="3">
+        <Border Width="76" Height="110" Background="#12161A" CornerRadius="2"
+                BorderBrush="#3A4652" BorderThickness="1">
+          <Grid>
+            <Image Width="72" Height="104" Stretch="Uniform"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Loaded="CardThumbnailImage_Loaded"/>
+            <TextBlock Text="OF" FontSize="9" FontWeight="SemiBold" Foreground="#7DCEA0"
+                       HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,4,0"
+                       Visibility="{Binding IsOverframe, Converter={StaticResource BoolToVisibilityConverter}}"/>
+          </Grid>
+        </Border>
+        <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis"
+                   TextAlignment="Center" FontSize="10" Margin="0,4,0,0" MaxWidth="92"
+                   ToolTip="{Binding DisplayName}"/>
+      </StackPanel>
+    </DataTemplate>
+  </Window.Resources>
   <DockPanel Margin="16">
     <Border DockPanel.Dock="Top" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,12">
       <Grid>
@@ -58,7 +91,17 @@
                 <CheckBox x:Name="FavoritesOnlyBox" Content="Favorites" VerticalAlignment="Center" Foreground="{StaticResource TextBrush}" Margin="4,0,0,0"/>
                 <CheckBox x:Name="SearchDescBox" Content="Include description" VerticalAlignment="Center" Foreground="{StaticResource TextBrush}" Margin="8,0,0,0"/>
               </StackPanel>
-              <ListBox x:Name="CardList" DisplayMemberPath="DisplayName" SelectionChanged="CardList_SelectionChanged"/>
+              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <TextBlock Text="View" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,8,0"/>
+                <RadioButton x:Name="CardArtViewListRadio" Content="List" GroupName="CardResultsView"
+                             IsChecked="True" Checked="CardResultsViewMode_Changed"/>
+                <RadioButton x:Name="CardArtViewThumbRadio" Content="Thumbnails" GroupName="CardResultsView"
+                             Checked="CardResultsViewMode_Changed"/>
+              </StackPanel>
+              <ListBox x:Name="CardList"
+                       DisplayMemberPath="DisplayName"
+                       ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                       SelectionChanged="CardList_SelectionChanged"/>
             </DockPanel>
           </Border>
 
@@ -121,18 +164,18 @@
                 <CheckBox x:Name="OfFavoritesOnlyBox" Content="Favorites" VerticalAlignment="Center"
                           Foreground="{StaticResource TextBrush}" Margin="8,0,0,0"/>
               </StackPanel>
+              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <TextBlock Text="View" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,8,0"/>
+                <RadioButton x:Name="OfViewListRadio" Content="List" GroupName="OfResultsView"
+                             IsChecked="True" Checked="OfResultsViewMode_Changed"/>
+                <RadioButton x:Name="OfViewThumbRadio" Content="Thumbnails" GroupName="OfResultsView"
+                             Checked="OfResultsViewMode_Changed"/>
+              </StackPanel>
               <Button DockPanel.Dock="Top" Content="Scan / locate of_card_asset…" Click="OfScanGate_Click" Margin="0,0,0,8" HorizontalAlignment="Left"/>
-              <ListBox x:Name="OfCardList" SelectionChanged="OfCardList_SelectionChanged">
-                <ListBox.ItemTemplate>
-                  <DataTemplate>
-                    <StackPanel Orientation="Horizontal">
-                      <TextBlock Text="{Binding DisplayName}"/>
-                      <TextBlock Text="  [OF]" Foreground="#7DCEA0" FontWeight="SemiBold"
-                                 Visibility="{Binding IsOverframe, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                    </StackPanel>
-                  </DataTemplate>
-                </ListBox.ItemTemplate>
-              </ListBox>
+              <ListBox x:Name="OfCardList"
+                       ItemTemplate="{StaticResource OfCardListItemTemplate}"
+                       ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                       SelectionChanged="OfCardList_SelectionChanged"/>
             </DockPanel>
           </Border>
 
@@ -354,6 +397,38 @@
               </DockPanel>
             </Border>
           </Grid>
+        </Grid>
+      </TabItem>
+
+      <TabItem x:Name="ToolsTab" Header="Tools">
+        <Grid Margin="0,8,0,0">
+          <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Text="Backups" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <TextBlock DockPanel.Dock="Top"
+                         Text="Browse original files saved before card art and over-frame changes."
+                         Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+
+              <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                <TextBlock Text="Backup folder" Width="100" VerticalAlignment="Center"
+                           Foreground="{StaticResource MutedBrush}"/>
+                <Button DockPanel.Dock="Right" Content="Open in Explorer" Click="ToolsOpenBackupRoot_Click"
+                        Margin="8,0,0,0"/>
+                <TextBox x:Name="ToolsBackupPathBox" IsReadOnly="True"/>
+              </DockPanel>
+
+              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <Button Content="Refresh" Click="ToolsRefreshBackups_Click" Background="{StaticResource AccentBrush}"/>
+                <Button Content="Open selected" Click="ToolsOpenSelected_Click"/>
+              </StackPanel>
+
+              <TextBlock x:Name="ToolsBackupStatusText" DockPanel.Dock="Bottom"
+                         Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+
+              <TreeView x:Name="ToolsBackupTree"
+                        MouseDoubleClick="ToolsBackupTree_MouseDoubleClick"/>
+            </DockPanel>
+          </Border>
         </Grid>
       </TabItem>
     </TabControl>
