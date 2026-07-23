@@ -804,7 +804,7 @@ public partial class MainWindow : Window
         var results = _database.SearchCards(
             OfSearchBox.Text,
             favoritesOnly: OfFavoritesOnlyBox.IsChecked == true,
-            searchDescription: true,
+            searchDescription: OfSearchDescBox.IsChecked == true,
             overframeOnly: OfOverframeOnlyBox.IsChecked == true,
             limit: 400);
         OfCardList.ItemsSource = results;
