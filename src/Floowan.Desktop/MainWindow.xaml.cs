@@ -52,7 +52,7 @@ public partial class MainWindow : Window
     private bool _useThumbnailView;
     private bool _viewModeUpdating;
     private int _thumbnailLoadGeneration;
-
+    private int _uiBusyDepth;
     public MainWindow()
     {
         InitializeComponent();
@@ -62,6 +62,32 @@ public partial class MainWindow : Window
         Closed += (_, _) => Cleanup();
     }
 
+    /// <summary>
+    /// Blocks interaction with a dim overlay. Avoids Window.IsEnabled=false, which
+    /// forces ListBox/ListBoxItem into the default disabled (white) chrome.
+    /// </summary>
+    private void SetUiBusy(bool busy)
+    {
+        if (busy)
+        {
+            if (_uiBusyDepth++ == 0)
+            {
+                MainContent.IsHitTestVisible = false;
+                BusyOverlay.Visibility = Visibility.Visible;
+                Cursor = Cursors.Wait;
+            }
+            return;
+        }
+
+        if (_uiBusyDepth == 0)
+            return;
+        if (--_uiBusyDepth != 0)
+            return;
+
+        MainContent.IsHitTestVisible = true;
+        BusyOverlay.Visibility = Visibility.Collapsed;
+        ClearValue(CursorProperty);
+    }
     private static DispatcherTimer CreateSearchDebounceTimer(EventHandler tick)
     {
         var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(SearchDebounceMs) };
@@ -457,7 +483,7 @@ public partial class MainWindow : Window
         var gamePath = GamePathBox.Text;
         var card = _selected;
         var image = _replacementImagePath;
-        IsEnabled = false;
+        SetUiBusy(true);
         Status("Replacing card art…");
         try
         {
@@ -477,7 +503,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            IsEnabled = true;
+            SetUiBusy(false);
         }
     }
 
@@ -975,7 +1001,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        IsEnabled = false;
+        SetUiBusy(true);
         OfGateStatusText.Text = "Scanning for of_card_asset…";
         Status("Scanning for of_card_asset…");
         var gamePath = GamePathBox.Text;
@@ -1029,7 +1055,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            IsEnabled = true;
+            SetUiBusy(false);
         }
     }
 
@@ -1137,7 +1163,7 @@ public partial class MainWindow : Window
         if (WarnIfFrameActionBlocked())
             return;
 
-        IsEnabled = false;
+        SetUiBusy(true);
         var card = _ofSelected;
         var progress = new Progress<string>(Status);
         try
@@ -1166,7 +1192,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            IsEnabled = true;
+            SetUiBusy(false);
         }
     }
 
@@ -1283,7 +1309,7 @@ public partial class MainWindow : Window
         if (WarnIfFrameActionBlocked())
             return;
 
-        IsEnabled = false;
+        SetUiBusy(true);
         var card = _ofSelected;
         var progress = new Progress<string>(Status);
         try
@@ -1307,7 +1333,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            IsEnabled = true;
+            SetUiBusy(false);
         }
     }
 
@@ -1331,7 +1357,7 @@ public partial class MainWindow : Window
         if (!_ofGateReady)
             return;
 
-        IsEnabled = false;
+        SetUiBusy(true);
         var card = _ofSelected;
         var gamePath = GamePathBox.Text;
         var progress = new Progress<string>(Status);
@@ -1364,7 +1390,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            IsEnabled = true;
+            SetUiBusy(false);
         }
     }
 
@@ -1396,7 +1422,7 @@ public partial class MainWindow : Window
                 var gamePath = GamePathBox.Text;
         var card = _ofSelected;
         var image = _ofReplacementImagePath;
-        IsEnabled = false;
+        SetUiBusy(true);
         Status("Applying over-frame…");
         try
         {
@@ -1418,7 +1444,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            IsEnabled = true;
+            SetUiBusy(false);
         }
     }
 
@@ -1444,7 +1470,7 @@ public partial class MainWindow : Window
 
                 var gamePath = GamePathBox.Text;
         var card = _ofSelected;
-        IsEnabled = false;
+        SetUiBusy(true);
         Status("Updating of_card_asset gate…");
         try
         {
@@ -1462,7 +1488,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            IsEnabled = true;
+            SetUiBusy(false);
         }
     }
 
@@ -1488,7 +1514,7 @@ public partial class MainWindow : Window
 
                 var gamePath = GamePathBox.Text;
         var card = _ofSelected;
-        IsEnabled = false;
+        SetUiBusy(true);
         Status("Removing from of_card_asset…");
         try
         {
@@ -1506,7 +1532,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            IsEnabled = true;
+            SetUiBusy(false);
         }
     }
 
@@ -1522,7 +1548,7 @@ public partial class MainWindow : Window
 
         var gamePath = GamePathBox.Text;
         var card = _ofSelected;
-        IsEnabled = false;
+        SetUiBusy(true);
         Status("Restoring over-frame backups…");
         try
         {
@@ -1541,7 +1567,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            IsEnabled = true;
+            SetUiBusy(false);
         }
     }
 

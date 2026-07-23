@@ -40,7 +40,9 @@
       </StackPanel>
     </DataTemplate>
   </Window.Resources>
-  <DockPanel Margin="16">
+  <!-- Root grid: busy overlay blocks input without Window.IsEnabled (which greys ListBox white). -->
+  <Grid>
+  <DockPanel x:Name="MainContent" Margin="16">
     <Border DockPanel.Dock="Top" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,12">
       <Grid>
         <Grid.ColumnDefinitions>
@@ -433,4 +435,18 @@
       </TabItem>
     </TabControl>
   </DockPanel>
+
+  <Border x:Name="BusyOverlay"
+          Background="#66000000"
+          Visibility="Collapsed"
+          Cursor="Wait"
+          Panel.ZIndex="100">
+    <TextBlock Text="Working…"
+               HorizontalAlignment="Center"
+               VerticalAlignment="Center"
+               FontSize="16"
+               FontWeight="SemiBold"
+               Foreground="{StaticResource TextBrush}"/>
+  </Border>
+  </Grid>
 </Window>
