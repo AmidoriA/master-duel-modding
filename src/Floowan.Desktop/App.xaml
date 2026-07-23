@@ -361,6 +361,27 @@
       </Setter>
     </Style>
 
+    <Style TargetType="TreeView">
+      <Setter Property="Background" Value="{StaticResource ControlBgBrush}"/>
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}"/>
+      <Setter Property="Padding" Value="4"/>
+    </Style>
+
+    <Style TargetType="TreeViewItem">
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Padding" Value="2,1"/>
+      <Style.Triggers>
+        <Trigger Property="IsSelected" Value="True">
+          <Setter Property="Background" Value="{StaticResource SelectedBrush}"/>
+        </Trigger>
+        <Trigger Property="IsMouseOver" Value="True">
+          <Setter Property="Background" Value="#2A333C"/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+
     <Style TargetType="StatusBar">
       <Setter Property="Background" Value="#15191E"/>
       <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
