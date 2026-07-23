@@ -142,7 +142,7 @@ public static class CardFrameTemplates
 
     private static CardFrameStyle InferFromTypeLine(string typeLine)
     {
-        // Special frames first — even when the line also contains /Effect.
+        // Special frames first (Link/Xyz/...) -- even when the line also contains /effect.
         if (typeLine.Contains("/link", StringComparison.Ordinal) || typeLine.StartsWith("[link", StringComparison.Ordinal))
             return CardFrameStyle.Link;
         if (typeLine.Contains("/xyz", StringComparison.Ordinal) || typeLine.Contains("rank", StringComparison.Ordinal))
