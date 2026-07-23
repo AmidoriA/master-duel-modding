@@ -349,13 +349,13 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
-    public void ExtractIllustrationSource_CropsPendulumIllustToTopArtBand()
+    public void ExtractIllustrationSource_CropsPendulumNativeCanvasToThreeByFour()
     {
         using var pend = new Image<Rgba32>(512, 1024, new Rgba32(20, 20, 20, 255));
         for (var y = 0; y < OverFrameAutoArtComposer.PendulumIllustArtHeight; y++)
         for (var x = 0; x < 512; x++)
             pend[x, y] = new Rgba32(40, 180, 220, 255);
-        // Bottom half mimics pendulum scales / text — must not remain after extract.
+        // Below the 3:4 band — must not remain after extract.
         for (var y = OverFrameAutoArtComposer.PendulumIllustArtHeight; y < 1024; y++)
         for (var x = 0; x < 512; x++)
             pend[x, y] = new Rgba32(233, 207, 183, 255);
@@ -363,34 +363,50 @@ public class OverFrameAutoArtComposerTests
         using var extracted = OverFrameAutoArtComposer.ExtractIllustrationSource(pend);
         Assert.Equal(512, extracted.Width);
         Assert.Equal(OverFrameAutoArtComposer.PendulumIllustArtHeight, extracted.Height);
+        Assert.Equal(683, extracted.Height);
         Assert.True(extracted[256, 100].B > 150);
         Assert.True(OverFrameAutoArtComposer.IsLikelyOriginalIllustrationSize(512, 1024));
+        Assert.True(OverFrameAutoArtComposer.IsLikelyOriginalIllustrationSize(512, 683));
     }
 
     [Fact]
-    public void Compose_Pendulum_KeepsNativeWiderArtWindow()
+    public void ExtractIllustrationSource_KeepsExactThreeByFourPendulumArt()
     {
-        using var source = new Image<Rgba32>(512, 596, new Rgba32(10, 180, 40, 255));
-        using var mask = new Image<L8>(512, 596, new L8(0));
+        using var pend = new Image<Rgba32>(512, 683, new Rgba32(40, 180, 220, 255));
+        using var extracted = OverFrameAutoArtComposer.ExtractIllustrationSource(pend);
+        Assert.Equal(512, extracted.Width);
+        Assert.Equal(683, extracted.Height);
+    }
+
+    [Theory]
+    [InlineData(CardFrameStyle.PendulumNormal)]
+    [InlineData(CardFrameStyle.PendulumEffect)]
+    [InlineData(CardFrameStyle.PendulumFusion)]
+    [InlineData(CardFrameStyle.PendulumSynchro)]
+    [InlineData(CardFrameStyle.PendulumXyz)]
+    [InlineData(CardFrameStyle.PendulumToken)]
+    public void Compose_PendulumStyles_KeepNativeWiderArtWindow(CardFrameStyle style)
+    {
+        using var source = new Image<Rgba32>(512, 683, new Rgba32(10, 180, 40, 255));
+        using var mask = new Image<L8>(512, 683, new L8(0));
         for (var y = 100; y < 400; y++)
         for (var x = 150; x < 360; x++)
             mask[x, y] = new L8(255);
 
-        using var result = OverFrameAutoArtComposer.Compose(source, mask, CardFrameStyle.Pendulum);
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, style);
         Assert.Equal(OverFrameConstants.Width, result.Width);
         Assert.Equal(OverFrameConstants.Height, result.Height);
 
-        using var frame = CardFrameTemplates.Load(CardFrameStyle.Pendulum);
+        using var frame = CardFrameTemplates.Load(style);
         var hole = OverFrameAutoArtComposer.DetectArtWindow(frame);
         Assert.False(hole.IsEmpty);
         Assert.True(hole.Width > OverFrameAutoArtComposer.ArtWindow.Width,
-            $"Pendulum hole should be wider than Effect, got {hole}");
+            $"{style} hole should be wider than Effect, got {hole}");
         Assert.True(hole.Height < OverFrameAutoArtComposer.ArtWindow.Height,
-            $"Pendulum hole should be shorter than Effect, got {hole}");
+            $"{style} hole should be shorter than Effect, got {hole}");
 
-        // Foil art present inside the Pendulum hole (not squashed into Effect square).
         var sample = result[hole.Left + hole.Width / 2, hole.Top + hole.Height / 2];
-        Assert.True(sample.A > 0, $"expected art in Pendulum hole, got {sample}");
+        Assert.True(sample.A > 0, $"expected art in {style} hole, got {sample}");
     }
 
     [Fact]
@@ -653,12 +669,28 @@ public class OverFrameAutoArtComposerTests
         Assert.Equal(CardFrameStyle.Ritual, CardFrameTemplates.InferStyle("Relinquished", "[Spellcaster/Ritual/Effect]"));
         Assert.Equal(CardFrameStyle.Trap, CardFrameTemplates.InferStyle("Impulse", "[Trap] card text"));
         Assert.Equal(CardFrameStyle.Spell, CardFrameTemplates.InferStyle("Raigeki", "Spell Card"));
+        Assert.Equal(CardFrameStyle.Token, CardFrameTemplates.InferStyle("Token", "[Warrior/Token]"));
         Assert.Equal(
-            CardFrameStyle.Pendulum,
+            CardFrameStyle.PendulumEffect,
             CardFrameTemplates.InferStyle("Odd-Eyes", "[Dragon/Pendulum/Effect]"));
         Assert.Equal(
-            CardFrameStyle.Pendulum,
+            CardFrameStyle.PendulumNormal,
             CardFrameTemplates.InferStyle("Performapal", "[Spellcaster/Pendulum/Normal]"));
+        Assert.Equal(
+            CardFrameStyle.PendulumSynchro,
+            CardFrameTemplates.InferStyle("Supreme King", "[Dragon/Synchro/Pendulum/Effect]"));
+        Assert.Equal(
+            CardFrameStyle.PendulumXyz,
+            CardFrameTemplates.InferStyle("Odd-Eyes Absolute", "[Dragon/Xyz/Pendulum/Effect]"));
+        Assert.Equal(
+            CardFrameStyle.PendulumFusion,
+            CardFrameTemplates.InferStyle("Odd-Eyes Vortex", "[Dragon/Fusion/Pendulum/Effect]"));
+        Assert.Equal(
+            CardFrameStyle.PendulumEffect,
+            CardFrameTemplates.InferStyle("Amorphage", "[Pendulum Effect]"));
+        Assert.Equal(
+            CardFrameStyle.PendulumToken,
+            CardFrameTemplates.InferStyle("Token Pend", "[Fiend/Pendulum/Token]"));
 
         Assert.Equal(
             CardFrameStyle.Effect,
