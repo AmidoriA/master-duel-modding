@@ -160,6 +160,7 @@
                   <ComboBoxItem Content="Ritual" Tag="Ritual"/>
                   <ComboBoxItem Content="Spell" Tag="Spell"/>
                   <ComboBoxItem Content="Trap" Tag="Trap"/>
+                  <ComboBoxItem Content="Link" Tag="Link"/>
                 </ComboBox>
                 <CheckBox x:Name="OfCreateBackupBox" Content="Backup card + gate bundles before write"
                           IsChecked="True" Foreground="{StaticResource TextBrush}" Margin="16,0,0,0" VerticalAlignment="Center"/>
