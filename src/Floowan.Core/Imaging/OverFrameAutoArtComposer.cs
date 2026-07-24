@@ -10,17 +10,16 @@ namespace Floowan.Core.Imaging;
 /// Official OF arts keep the full illustration as a foil-mask (A≈4) base — never a
 /// solid black matte. Game illusts are Cover-scaled into the real frame hole, then
 /// overflowed. The type-line strip under the art hole always shows foil art so it
-/// meets the cream lore panel with no chrome gap. Lore cream is Mirrorjade-soft
-/// only where scaled art (foil underlay) reaches the text box; lore pixels past the
-/// scaled footprint stay solid frame cream (no dimming over empty foil). Soft→solid
-/// falls off vertically from the lore box top over
-/// <see cref="LoreArtUnderlayBlendHeight"/> (substantial cream height), and
-/// footprint exit is feathered over <see cref="LoreArtUnderlayBlendRadius"/> so
-/// underlay presence never flips in one step. Out-of-bounds underlay samples are
-/// skipped (no vertical edge-smear); past-footprint tint uses a pre-paint snap.
-/// Overflow is hard-cut across the lore panel width (gold rim + cream stay clear).
-/// Left/right lore side wings keep frame chrome unless the rembg subject actually
-/// occupies those pixels.
+/// meets the cream lore panel with no chrome gap. Non-Pendulum (Effect-style) lore
+/// cream is Mirrorjade-soft only where scaled art reaches the text box; lore past
+/// the footprint stays solid frame cream. Soft→solid falls off vertically from the
+/// lore box top over <see cref="LoreArtUnderlayBlendHeight"/>, and footprint exit is
+/// feathered over <see cref="LoreArtUnderlayBlendRadius"/>. Pendulum dual-lore keeps
+/// constant Mirrorjade soft transparency (no Effect lore-top gradient / falloff).
+/// Out-of-bounds underlay samples are skipped (no vertical edge-smear); Effect
+/// past-footprint tint uses a pre-paint snap. Overflow is hard-cut across the lore
+/// panel width (gold rim + cream stay clear). Left/right lore side wings keep frame
+/// chrome unless the rembg subject actually occupies those pixels.
 /// Pendulum faces additionally allow subject punch on the outer green side borders
 /// and bottom green strip (subject-gated only).
 /// If the rembg silhouette does not overframe the art hole on any side, compose
@@ -40,21 +39,17 @@ public static class OverFrameAutoArtComposer
     public const byte FoilMaskAlpha = 4;
 
     /// <summary>
-    /// Lore panel pixels that have scaled-art underlay: mostly opaque frame chrome with a
-    /// soft Mirrorjade blend near the lore top. High opacity keeps text readable; a little
-    /// underlay keeps depth. Frame opacity ramps soft→solid over
-    /// <see cref="LoreArtUnderlayBlendHeight"/> from the lore box top. Lore pixels with
-    /// no art underlay paint exact frame cream (solid), except within
-    /// <see cref="LoreArtUnderlayBlendRadius"/> of the footprint edge.
+    /// Constant Mirrorjade frame opacity over lore underlay. Pendulum dual-lore uses this
+    /// for the full cream height (no vertical falloff). Effect-style lore starts here at
+    /// the lore top, then ramps soft→solid over <see cref="LoreArtUnderlayBlendHeight"/>.
     /// </summary>
     public const float TextBoxFrameOpacity = 0.92f;
 
     /// <summary>
     /// Soft→solid lore cream vertical falloff height (px) from the lore box top for
-    /// Effect-style cream (<see cref="EffectLoreCream"/>). Soft art shows near the top
-    /// (where scaled art often overlaps); cream is solid toward the lower lore.
-    /// Paint uses the active lore rect height so Pendulum dual-panel falloff scales with
-    /// <see cref="PendulumLoreCream"/>. Uncovered lore farther than
+    /// Effect-style cream only (<see cref="EffectLoreCream"/>). Soft art shows near the
+    /// top; cream is solid toward the lower lore. Pendulum dual-lore does not use this
+    /// falloff. Uncovered Effect lore farther than
     /// <see cref="LoreArtUnderlayBlendRadius"/> past the scaled footprint is exact frame
     /// cream — no rembg / clamp edge-smear tint outside the feather band.
     /// </summary>
@@ -356,8 +351,8 @@ public static class OverFrameAutoArtComposer
         FillRegionWithScaledArt(canvas, typeLineStrip, source, scaledSourceW, scaledSourceH, bgX, bgY);
 
         // Soft continuation under cream lore where scaled art reaches (Mirrorjade). Never rembg.
-        // OOB samples are skipped in FillRegionWithScaledArt — uncovered lore stays empty foil
-        // and PaintLorePanel feathers soft→solid past the footprint (tall lore-top falloff).
+        // OOB samples are skipped in FillRegionWithScaledArt — uncovered lore stays empty foil.
+        // Effect PaintLorePanel feathers soft→solid; Pendulum keeps constant Mirrorjade soft.
         FillRegionWithScaledArt(canvas, textBox, source, scaledSourceW, scaledSourceH, bgX, bgY);
 
         // 2) Overflow silhouette — may punch lore side wings + dark card margins where
@@ -369,12 +364,21 @@ public static class OverFrameAutoArtComposer
         BlitSubjectFoilMask(
             canvas, resized, xOffset, yOffset, occupied, loreCutTop, textBox, pendulumGreenPunch);
 
-        // 3) Frame chrome + lore panel (soft over art; tall lore-top falloff + footprint feather).
+        // 3) Frame chrome + lore panel. Effect: tall lore-top falloff + footprint feather.
+        //    Pendulum: constant Mirrorjade soft where art underlays (no Effect gradient).
         EnsureArtWindowHole(frame, artWindow);
         DrawFramePunchedByRectangleAndSilhouette(
             canvas, frame, artWindow, textBox, typeLineStrip, occupied);
         PaintLorePanel(
-            canvas, frame, textBox, occupied, bgX, bgY, scaledSourceW, scaledSourceH);
+            canvas,
+            frame,
+            textBox,
+            occupied,
+            bgX,
+            bgY,
+            scaledSourceW,
+            scaledSourceH,
+            applyEffectLoreGradient: useSharedEffectLayout);
 
         return canvas;
     }
@@ -1046,13 +1050,13 @@ public static class OverFrameAutoArtComposer
     }
 
     /// <summary>
-    /// Paints the lore panel. Soft Mirrorjade blend where the scaled art footprint
-    /// covers the pixel (foil underlay was written), with frame opacity ramping
-    /// soft→solid vertically from the lore box top over
-    /// <see cref="LoreArtUnderlayBlendHeight"/>. Past the footprint, underlay
-    /// presence feathers to zero over <see cref="LoreArtUnderlayBlendRadius"/>
-    /// (pre-paint snap tint — no foil write / no rembg smear) so soft→solid is
-    /// continuous. Farther than that radius paints exact frame cream.
+    /// Paints the lore panel. When <paramref name="applyEffectLoreGradient"/> is true
+    /// (non-Pendulum), soft Mirrorjade where the scaled art footprint covers the pixel,
+    /// with frame opacity ramping soft→solid vertically from the lore box top over
+    /// <see cref="LoreArtUnderlayBlendHeight"/>, and footprint presence feathered over
+    /// <see cref="LoreArtUnderlayBlendRadius"/>. When false (Pendulum), constant
+    /// <see cref="TextBoxFrameOpacity"/> Mirrorjade soft where art underlays; solid cream
+    /// where uncovered — no lore-top falloff / footprint feather.
     /// Never uses the rembg cutout (hard sleeve/panel edges caused vertical-line glitches).
     /// Skips <paramref name="occupied"/> pixels so Pendulum green side chrome that sits
     /// inside the lore cream rect can still be punched by the subject silhouette.
@@ -1065,12 +1069,19 @@ public static class OverFrameAutoArtComposer
         int bgX,
         int bgY,
         int scaledSourceW,
-        int scaledSourceH)
+        int scaledSourceH,
+        bool applyEffectLoreGradient)
     {
         if (textBox.Width <= 0 || textBox.Height <= 0)
             return;
 
-        // Soft→solid spans the painted lore rect (Effect 196 / Pendulum dual-panel 317).
+        if (!applyEffectLoreGradient)
+        {
+            PaintPendulumLorePanel(canvas, frame, textBox, occupied, bgX, bgY, scaledSourceW, scaledSourceH);
+            return;
+        }
+
+        // Soft→solid spans the painted lore rect (Effect cream height).
         // Footprint feather is at least that tall so underlay presence cannot cliff
         // mid-box; vertical falloff still reaches exact cream at the lore bottom.
         var blendHeight = Math.Max(1, textBox.Height);
@@ -1167,6 +1178,49 @@ public static class OverFrameAutoArtComposer
                 dstRow[x] = frameOpacity >= 1f - 1e-5f
                     ? fp
                     : BlendFrameOverArt(art, fp, frameOpacity);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Pendulum dual-lore: constant <see cref="TextBoxFrameOpacity"/> Mirrorjade soft
+    /// where scaled art underlays; exact frame cream where uncovered. No Effect lore-top
+    /// gradient / footprint presence feather.
+    /// </summary>
+    private static void PaintPendulumLorePanel(
+        Image<Rgba32> canvas,
+        Image<Rgba32> frame,
+        Rectangle textBox,
+        bool[]? occupied,
+        int bgX,
+        int bgY,
+        int scaledSourceW,
+        int scaledSourceH)
+    {
+        for (var y = textBox.Top; y < textBox.Bottom && y < canvas.Height; y++)
+        {
+            if (y < 0) continue;
+            var frameRow = frame.DangerousGetPixelRowMemory(y).Span;
+            var dstRow = canvas.DangerousGetPixelRowMemory(y).Span;
+            var rowOffset = y * canvas.Width;
+            var x0 = Math.Max(0, textBox.Left);
+            var x1 = Math.Min(canvas.Width, textBox.Right);
+            var sy = y - bgY;
+            var rowHasArtUnderlay = (uint)sy < (uint)scaledSourceH;
+            for (var x = x0; x < x1; x++)
+            {
+                if (occupied != null && occupied[rowOffset + x])
+                    continue;
+
+                var fp = frameRow[x];
+                if (fp.A <= VisibleAlphaThreshold)
+                    continue;
+
+                var sx = x - bgX;
+                var hasArtUnderlay = rowHasArtUnderlay && (uint)sx < (uint)scaledSourceW;
+                dstRow[x] = hasArtUnderlay
+                    ? BlendFrameOverArt(dstRow[x], fp, TextBoxFrameOpacity)
+                    : fp;
             }
         }
     }
