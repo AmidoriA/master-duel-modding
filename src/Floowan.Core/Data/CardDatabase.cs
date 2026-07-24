@@ -688,6 +688,31 @@ LIMIT 1;";
     }
 
     /// <summary>
+    /// Writes <c>card.card_type</c> for an existing catalog row. Ensures the column exists.
+    /// No-ops (returns false) when the master table still has no <c>card_type</c> after ensure,
+    /// or when the id is missing. Does not touch <c>user.db</c>.
+    /// </summary>
+    public bool UpdateCardType(int cardId, string? cardType)
+    {
+        if (cardId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(cardId), "Card id must be a positive integer.");
+
+        EnsureMasterSchema();
+        if (!HasMasterColumn("card_type"))
+            return false;
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = @"
+UPDATE main.card SET card_type = $card_type
+WHERE id = $id;";
+        cmd.Parameters.AddWithValue(
+            "$card_type",
+            string.IsNullOrWhiteSpace(cardType) ? DBNull.Value : cardType.Trim());
+        cmd.Parameters.AddWithValue("$id", cardId);
+        return cmd.ExecuteNonQuery() == 1;
+    }
+
+    /// <summary>
     /// Updates editable card fields in a single transaction.
     /// Catalog name/description write to master; modded fields and favorite write to user.db.
     /// Rejects missing IDs and unexpected row counts. Does not create or delete cards.
