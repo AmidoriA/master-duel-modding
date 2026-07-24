@@ -156,9 +156,6 @@ public partial class MainWindow : Window
         _database = new CardDatabase(path, userPath);
         DatabasePathBox.Text = path;
         UserDatabasePathBox.Text = _database.UserDatabasePath;
-        var flag = _database.GetCreateBackupFlag();
-        if (flag is bool b)
-            CreateBackupBox.IsChecked = b;
 
         RefreshOfGateStatusFromCache();
     }
@@ -493,16 +490,16 @@ public partial class MainWindow : Window
             return;
         }
 
-        var createBackup = CreateBackupBox.IsChecked == true;
         var gamePath = GamePathBox.Text;
         var card = _selected;
         var image = _replacementImagePath;
         SetUiBusy(true);
-        Status("Replacing card art?");
+        Status("Replacing card art…");
         try
         {
+            // Always backup (same as Over-frame) so Replace stays reversible via Restore.
             var result = await Task.Run(() =>
-                _modService.ReplaceCardArt(gamePath, card, image, createBackup, _database));
+                _modService.ReplaceCardArt(gamePath, card, image, createBackup: true, _database));
             Status(result.Message);
             MessageBox.Show(result.Message, "Floowan",
                 MessageBoxButton.OK,
