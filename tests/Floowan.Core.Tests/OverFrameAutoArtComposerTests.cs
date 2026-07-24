@@ -177,6 +177,70 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
+    public void HasOverframableOverflow_False_WhenSubjectFullyInsideArtHole()
+    {
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        Assert.False(OverFrameAutoArtComposer.HasOverframableOverflow(
+            art, art.Left + 40, art.Top + 40, art.Right - 40, art.Bottom - 40));
+    }
+
+    [Fact]
+    public void HasOverframableOverflow_True_WhenAnySideExtendsPastArtHole()
+    {
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        Assert.True(OverFrameAutoArtComposer.HasOverframableOverflow(
+            art, art.Left - 1, art.Top + 10, art.Right - 10, art.Bottom - 10));
+        Assert.True(OverFrameAutoArtComposer.HasOverframableOverflow(
+            art, art.Left + 10, art.Top + 10, art.Right + 1, art.Bottom - 10));
+        Assert.True(OverFrameAutoArtComposer.HasOverframableOverflow(
+            art, art.Left + 10, art.Top - 1, art.Right - 10, art.Bottom - 10));
+        Assert.True(OverFrameAutoArtComposer.HasOverframableOverflow(
+            art, art.Left + 10, art.Top + 10, art.Right - 10, art.Bottom + 1));
+    }
+
+    [Fact]
+    public void Compose_RejectsSubjectWithNoOverframableOverflow()
+    {
+        // Tiny centered rembg blob — after Cover×OverflowScale it still sits entirely
+        // inside the art hole (no L/R/T/B overframe).
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 40, 80, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 45; y < 55; y++)
+        for (var x = 45; x < 55; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        var error = Assert.Throws<InvalidOperationException>(
+            () => OverFrameAutoArtComposer.Compose(source, mask, frame));
+
+        Assert.Equal(OverFrameAutoArtComposer.CannotDetectSubjectMessage, error.Message);
+    }
+
+    [Fact]
+    public void Compose_AllowsSubjectWithAnySideOverframableOverflow()
+    {
+        // Tall center strip — Cover×OverflowScale breaks out above/below the art hole.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 40, 80, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+
+        Assert.Equal(OverFrameConstants.Width, result.Width);
+        Assert.Equal(OverFrameConstants.Height, result.Height);
+        Assert.True(FindSubjectAboveArtWindow(result) >= 0, "expected top overframe");
+    }
+
+    [Fact]
     public void DetectArtWindow_ReadsRealEffectFrameHole()
     {
         var framesDir = Path.Combine(AppContext.BaseDirectory, "frames");
@@ -209,7 +273,8 @@ public class OverFrameAutoArtComposerTests
 
         using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 120, 255));
         using var mask = new Image<L8>(512, 512, new L8(0));
-        for (var y = 80; y < 432; y++)
+        // Tall enough that Cover×OverflowScale overframes the art hole (fail-closed check).
+        for (var y = 0; y < 512; y++)
         for (var x = 180; x < 332; x++)
             mask[x, y] = new L8(255);
 
@@ -419,13 +484,14 @@ public class OverFrameAutoArtComposerTests
             "Pendulum vertical nudge should not exceed roughly half of the art-hole height.");
 
         // Thin horizontal subject bar at a known source Y — placement must include the
-        // Pendulum-only downward bias (foil + rembg stay locked via bgY).
+        // Pendulum-only downward bias (foil + rembg stay locked via bgY). Full-width so
+        // L/R overframe passes the fail-closed subject check.
         const int srcW = 512;
         const int srcH = 683;
         const int barY = 200;
         using var source = new Image<Rgba32>(srcW, srcH, new Rgba32(10, 180, 40, 255));
         using var mask = new Image<L8>(srcW, srcH, new L8(0));
-        for (var x = 180; x < 330; x++)
+        for (var x = 0; x < srcW; x++)
             mask[x, barY] = new L8(255);
 
         using var result = OverFrameAutoArtComposer.Compose(source, mask, CardFrameStyle.PendulumEffect);
@@ -615,10 +681,11 @@ public class OverFrameAutoArtComposerTests
     [Fact]
     public void Compose_Pendulum_KeepsGreenChrome_WithoutSubject()
     {
-        // Narrow center subject — must not reach outer green side/bottom strips.
+        // Upper-center strip — overframes above the art hole (fail-closed) but stays
+        // clear of outer green side/bottom chrome.
         using var source = new Image<Rgba32>(512, 683, new Rgba32(10, 180, 40, 255));
         using var mask = new Image<L8>(512, 683, new L8(0));
-        for (var y = 200; y < 350; y++)
+        for (var y = 0; y < 200; y++)
         for (var x = 230; x < 280; x++)
             mask[x, y] = new L8(255);
 

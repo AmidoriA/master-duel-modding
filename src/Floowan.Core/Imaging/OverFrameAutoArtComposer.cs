@@ -15,6 +15,8 @@ namespace Floowan.Core.Imaging;
 /// frame chrome unless the rembg subject actually occupies those pixels.
 /// Pendulum faces additionally allow subject punch on the outer green side borders
 /// and bottom green strip (subject-gated only).
+/// If the rembg silhouette does not overframe the art hole on any side, compose
+/// fails with <see cref="CannotDetectSubjectMessage"/> (no flat in-frame OF).
 /// Lore cream / outer / cut geometry is always taken from Effect.png so Normal,
 /// Synchro, Link, and other styles share the same punch layout.
 /// </summary>
@@ -153,6 +155,12 @@ public static class OverFrameAutoArtComposer
     /// of the frame when of_card_asset is enabled.
     /// </summary>
     public const float OverflowScale = 1.38f;
+
+    /// <summary>
+    /// Thrown when rembg finds pixels but the placed silhouette never leaves the
+    /// art hole on any side — treated as a failed subject (flat in-frame OF).
+    /// </summary>
+    public const string CannotDetectSubjectMessage = "Cannot detect subject.";
 
     public static Image<Rgba32> Compose(
         Image<Rgba32> source,
@@ -294,6 +302,18 @@ public static class OverFrameAutoArtComposer
         var xOffset = bgX + (int)MathF.Round(bounds.Left * scale);
         var yOffset = bgY + (int)MathF.Round(bounds.Top * scale);
 
+        // Fail closed: rembg must overframe the art hole on at least one side.
+        // No L/R/T/B overflow → abort (do not emit a flat in-frame OF canvas).
+        if (!HasOverframableOverflow(
+                artWindow,
+                xOffset,
+                yOffset,
+                xOffset + resized.Width,
+                yOffset + resized.Height))
+        {
+            throw new InvalidOperationException(CannotDetectSubjectMessage);
+        }
+
         // 1) Art window + type-line strip + soft lore underlay (not lore side wings).
         var textBox = ResolveTextBox(frame, artWindow, useSharedEffectLayout, layout);
         var loreCutTop = ResolveLoreCutTop(frame, textBox, artWindow, useSharedEffectLayout, layout);
@@ -332,6 +352,37 @@ public static class OverFrameAutoArtComposer
         PendulumGreenLeft.Contains(x, y) ||
         PendulumGreenRight.Contains(x, y) ||
         PendulumGreenBottom.Contains(x, y);
+
+    /// <summary>
+    /// True when the placed rembg subject AABB extends past the art hole on any side
+    /// (left / right / top / bottom). Used to reject cutouts that would only fill the
+    /// hole with no over-frame overflow. Complementary to side-bias placement: that
+    /// path shifts when <em>some</em> sides are missing; this fails when <em>all</em> are.
+    /// </summary>
+    /// <param name="artWindow">Art hole on the 704×1024 canvas.</param>
+    /// <param name="subjectLeft">Inclusive left of placed rembg subject (canvas X).</param>
+    /// <param name="subjectTop">Inclusive top of placed rembg subject (canvas Y).</param>
+    /// <param name="subjectRightExclusive">Exclusive right of placed rembg subject.</param>
+    /// <param name="subjectBottomExclusive">Exclusive bottom of placed rembg subject.</param>
+    public static bool HasOverframableOverflow(
+        Rectangle artWindow,
+        int subjectLeft,
+        int subjectTop,
+        int subjectRightExclusive,
+        int subjectBottomExclusive)
+    {
+        if (artWindow.IsEmpty ||
+            subjectRightExclusive <= subjectLeft ||
+            subjectBottomExclusive <= subjectTop)
+        {
+            return false;
+        }
+
+        return subjectLeft < artWindow.Left
+            || subjectRightExclusive > artWindow.Right
+            || subjectTop < artWindow.Top
+            || subjectBottomExclusive > artWindow.Bottom;
+    }
 
     /// <summary>
     /// Reads the transparent art hole from a 704×1024 frame template.
