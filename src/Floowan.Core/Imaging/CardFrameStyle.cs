@@ -11,11 +11,13 @@ public enum CardFrameStyle
     Fusion,
     Synchro,
     Xyz,
+    /// <summary>Master Duel <c>card_frame02</c> — Ritual face (plain blue; not Link).</summary>
     Ritual,
     Spell,
     Trap,
+    /// <summary>Master Duel <c>card_frame18</c> — Link face (hex pattern + arrow markers).</summary>
     Link,
-    /// <summary>Master Duel <c>card_frame02</c> — Token face.</summary>
+    /// <summary>Master Duel <c>card_frame09</c> — Token face.</summary>
     Token,
 
     /// <summary>Master Duel <c>card_frame13</c> — Normal Pendulum.</summary>
