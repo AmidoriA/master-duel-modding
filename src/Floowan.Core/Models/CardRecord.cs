@@ -9,6 +9,12 @@ public sealed class CardRecord
     public string? ModdedName { get; init; }
     public string? ModdedDescription { get; init; }
     public int DataIndex { get; init; }
+    /// <summary>Catalog card type label (Effect, Spell, Link, …), when known.</summary>
+    public string? CardType { get; init; }
+    /// <summary>
+    /// ISO-8601 UTC creation time of the illustration AssetBundle used for this catalog row.
+    /// </summary>
+    public string? CreatedAt { get; init; }
     public bool Favorite { get; init; }
     public bool HasBackup { get; init; }
     public bool IsOverframe { get; init; }

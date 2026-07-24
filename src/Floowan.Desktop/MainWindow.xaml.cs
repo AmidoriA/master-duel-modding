@@ -573,6 +573,88 @@ public partial class MainWindow : Window
 
     // --- Tools tab (backup browser) ---
 
+    private async void ToolsUpdateDatabase_Click(object sender, RoutedEventArgs e)
+    {
+        if (_database is null)
+        {
+            MessageBox.Show("Open database.db first.", "Floowan");
+            return;
+        }
+
+        var gamePath = GamePathBox.Text?.Trim() ?? "";
+        string? pathError = null;
+        if (string.IsNullOrWhiteSpace(gamePath) || !GamePathLocator.IsValidGamePath(gamePath, out pathError))
+        {
+            MessageBox.Show(
+                pathError ?? "Set a valid Master Duel LocalData path first (Home tab).",
+                "Floowan",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var confirm = MessageBox.Show(
+            "Replace the master card catalog in:\n" + _database.MasterDatabasePath +
+            "\n\nwith data extracted from:\n" + gamePath +
+            "\n\nUser favorites/mods in user.db are kept. Continue?",
+            "Update card database",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes)
+            return;
+
+        ToolsUpdateDbButton.IsEnabled = false;
+        SetUiBusy(true);
+        ToolsUpdateDbStatusText.Text = "Starting…";
+        Status("Updating card database from game…");
+
+        var database = _database;
+        var progress = new Progress<string>(msg =>
+        {
+            ToolsUpdateDbStatusText.Text = msg;
+            Status(msg);
+        });
+
+        try
+        {
+            var result = await Task.Run(() =>
+            {
+                var updater = new CardCatalogUpdater();
+                return updater.UpdateFromGame(database, gamePath, progress);
+            });
+
+            RunSearch();
+            RunOfSearch();
+            RunDatabaseQuery(resetOffset: true);
+
+            if (!result.Success)
+            {
+                ToolsUpdateDbStatusText.Text = result.Message;
+                Status("Database update failed: " + result.Message);
+                MessageBox.Show(result.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var detail =
+                $"{result.Message} Scanned {result.BundlesScanned} bundles, " +
+                $"{result.IllustCount} illustrations" +
+                (result.CryptoKey is int key ? $", crypto key 0x{key:X}." : ".");
+            ToolsUpdateDbStatusText.Text = detail;
+            Status(detail);
+        }
+        catch (Exception ex)
+        {
+            ToolsUpdateDbStatusText.Text = "Error: " + ex.Message;
+            Status("Database update failed: " + ex.Message);
+            MessageBox.Show(ex.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            ToolsUpdateDbButton.IsEnabled = true;
+            SetUiBusy(false);
+        }
+    }
+
     private void ToolsRefreshBackups_Click(object sender, RoutedEventArgs e) =>
         EnsureAndRefreshBackupBrowser();
 
