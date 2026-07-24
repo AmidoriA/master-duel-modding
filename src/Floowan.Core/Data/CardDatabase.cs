@@ -16,9 +16,16 @@ namespace Floowan.Core.Data;
 public sealed class CardDatabase : IDisposable
 {
     private readonly SqliteConnection _connection;
+    private readonly string _cardSelectList;
 
     public string MasterDatabasePath { get; }
     public string UserDatabasePath { get; }
+
+    /// <summary>True when master <c>card.card_type</c> exists (e.g. after Tools DB update / #30).</summary>
+    public bool HasCardTypeColumn { get; }
+
+    /// <summary>True when master <c>card.created_at</c> exists (e.g. after Tools DB update / #30).</summary>
+    public bool HasCreatedAtColumn { get; }
 
     public CardDatabase(string databasePath, string? userDatabasePath = null)
     {
@@ -50,6 +57,11 @@ public sealed class CardDatabase : IDisposable
         EnsureMasterSchema();
         EnsureUserSchema();
         MigrateLegacyUserDataIfNeeded();
+
+        var masterCols = GetColumnNames("main", "card");
+        HasCardTypeColumn = masterCols.Any(c => string.Equals(c, "card_type", StringComparison.OrdinalIgnoreCase));
+        HasCreatedAtColumn = masterCols.Any(c => string.Equals(c, "created_at", StringComparison.OrdinalIgnoreCase));
+        _cardSelectList = BuildCardSelectList(HasCardTypeColumn, HasCreatedAtColumn);
     }
 
     /// <summary>
@@ -344,12 +356,21 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value;";
         return names;
     }
 
-    private const string CardSelectList = @"
+    /// <summary>
+    /// Base select list (ordinals 0–11). Optional master columns follow as 12–13 when present;
+    /// otherwise NULL placeholders keep <see cref="ReadCard"/> ordinals stable.
+    /// </summary>
+    private static string BuildCardSelectList(bool hasCardType, bool hasCreatedAt)
+    {
+        var cardType = hasCardType ? "c.card_type" : "NULL AS card_type";
+        var createdAt = hasCreatedAt ? "c.created_at" : "NULL AS created_at";
+        return $@"
 c.id, c.name, c.description, c.bundle,
 u.modded_name, u.modded_description, c.data_index,
 IFNULL(u.favorite, 0), IFNULL(u.has_backup, 0),
 IFNULL(u.is_overframe, 0), u.overframe_base_id, u.art_id,
-c.card_type, c.created_at";
+{cardType}, {createdAt}";
+    }
 
     private const string CardFromJoin = @"
 FROM card c
@@ -571,7 +592,7 @@ ON CONFLICT(id) DO UPDATE SET
 
         var where = clauses.Count == 0 ? "" : "WHERE " + string.Join(" AND ", clauses);
         cmd.CommandText = $@"
-SELECT {CardSelectList}
+SELECT {_cardSelectList}
 {CardFromJoin}
 {where}
 ORDER BY c.name COLLATE NOCASE
@@ -594,7 +615,7 @@ LIMIT $limit;";
         using var cmd = _connection.CreateCommand();
         var where = BuildFilterWhere(filters, cmd);
         cmd.CommandText = $@"
-SELECT {CardSelectList}
+SELECT {_cardSelectList}
 {CardFromJoin}
 {where}
 ORDER BY c.id
@@ -622,7 +643,7 @@ LIMIT $limit OFFSET $offset;";
     {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = $@"
-SELECT {CardSelectList}
+SELECT {_cardSelectList}
 {CardFromJoin}
 WHERE c.id = $id;";
         cmd.Parameters.AddWithValue("$id", id);
@@ -634,7 +655,7 @@ WHERE c.id = $id;";
     {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = $@"
-SELECT {CardSelectList}
+SELECT {_cardSelectList}
 {CardFromJoin}
 WHERE c.bundle = $bundle;";
         cmd.Parameters.AddWithValue("$bundle", bundle);
@@ -646,7 +667,7 @@ WHERE c.bundle = $bundle;";
     {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = $@"
-SELECT {CardSelectList}
+SELECT {_cardSelectList}
 {CardFromJoin}
 WHERE u.art_id = $art_id
 ORDER BY c.id
