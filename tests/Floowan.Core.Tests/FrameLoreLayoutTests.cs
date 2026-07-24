@@ -110,6 +110,91 @@ public class FrameLoreLayoutTests
         Assert.True(rightWing.A >= 200, $"{style}: right lore wing must stay chrome without subject, got {rightWing}");
     }
 
+    [Fact]
+    public void RitualTemplate_IsNotLinkAsset()
+    {
+        // Regression: pendulum-overframe briefly swapped Ritual↔Link (and Link↔Token).
+        // Ritual = card_frame02 (plain blue); Link = card_frame18 (hex + arrow markers).
+        using var ritual = CardFrameTemplates.Load(CardFrameStyle.Ritual);
+        using var link = CardFrameTemplates.Load(CardFrameStyle.Link);
+
+        Assert.Equal(704, ritual.Width);
+        Assert.Equal(1024, ritual.Height);
+        Assert.Equal(link.Width, ritual.Width);
+        Assert.Equal(link.Height, ritual.Height);
+
+        // Both use the square monster art hole (~Effect), not Pendulum's wider/shorter window.
+        // Compose still punches with shared Effect ArtWindow (detection can be ±1px).
+        var ritualHole = OverFrameAutoArtComposer.DetectArtWindow(ritual);
+        var linkHole = OverFrameAutoArtComposer.DetectArtWindow(link);
+        var effectHole = OverFrameAutoArtComposer.ArtWindow;
+        Assert.InRange(ritualHole.Width, effectHole.Width - 2, effectHole.Width + 2);
+        Assert.InRange(ritualHole.Height, effectHole.Height - 2, effectHole.Height + 2);
+        Assert.InRange(linkHole.Width, effectHole.Width - 2, effectHole.Width + 2);
+        Assert.InRange(linkHole.Height, effectHole.Height - 2, effectHole.Height + 2);
+        Assert.True(ritualHole.Width < OverFrameAutoArtComposer.PendulumArtWindow.Width);
+        Assert.True(ritualHole.Height > OverFrameAutoArtComposer.PendulumArtWindow.Height);
+
+        // Distinctive pixels: Link arrows are near-black triangles on art mid-edges;
+        // Ritual namebar is medium blue without those markers.
+        var ritualName = ritual[352, 80];
+        var linkName = link[352, 80];
+        Assert.True(ritualName.A > 200 && ritualName.B > ritualName.R + 40,
+            $"Ritual namebar should be blue, got {ritualName}");
+        Assert.True(linkName.A > 200 && linkName.B > linkName.R,
+            $"Link namebar should be blue-cyan, got {linkName}");
+
+        static int CountDarkArrowPixels(Image<Rgba32> img)
+        {
+            // Mid-edge / corner arrow zones around the shared art window.
+            var regions = new[]
+            {
+                (340, 175, 24, 20), (50, 440, 20, 24), (634, 440, 20, 24), (340, 640, 24, 20),
+                (55, 195, 30, 30), (620, 195, 30, 30), (55, 615, 30, 30), (620, 615, 30, 30),
+            };
+            var dark = 0;
+            foreach (var (x0, y0, w, h) in regions)
+            {
+                for (var y = y0; y < y0 + h; y++)
+                for (var x = x0; x < x0 + w; x++)
+                {
+                    var c = img[x, y];
+                    if (c.A > 200 && c.R < 60 && c.G < 60 && c.B < 80)
+                        dark++;
+                }
+            }
+
+            return dark;
+        }
+
+        var ritualDark = CountDarkArrowPixels(ritual);
+        var linkDark = CountDarkArrowPixels(link);
+        Assert.True(linkDark > 800, $"Link should have dark arrow markers, got {linkDark}");
+        Assert.True(ritualDark < 400, $"Ritual must not have Link arrow markers, got {ritualDark}");
+        Assert.True(linkDark > ritualDark * 3,
+            $"Link arrow density ({linkDark}) must far exceed Ritual ({ritualDark})");
+
+        // Byte-level inequality (hash-equivalent check without shipping expected digests).
+        Assert.False(ImagesEqual(ritual, link), "Ritual.png must not be identical to Link.png");
+
+        Assert.Equal(CardFrameStyle.Ritual, CardFrameTemplates.InferStyle("Relinquished", "[Spellcaster/Ritual/Effect]"));
+        Assert.Equal(CardFrameStyle.Link, CardFrameTemplates.InferStyle("Accesscode", "[Cyberse/Link/Effect]"));
+    }
+
+    private static bool ImagesEqual(Image<Rgba32> a, Image<Rgba32> b)
+    {
+        if (a.Width != b.Width || a.Height != b.Height)
+            return false;
+        for (var y = 0; y < a.Height; y++)
+        for (var x = 0; x < a.Width; x++)
+        {
+            if (!a[x, y].Equals(b[x, y]))
+                return false;
+        }
+
+        return true;
+    }
+
     [Theory]
     [InlineData(CardFrameStyle.Synchro)]
     [InlineData(CardFrameStyle.Link)]
