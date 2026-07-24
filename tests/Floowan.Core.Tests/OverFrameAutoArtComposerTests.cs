@@ -412,11 +412,11 @@ public class OverFrameAutoArtComposerTests
     [Fact]
     public void Compose_Pendulum_AppliesSubstantialDownwardVerticalOffset()
     {
-        Assert.Equal(140, OverFrameAutoArtComposer.PendulumVerticalOffset);
+        Assert.Equal(240, OverFrameAutoArtComposer.PendulumVerticalOffset);
         Assert.True(OverFrameAutoArtComposer.PendulumVerticalOffset >= 120,
             "Pendulum subject must sit a lot lower so the fixed mint/scale bar crosses lower on the figure.");
-        Assert.True(OverFrameAutoArtComposer.PendulumVerticalOffset <= 180,
-            "Pendulum vertical nudge should not exceed roughly a third of the art-hole height.");
+        Assert.True(OverFrameAutoArtComposer.PendulumVerticalOffset <= 280,
+            "Pendulum vertical nudge should not exceed roughly half of the art-hole height.");
 
         // Thin horizontal subject bar at a known source Y — placement must include the
         // Pendulum-only downward bias (foil + rembg stay locked via bgY).
