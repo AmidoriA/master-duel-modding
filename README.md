@@ -6,6 +6,7 @@
 
 - Discover / browse Master Duel `LocalData/<playerId>` paths (Steam libraries + registry)
 - Load and search cards from Floowandereeze-compatible master `database.db` (user settings/state in `user.db` beside the app)
+- **Tools → Update card database from game**: rebuild master catalog from LocalData + `masterduel_Data/StreamingAssets/AssetBundle` (CARD_* decrypt + illust scan); adds `card_type` / `created_at`
 - Preview current Texture2D art from the card AssetBundle
 - Validate / prepare a replacement image (resize to texture size, RGBA32)
 - Back up the original bundle file before writing

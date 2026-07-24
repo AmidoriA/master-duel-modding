@@ -100,11 +100,11 @@ public sealed class CardCatalogExtractor
 
                 try
                 {
-                    if (mayHaveCardData)
-                        TryCollectCardDataFiles(am, path, cardData);
-
-                    if (mayHaveIllust)
-                        TryCollectIllusts(am, path, artToBundle, artBundlePaths);
+                    // Single LoadBundleFile per path — a second load on a dirty manager
+                    // silently drops illustration hits.
+                    TryCollectFromBundle(
+                        am, path, mayHaveCardData, mayHaveIllust,
+                        cardData, artToBundle, artBundlePaths);
                 }
                 catch
                 {
@@ -112,7 +112,6 @@ public sealed class CardCatalogExtractor
                 }
                 finally
                 {
-                    // Drop per-bundle state; keep the class package on this worker's manager.
                     am.UnloadAll(unloadClassData: false);
                 }
 
@@ -154,7 +153,11 @@ public sealed class CardCatalogExtractor
         }
 
         progress?.Report("Building catalog rows…");
-        var ids = CardDataFilesParser.ParseCardIds(decProp);
+        var propEntries = CardPropTypeDecoder.ParseEntries(decProp);
+        var ids = propEntries.Select(e => e.Id).ToList();
+        var propTypeById = propEntries
+            .GroupBy(e => e.Id)
+            .ToDictionary(g => g.Key, g => CardPropTypeDecoder.InferLabel(g.First().TypeByte, g.First().TypeByte2));
         var rawNames = CardDataFilesParser.SplitIndexedStrings(decIndx, decName, indexStart: 0);
         var descriptions = CardDataFilesParser.SplitIndexedStrings(decIndx, decDesc, indexStart: 4);
         var names = CardDataFilesParser.AddAltSuffixes(rawNames);
@@ -180,7 +183,9 @@ public sealed class CardCatalogExtractor
                 }
             }
 
-            var cardType = CardTypeLabels.InferFromCardText(info.Name, info.Description);
+            // Prefer CARD_Prop (MD descriptions usually lack [Type] lines); fall back to lore heuristics.
+            var cardType = propTypeById.GetValueOrDefault(artId)
+                ?? CardTypeLabels.InferFromCardText(info.Name, info.Description);
             rows.Add(new CatalogCardRow
             {
                 Id = artId,
@@ -208,9 +213,12 @@ public sealed class CardCatalogExtractor
         return am;
     }
 
-    private static void TryCollectIllusts(
+    private static void TryCollectFromBundle(
         AssetsManager am,
         string bundlePath,
+        bool collectCardData,
+        bool collectIllusts,
+        CardDataPayloads payloads,
         ConcurrentDictionary<int, string> artToBundle,
         ConcurrentDictionary<int, string> artBundlePaths)
     {
@@ -230,68 +238,51 @@ public sealed class CardCatalogExtractor
             }
 
             am.LoadClassDatabaseFromPackage(assetsInst.file.Metadata.UnityVersion);
-            if (!ContainerHasCardIllust(am, assetsInst))
-                continue;
 
-            foreach (var info in assetsInst.file.GetAssetsOfType(AssetClassID.Texture2D))
+            if (collectCardData && !payloads.IsComplete)
             {
-                var baseField = am.GetBaseField(assetsInst, info);
-                var name = baseField["m_Name"].AsString;
-                if (string.IsNullOrWhiteSpace(name) || !int.TryParse(name, out var artId) || artId <= 0)
-                    continue;
-
-                artToBundle.AddOrUpdate(
-                    artId,
-                    bundleId,
-                    (_, existing) => PreferLocalBundleId(existing, bundleId, bundlePath));
-                artBundlePaths.AddOrUpdate(
-                    artId,
-                    bundlePath,
-                    (_, existing) => PreferLocalBundlePath(existing, bundlePath));
-            }
-        }
-    }
-
-    private static void TryCollectCardDataFiles(AssetsManager am, string bundlePath, CardDataPayloads payloads)
-    {
-        if (payloads.IsComplete)
-            return;
-
-        var bundleInst = am.LoadBundleFile(bundlePath, unpackIfPacked: true);
-        foreach (var entryName in bundleInst.file.GetAllFileNames())
-        {
-            AssetsFileInstance assetsInst;
-            try
-            {
-                assetsInst = am.LoadAssetsFileFromBundle(bundleInst, entryName, false);
-            }
-            catch
-            {
-                continue;
-            }
-
-            am.LoadClassDatabaseFromPackage(assetsInst.file.Metadata.UnityVersion);
-            foreach (var info in assetsInst.file.GetAssetsOfType(AssetClassID.TextAsset))
-            {
-                var baseField = am.GetBaseField(assetsInst, info);
-                var name = baseField["m_Name"].AsString ?? "";
-                if (ClassifyCardDataName(name) is not CardDataKind kind)
-                    continue;
-
-                byte[] payload;
-                try
+                foreach (var info in assetsInst.file.GetAssetsOfType(AssetClassID.TextAsset))
                 {
-                    payload = ReadTextAssetBytes(baseField);
+                    var baseField = am.GetBaseField(assetsInst, info);
+                    var name = baseField["m_Name"].AsString ?? "";
+                    if (ClassifyCardDataName(name) is not CardDataKind kind)
+                        continue;
+
+                    byte[] payload;
+                    try
+                    {
+                        payload = ReadTextAssetBytes(baseField);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    if (payload.Length == 0)
+                        continue;
+
+                    payloads.TrySet(kind, payload);
                 }
-                catch
+            }
+
+            if (collectIllusts && ContainerHasCardIllust(am, assetsInst))
+            {
+                foreach (var info in assetsInst.file.GetAssetsOfType(AssetClassID.Texture2D))
                 {
-                    continue;
+                    var baseField = am.GetBaseField(assetsInst, info);
+                    var name = baseField["m_Name"].AsString;
+                    if (string.IsNullOrWhiteSpace(name) || !int.TryParse(name, out var artId) || artId <= 0)
+                        continue;
+
+                    artToBundle.AddOrUpdate(
+                        artId,
+                        bundleId,
+                        (_, existing) => PreferLocalBundleId(existing, bundleId, bundlePath));
+                    artBundlePaths.AddOrUpdate(
+                        artId,
+                        bundlePath,
+                        (_, existing) => PreferLocalBundlePath(existing, bundlePath));
                 }
-
-                if (payload.Length == 0)
-                    continue;
-
-                payloads.TrySet(kind, payload);
             }
         }
     }

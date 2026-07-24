@@ -187,4 +187,45 @@ VALUES (1, 'Old', 'old', 'aaaaaaaa', 0, 0, 0, 0);";
             TryDelete(master, user);
         }
     }
+
+    [Theory]
+    [InlineData(0x0D, 0x02, "Spell")]
+    [InlineData(0x4E, 0x02, "Trap")]
+    [InlineData(0xAB, 0xD0, "Link")]
+    [InlineData(0x92, 0x61, "Synchro")]
+    [InlineData(0x12, 0x5D, "Synchro Pendulum")]
+    [InlineData(0x57, 0x90, "Xyz")]
+    [InlineData(0x42, 0x70, "Fusion")]
+    [InlineData(0x83, 0x5D, "Fusion Pendulum")]
+    [InlineData(0x85, 0x44, "Ritual")]
+    [InlineData(0x9A, 0x5C, "Effect Pendulum")]
+    [InlineData(0x59, 0x55, "Normal Pendulum")]
+    [InlineData(0x4A, 0x45, "Token")]
+    [InlineData(0x40, 0x60, "Normal")]
+    [InlineData(0x80, 0x5C, "Effect")]
+    [InlineData(0x10, 0x4D, "Effect")]
+    public void CardPropTypeDecoder_InfersKnownFaces(byte typeByte, byte typeByte2, string expected)
+    {
+        Assert.Equal(expected, CardPropTypeDecoder.InferLabel(typeByte, typeByte2));
+    }
+
+    [Fact]
+    public void CardPropTypeDecoder_ParseEntries_ReadsIdAndTypeBytes()
+    {
+        var prop = new byte[8 + 16];
+        prop[8] = 0x39; // 12345
+        prop[9] = 0x30;
+        prop[10] = 0x0D;
+        prop[11] = 0x02;
+        prop[16] = 0x02;
+        prop[17] = 0x00;
+        prop[18] = 0x40;
+        prop[19] = 0x60;
+        var entries = CardPropTypeDecoder.ParseEntries(prop);
+        Assert.Equal(2, entries.Count);
+        Assert.Equal(0x3039, entries[0].Id);
+        Assert.Equal("Spell", CardPropTypeDecoder.InferLabel(entries[0].TypeByte, entries[0].TypeByte2));
+        Assert.Equal(2, entries[1].Id);
+        Assert.Equal("Normal", CardPropTypeDecoder.InferLabel(entries[1].TypeByte, entries[1].TypeByte2));
+    }
 }
