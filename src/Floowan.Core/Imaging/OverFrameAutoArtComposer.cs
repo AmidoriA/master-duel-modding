@@ -77,7 +77,7 @@ public static class OverFrameAutoArtComposer
     /// this offset is the lever that sits the subject lower relative to that bar.
     /// Non-Pendulum styles are unchanged.
     /// </summary>
-    public const int PendulumVerticalOffset = 140;
+    public const int PendulumVerticalOffset = 240;
 
     /// <summary>
     /// Top crop height from a native 512×1024 Pendulum Texture2D that yields the
