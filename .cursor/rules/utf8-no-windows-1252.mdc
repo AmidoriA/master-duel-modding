@@ -1,0 +1,12 @@
+---
+description: Never save or rewrite source as Windows-1252; use UTF-8
+alwaysApply: true
+---
+
+# UTF-8 source encoding (no Windows-1252)
+
+- All text source (`.cs`, `.xaml`, `.md`, `.json`, etc.) must be **UTF-8**.
+- WPF XAML in this repo should match existing clean files (**UTF-8 with BOM** — `App.xaml` uses BOM).
+- **Never** save or convert files as Windows-1252, Windows-125x, or “ANSI”.
+- When editing XAML/CS with non-ASCII (—, …, ×, ≈), preserve UTF-8; do not introduce U+FFFD or mojibake.
+- Prefer ASCII fallbacks (`...`, `x`, `-`) only if UTF-8 cannot be guaranteed.
