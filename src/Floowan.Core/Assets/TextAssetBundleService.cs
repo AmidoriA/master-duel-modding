@@ -180,18 +180,24 @@ public sealed class TextAssetBundleService : IDisposable
     private static (AssetsFileInstance Assets, AssetFileInfo Info, AssetTypeValueField BaseField)
         FindTextAssetInBundle(AssetsManager am, BundleFileInstance bundleInst, string assetName)
     {
-        var names = bundleInst.file.GetAllFileNames();
-        foreach (var entryName in names)
+        var dirCount = bundleInst.file.BlockAndDirInfo.DirectoryInfos.Count;
+        for (var i = 0; i < dirCount; i++)
         {
-            AssetsFileInstance assetsInst;
+            if (!bundleInst.file.IsAssetsFile(i))
+                continue;
+
+            AssetsFileInstance? assetsInst;
             try
             {
-                assetsInst = am.LoadAssetsFileFromBundle(bundleInst, entryName, false);
+                assetsInst = am.LoadAssetsFileFromBundle(bundleInst, i, false);
             }
             catch
             {
                 continue;
             }
+
+            if (assetsInst?.file is null)
+                continue;
 
             am.LoadClassDatabaseFromPackage(assetsInst.file.Metadata.UnityVersion);
             var infos = assetsInst.file.GetAssetsOfType(AssetClassID.TextAsset);
