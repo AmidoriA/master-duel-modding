@@ -21,6 +21,41 @@ public class FrameLoreLayoutTests
     }
 
     [Theory]
+    [InlineData(CardFrameStyle.PendulumNormal)]
+    [InlineData(CardFrameStyle.PendulumEffect)]
+    [InlineData(CardFrameStyle.PendulumFusion)]
+    [InlineData(CardFrameStyle.PendulumSynchro)]
+    [InlineData(CardFrameStyle.PendulumXyz)]
+    [InlineData(CardFrameStyle.PendulumToken)]
+    public void PendulumTemplates_HaveWiderShorterArtHole(CardFrameStyle style)
+    {
+        using var pend = CardFrameTemplates.Load(style);
+        var art = OverFrameAutoArtComposer.DetectArtWindow(pend);
+        var layout = OverFrameAutoArtComposer.GetPendulumLayout(style);
+        Assert.False(art.IsEmpty);
+        Assert.Equal(layout.ArtWindow.Width, art.Width);
+        Assert.Equal(layout.ArtWindow.Height, art.Height);
+        Assert.Equal(layout.ArtWindow.X, art.X);
+        Assert.Equal(layout.ArtWindow.Y, art.Y);
+        Assert.True(art.Width > OverFrameAutoArtComposer.ArtWindow.Width);
+        Assert.True(art.Height < OverFrameAutoArtComposer.ArtWindow.Height);
+        Assert.Equal(OverFrameAutoArtComposer.PendulumLoreCream, layout.LoreCream);
+        Assert.Equal(OverFrameAutoArtComposer.PendulumLoreCutTop, layout.LoreCutTop);
+        Assert.Equal(new Rectangle(50, 186, 604, 451), OverFrameAutoArtComposer.PendulumArtWindow);
+        Assert.Equal(new Rectangle(27, 645, 627, 114), OverFrameAutoArtComposer.PendulumMintTextBox);
+        Assert.Equal(new Rectangle(27, 766, 627, 196), OverFrameAutoArtComposer.PendulumMonsterLoreCream);
+        Assert.Equal(new Rectangle(27, 645, 627, 317), OverFrameAutoArtComposer.PendulumLoreCream);
+        Assert.Equal(200, OverFrameAutoArtComposer.PendulumVerticalOffset);
+        // DetectTextBox alone only finds the mint strip — compose must use the union.
+        var detected = OverFrameAutoArtComposer.DetectTextBox(pend, art);
+        Assert.False(detected.IsEmpty);
+        Assert.Equal(645, detected.Y);
+        Assert.True(detected.Height < 150, $"DetectTextBox should stop at mint strip, got {detected}");
+        Assert.True(detected.Bottom <= OverFrameAutoArtComposer.PendulumMonsterLoreCream.Top,
+            $"DetectTextBox must not include bottom monster lore, got {detected}");
+    }
+
+    [Theory]
     [InlineData(CardFrameStyle.Normal)]
     [InlineData(CardFrameStyle.Synchro)]
     [InlineData(CardFrameStyle.Link)]

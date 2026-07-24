@@ -130,10 +130,15 @@ internal sealed class CardThumbnailCache : IDisposable
         if (isOverframeCanvas)
             return LoadOverframeThumbnail(path);
 
+        // Pendulum 3:4 / native-canvas thumbs keep aspect via DecodePixelWidth (taller in the slot).
         var bmp = new BitmapImage();
         bmp.BeginInit();
         bmp.CacheOption = BitmapCacheOption.OnLoad;
-        bmp.DecodePixelWidth = 96;
+        var w = identity?.Width ?? 0;
+        var h = identity?.Height ?? 0;
+        bmp.DecodePixelWidth = CardArtTextureSizes.Classify(w, h) == CardArtSizeKind.Pendulum
+            ? 72
+            : 96;
         bmp.UriSource = new Uri(path);
         bmp.EndInit();
         bmp.Freeze();
