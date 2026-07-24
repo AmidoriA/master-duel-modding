@@ -228,4 +228,34 @@ VALUES (1, 'Old', 'old', 'aaaaaaaa', 0, 0, 0, 0);";
         Assert.Equal(2, entries[1].Id);
         Assert.Equal("Normal", CardPropTypeDecoder.InferLabel(entries[1].TypeByte, entries[1].TypeByte2));
     }
+
+    [Fact]
+    public void CardCatalogExtractor_SkipsCorruptOrNonBundleFiles_WithoutThrowing()
+    {
+        // Minimal install layout so IsValidGamePath passes; junk under 0000 is not a Unity bundle.
+        var install = Path.Combine(Path.GetTempPath(), "floowan-catalog-scan-" + Guid.NewGuid().ToString("N"));
+        var player = Path.Combine(install, "LocalData", "deadbeef");
+        var local0000 = Path.Combine(player, "0000", "aa");
+        Directory.CreateDirectory(local0000);
+        Directory.CreateDirectory(Path.Combine(install, "masterduel_Data"));
+        File.WriteAllBytes(Path.Combine(install, "masterduel_Data", "data.unity3d"), Array.Empty<byte>());
+        // Size in card-data + illust windows so the scanner attempts LoadBundleFile.
+        File.WriteAllBytes(Path.Combine(local0000, "aabbccdd"), new byte[32 * 1024]);
+
+        try
+        {
+            var notes = new List<string>();
+            var progress = new Progress<string>(s => { lock (notes) notes.Add(s); });
+            var result = new CardCatalogExtractor().Extract(player, progress);
+
+            Assert.False(result.Success);
+            // Must not surface NullReferenceException from a null assetsInst.
+            Assert.DoesNotContain(notes, n => n.Contains("NullReference", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains("CARD_", result.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            try { Directory.Delete(install, recursive: true); } catch { /* ignore */ }
+        }
+    }
 }

@@ -104,11 +104,12 @@ public sealed class CardCatalogExtractor
                     // silently drops illustration hits.
                     TryCollectFromBundle(
                         am, path, mayHaveCardData, mayHaveIllust,
-                        cardData, artToBundle, artBundlePaths);
+                        cardData, artToBundle, artBundlePaths, progress);
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Skip unreadable / non-bundle files.
+                    // Skip unreadable / non-bundle files; keep the scan going.
+                    progress?.Report($"Skipping unreadable bundle {Path.GetFileName(path)}: {ex.GetType().Name}");
                 }
                 finally
                 {
@@ -220,24 +221,46 @@ public sealed class CardCatalogExtractor
         bool collectIllusts,
         CardDataPayloads payloads,
         ConcurrentDictionary<int, string> artToBundle,
-        ConcurrentDictionary<int, string> artBundlePaths)
+        ConcurrentDictionary<int, string> artBundlePaths,
+        IProgress<string>? progress)
     {
         var bundleInst = am.LoadBundleFile(bundlePath, unpackIfPacked: true);
-        var bundleId = Path.GetFileName(bundlePath);
-
-        foreach (var entryName in bundleInst.file.GetAllFileNames())
+        if (bundleInst?.file is null)
         {
-            AssetsFileInstance assetsInst;
+            progress?.Report($"Skipping unloadable bundle {Path.GetFileName(bundlePath)}");
+            return;
+        }
+
+        var bundleId = Path.GetFileName(bundlePath);
+        var dirCount = bundleInst.file.BlockAndDirInfo.DirectoryInfos.Count;
+
+        // Iterate by index so we can skip non-assets entries (.resS / .resource).
+        // LoadAssetsFileFromBundle returns null for those — it does not throw.
+        for (var i = 0; i < dirCount; i++)
+        {
+            if (!bundleInst.file.IsAssetsFile(i))
+                continue;
+
+            AssetsFileInstance? assetsInst;
             try
             {
-                assetsInst = am.LoadAssetsFileFromBundle(bundleInst, entryName, false);
+                assetsInst = am.LoadAssetsFileFromBundle(bundleInst, i, false);
             }
             catch
             {
                 continue;
             }
 
-            am.LoadClassDatabaseFromPackage(assetsInst.file.Metadata.UnityVersion);
+            if (assetsInst?.file is null)
+            {
+                var entryName = bundleInst.file.GetFileName(i);
+                progress?.Report(
+                    $"Skipping assets entry '{entryName}' in {bundleId} (load returned null)");
+                continue;
+            }
+
+            lock (ClassPackageLoadGate)
+                am.LoadClassDatabaseFromPackage(assetsInst.file.Metadata.UnityVersion);
 
             if (collectCardData && !payloads.IsComplete)
             {
