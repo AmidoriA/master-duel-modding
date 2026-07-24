@@ -20,6 +20,14 @@ public sealed class CardArtModService : IDisposable
 
     public BackupService Backups => _backupService;
 
+    /// <summary>
+    /// True when the live texture is an over-frame face. Card Art should not write that
+    /// canvas into <c>backups/cards/{slug}.png</c> (illustration) or the OF pre-art path.
+    /// </summary>
+    public static bool IsLiveOverFrameTexture(bool cardIsOverframe, int width, int height) =>
+        cardIsOverframe ||
+        (width == OverFrameConstants.Width && height == OverFrameConstants.Height);
+
     public CardArtReplacementResult ReplaceCardArt(
         string playerDataPath,
         CardRecord card,
@@ -58,12 +66,34 @@ public sealed class CardArtModService : IDisposable
         string? backupPath = null;
         try
         {
+            var backupCreated = false;
             if (createBackup)
             {
-                backupPath = _backupService.BackupBundleFile(bundlePath, card.Bundle);
-                var textureBackup = _backupService.GetTextureBackupPath(card.Name);
-                if (!File.Exists(textureBackup))
-                    _bundleService.ExtractTexturePng(bundlePath, textureBackup);
+                // One-time bundle snapshot of whatever is live before overwrite (never clobber).
+                if (_backupService.TryCreateBundleBackupIfMissing(bundlePath, card.Bundle, out var newBackup))
+                {
+                    backupPath = newBackup;
+                    backupCreated = true;
+                }
+                else
+                {
+                    backupPath = _backupService.GetBundleBackupPath(card.Bundle);
+                }
+
+                // Readable PNG under backups/cards/{slug}.png — only for illustration textures.
+                // Over-frame live canvases (704×1024) must not land here or on the OF pre-art path;
+                // the bundle backup is the restore point when replacing an OF face via Card Art.
+                if (!IsLiveOverFrameTexture(card.IsOverframe, info.Width, info.Height))
+                {
+                    var textureBackup = _backupService.GetTextureBackupPath(card.Name);
+                    if (!File.Exists(textureBackup))
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(textureBackup)!);
+                        _bundleService.ExtractTexturePng(bundlePath, textureBackup);
+                        backupCreated = true;
+                    }
+                }
+
                 database?.SetHasBackup(card.Id, true);
             }
 
@@ -75,6 +105,13 @@ public sealed class CardArtModService : IDisposable
                 msg += " " + validation.Info;
             if (!string.IsNullOrEmpty(validation.Warning))
                 msg += " " + validation.Warning;
+            if (createBackup)
+            {
+                msg += backupCreated
+                    ? " Backup created."
+                    : " Existing backup kept.";
+            }
+
             return CardArtReplacementResult.Ok(msg, bundlePath, backupPath);
         }
         catch (Exception ex)
