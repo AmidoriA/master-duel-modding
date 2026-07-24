@@ -52,9 +52,8 @@ public class OverFrameAutoArtComposerTests
     [Fact]
     public void Compose_ScalesBackgroundWithSubject()
     {
-        // Foil + rembg must share one scale. Narrow subjects also get bilateral side-bias
-        // scale-up (fills L/R chrome), so verify via subject canvas width rather than a
-        // foil marker that side-bias may push outside the art hole.
+        // Foil + rembg must share one Cover×OverflowScale. Missing L/R overframe soft-fills
+        // chrome with background — never bilaterally enlarges the rembg subject.
         using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 80, 200, 255));
         for (var y = 5; y < 95; y++)
         for (var x = 40; x < 60; x++)
@@ -156,40 +155,32 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
-    public void ResolveSideOverframeBias_MissingBoth_BilateralScaleBoost_NoShift()
+    public void ResolveSideOverframeBias_MissingBoth_NoScaleNoShift()
     {
         var art = OverFrameAutoArtComposer.ArtWindow;
         // Subject hugs the art-hole width — spell/landscape rembg that only overframes
-        // top/bottom. Legacy fixed 1.08× left teal gutters; need a dynamic boost.
+        // top/bottom. Soft-fill handles L/R chrome; do not enlarge the subject.
         var subjectLeft = art.Left + 2;
         var subjectRight = art.Right - 2;
         var bias = OverFrameAutoArtComposer.ResolveSideOverframeBias(art, subjectLeft, subjectRight);
 
         Assert.Equal(0, bias.HorizontalOffset);
-        var expected = OverFrameAutoArtComposer.ComputeScaleMultiplierForMissingSides(
-            art, subjectLeft, subjectRight, fixLeft: true, fixRight: true);
-        Assert.Equal(expected, bias.ScaleMultiplier);
-        Assert.True(bias.ScaleMultiplier > 1.08f,
-            $"expected boost > legacy 1.08, got {bias.ScaleMultiplier}");
+        Assert.Equal(1f, bias.ScaleMultiplier);
     }
 
     [Fact]
-    public void ComputeScaleMultiplierForMissingSides_HoleWidthSubject_ReachesCorrectionTarget()
+    public void IsSideOverframeMissing_DetectsShortSides()
     {
         var art = OverFrameAutoArtComposer.ArtWindow;
-        var subjectLeft = art.Left;
-        var subjectRight = art.Right;
-        var m = OverFrameAutoArtComposer.ComputeScaleMultiplierForMissingSides(
-            art, subjectLeft, subjectRight, fixLeft: true, fixRight: true);
-        var artCenterX = art.Left + art.Width / 2f;
-        var target = OverFrameAutoArtComposer.GetSideOverframeCorrectionTargetPx(art);
-        var newLeft = artCenterX + (subjectLeft - artCenterX) * m;
-        var newRight = artCenterX + (subjectRight - artCenterX) * m;
-
-        Assert.True(newLeft <= art.Left - target + 0.5f,
-            $"left {newLeft} should be ≤ {art.Left - target}");
-        Assert.True(newRight >= art.Right + target - 0.5f,
-            $"right {newRight} should be ≥ {art.Right + target}");
+        var min = OverFrameAutoArtComposer.SideOverframeMinPx;
+        Assert.True(OverFrameAutoArtComposer.IsSideOverframeMissing(
+            art, art.Left + 2, art.Right + min + 10, leftSide: true));
+        Assert.False(OverFrameAutoArtComposer.IsSideOverframeMissing(
+            art, art.Left - min - 10, art.Right + min + 10, leftSide: true));
+        Assert.True(OverFrameAutoArtComposer.IsSideOverframeMissing(
+            art, art.Left - min - 10, art.Right - 2, leftSide: false));
+        Assert.False(OverFrameAutoArtComposer.IsSideOverframeMissing(
+            art, art.Left - min - 10, art.Right + min + 10, leftSide: false));
     }
 
     [Fact]
@@ -272,12 +263,12 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
-    public void Compose_MissingBothSideOverframes_ScalesToFillLeftAndRight()
+    public void Compose_MissingBothSideOverframes_SoftFillsChromeWithoutZoomingSubject()
     {
         // Spell-like repro: rembg spans most of the source width so Cover placement leaves
-        // subject ≈ art-hole wide (only T/B overflow). Legacy 1.08× left teal L/R gutters;
-        // dynamic scale must punch both sides. Keep <92% opaque so the full-mask guard passes.
-        using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 40, 80, 255));
+        // subject ≈ art-hole wide (only T/B overflow). Soft-fill L/R chrome with background
+        // foil — do not bilaterally enlarge the rembg subject.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 180, 40, 255));
         using var mask = new Image<L8>(100, 100, new L8(0));
         for (var y = 5; y < 95; y++)
         for (var x = 15; x < 85; x++)
@@ -287,6 +278,13 @@ public class OverFrameAutoArtComposerTests
         }
 
         using var frame = CreateSolidFrame();
+        // Distinct teal chrome so soft-fill foil is distinguishable from frame.
+        var teal = new Rgba32(20, 140, 150, 255);
+        for (var y = 0; y < frame.Height; y++)
+        for (var x = 0; x < frame.Width; x++)
+            frame[x, y] = teal;
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+
         using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
 
         var art = OverFrameAutoArtComposer.ArtWindow;
@@ -294,14 +292,22 @@ public class OverFrameAutoArtComposerTests
         var subjectLeft = FindSubjectLeftAtY(result, midY);
         var subjectRight = FindSubjectRightExclusiveAtY(result, midY);
         Assert.True(subjectLeft >= 0 && subjectRight > subjectLeft, "expected rembg subject");
-        Assert.True(
-            subjectLeft <= art.Left - OverFrameAutoArtComposer.SideOverframeMinPx,
-            $"expected left overframe, subjectLeft={subjectLeft}, art.Left={art.Left}");
-        Assert.True(
-            subjectRight >= art.Right + OverFrameAutoArtComposer.SideOverframeMinPx,
-            $"expected right overframe, subjectRight={subjectRight}, art.Right={art.Right}");
-        // Smear coverage lives in Compose_FarLeftSubject_DoesNotHorizontalEdgeSmear
-        // (uniform red subjects false-trigger the leftmost-column run check).
+
+        // Subject stays at Cover×OverflowScale width (no bilateral zoom).
+        var scale = ComputeExpectedScale(100, 100);
+        var expectedW = Math.Max(1, (int)MathF.Round(70 * scale));
+        Assert.InRange(subjectRight - subjectLeft, expectedW - 6, expectedW + 6);
+
+        // Side chrome shows background foil (green), not teal frame.
+        var leftChrome = result[art.Left / 2, midY];
+        var rightChrome = result[(art.Right + result.Width) / 2, midY];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, leftChrome.A);
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, rightChrome.A);
+        Assert.True(leftChrome.G > 100 && leftChrome.R < 80,
+            $"expected green background foil in left chrome, got {leftChrome}");
+        Assert.True(rightChrome.G > 100 && rightChrome.R < 80,
+            $"expected green background foil in right chrome, got {rightChrome}");
+        AssertNoHorizontalEdgeSmear(result, art, midY);
     }
 
     [Fact]
@@ -430,17 +436,7 @@ public class OverFrameAutoArtComposerTests
         var cover = Math.Max(
             OverFrameAutoArtComposer.ArtWindow.Width / (float)sourceWidth,
             OverFrameAutoArtComposer.ArtWindow.Height / (float)sourceHeight);
-        var scale = cover * OverFrameAutoArtComposer.OverflowScale;
-        // Narrow centered subjects trigger bilateral both-missing boost.
-        var art = OverFrameAutoArtComposer.ArtWindow;
-        var scaledW = Math.Max(1, (int)MathF.Round(sourceWidth * scale));
-        var artCenterX = art.Left + art.Width / 2f;
-        var bgX = (int)MathF.Round(artCenterX - scaledW / 2f);
-        // Compose_ScalesBackgroundWithSubject uses subject x=40..60 on a square source.
-        var subjectLeft = bgX + (int)MathF.Round(40 * scale);
-        var subjectRight = subjectLeft + Math.Max(1, (int)MathF.Round(20 * scale));
-        var bias = OverFrameAutoArtComposer.ResolveSideOverframeBias(art, subjectLeft, subjectRight);
-        return scale * bias.ScaleMultiplier;
+        return cover * OverFrameAutoArtComposer.OverflowScale;
     }
 
 
@@ -566,9 +562,10 @@ public class OverFrameAutoArtComposerTests
         var largeHole = new Rectangle(76, 178, 555, 555);
         ClearRect(frame, largeHole);
 
+        // Tall center strip so Cover×OverflowScale overframes T/B without bilateral L/R zoom.
         using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 120, 255));
         using var mask = new Image<L8>(512, 512, new L8(0));
-        for (var y = 80; y < 432; y++)
+        for (var y = 10; y < 502; y++)
         for (var x = 180; x < 332; x++)
             mask[x, y] = new L8(255);
 
