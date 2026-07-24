@@ -4,7 +4,8 @@ namespace Floowan.Core.Imaging;
 /// Master Duel card-illustration Texture2D sizes used by LocalData illust bundles.
 /// Normal monsters / spells / traps use a square canvas (512×512).
 /// Pendulum <em>art</em> is <strong>3:4</strong> (typically 512×683). The live MD
-/// Texture2D canvas is still often 512×1024; UV / OF paths use the top 3:4 band.
+/// Texture2D canvas is still often 512×1024; Card Art extract crops the top 3:4 band
+/// to 512×683. UV / OF paths use that same top band.
 /// </summary>
 public static class CardArtTextureSizes
 {
@@ -39,6 +40,35 @@ public static class CardArtTextureSizes
     /// <summary>Live MD Pendulum Texture2D canvas (512×1024).</summary>
     public static bool IsPendulumNativeCanvas(int width, int height) =>
         width == PendulumNativeWidth && height == PendulumNativeHeight;
+
+    /// <summary>
+    /// Tall storage canvas (~1:2) used by live Pendulum Texture2D — art lives in the top 3:4 band.
+    /// </summary>
+    public static bool IsTallPendulumStorageCanvas(int width, int height)
+    {
+        if (IsPendulumNativeCanvas(width, height))
+            return true;
+        if (width <= 0 || height <= 0 || height <= width)
+            return false;
+        // Exact MD canvas or same 1:2 aspect at the native width (or close).
+        var aspect = width / (double)height;
+        return Math.Abs(aspect - 0.5) <= 0.02 && width >= PendulumWidth / 2;
+    }
+
+    /// <summary>Crop height for the top 3:4 art band of a tall Pendulum canvas.</summary>
+    public static int PendulumArtCropHeight(int canvasWidth) =>
+        Math.Max(1, (int)Math.Round(canvasWidth * 4.0 / 3.0));
+
+    /// <summary>
+    /// PNG export size for Card Art extract: Pendulum → canonical 512×683; otherwise live size.
+    /// </summary>
+    public static (int Width, int Height) GetCardArtExportSize(int textureWidth, int textureHeight)
+    {
+        if (Classify(textureWidth, textureHeight) == CardArtSizeKind.Pendulum ||
+            IsTallPendulumStorageCanvas(textureWidth, textureHeight))
+            return (PendulumWidth, PendulumHeight);
+        return (textureWidth, textureHeight);
+    }
 
     /// <summary>
     /// True when the size is an exact MD illust size, the live Pendulum canvas,
