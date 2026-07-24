@@ -45,10 +45,10 @@ public sealed class CardCatalogUpdater
     }
 
     /// <summary>
-    /// Incremental update: only opens illustration AssetBundles whose
+    /// Incremental update: skips every AssetBundle whose
     /// <see cref="File.GetCreationTimeUtc"/> is strictly after
-    /// <see cref="CardDatabase.GetLatestCreatedAtUtc"/> (DB <c>MAX(created_at)</c>).
-    /// Upserts matching rows; does not delete existing catalog cards.
+    /// <see cref="CardDatabase.GetLatestCreatedAtUtc"/> (DB <c>MAX(created_at)</c>)
+    /// before any AssetsTools open. Upserts matching rows; does not delete existing catalog cards.
     /// </summary>
     public CardCatalogUpdateResult UpdateNewFilesOnly(
         CardDatabase database,

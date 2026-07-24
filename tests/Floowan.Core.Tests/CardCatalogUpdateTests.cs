@@ -396,4 +396,46 @@ CREATE TABLE card (
             try { Directory.Delete(install, recursive: true); } catch { /* ignore */ }
         }
     }
+
+    [Fact]
+    public void CardCatalogExtractor_Incremental_SkipsOldFiles_WithoutOpening()
+    {
+        // Old junk in the size window would normally hit LoadBundleFile ("Skipping unreadable…").
+        // With a cutoff after the file's creation time, incremental must skip before open.
+        var install = Path.Combine(Path.GetTempPath(), "floowan-catalog-inc-skip-" + Guid.NewGuid().ToString("N"));
+        var player = Path.Combine(install, "LocalData", "deadbeef");
+        var local0000 = Path.Combine(player, "0000", "aa");
+        Directory.CreateDirectory(local0000);
+        Directory.CreateDirectory(Path.Combine(install, "masterduel_Data"));
+        File.WriteAllBytes(Path.Combine(install, "masterduel_Data", "data.unity3d"), Array.Empty<byte>());
+
+        var junkPath = Path.Combine(local0000, "oldbundle");
+        File.WriteAllBytes(junkPath, new byte[32 * 1024]);
+        var oldStamp = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        File.SetCreationTimeUtc(junkPath, oldStamp);
+        File.SetLastWriteTimeUtc(junkPath, oldStamp);
+
+        var cutoff = new DateTimeOffset(2024, 6, 1, 0, 0, 0, TimeSpan.Zero);
+
+        try
+        {
+            var notes = new List<string>();
+            var progress = new Progress<string>(s => { lock (notes) notes.Add(s); });
+            var result = new CardCatalogExtractor().Extract(
+                player, progress, illustCreatedAfterUtc: cutoff);
+
+            Assert.True(result.Success);
+            Assert.Empty(result.Rows);
+            Assert.Contains(notes, n => n.Contains("not opened", StringComparison.OrdinalIgnoreCase)
+                || n.Contains("Skipped", StringComparison.OrdinalIgnoreCase));
+            // Prove AssetsTools never opened the junk: no unreadable/unloadable messages.
+            Assert.DoesNotContain(notes, n => n.Contains("unreadable", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(notes, n => n.Contains("unloadable", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(notes, n => n.Contains("Skipping unreadable", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            try { Directory.Delete(install, recursive: true); } catch { /* ignore */ }
+        }
+    }
 }

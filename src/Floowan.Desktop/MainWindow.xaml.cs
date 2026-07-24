@@ -605,10 +605,10 @@ public partial class MainWindow : Window
                 ? dto.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " UTC"
                 : "(none — run Update entire DB first)";
             confirmBody =
-                "Upsert only cards whose illustration AssetBundle File.GetCreationTimeUtc is after the latest created_at in:\n" +
+                "Upsert only cards from AssetBundles whose File.GetCreationTimeUtc is after the latest created_at in:\n" +
                 _database.MasterDatabasePath +
                 "\n\nLatest DB created_at: " + latestText +
-                "\nGame path:\n" + gamePath +
+                "\nOlder files are skipped entirely (not opened).\nGame path:\n" + gamePath +
                 "\n\nExisting catalog rows are kept. User favorites/mods in user.db are kept. Continue?";
             confirmTitle = "Update new files only";
         }

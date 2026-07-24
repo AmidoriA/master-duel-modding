@@ -435,7 +435,7 @@
             <DockPanel>
               <TextBlock DockPanel.Dock="Top" Text="Card database" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
               <TextBlock DockPanel.Dock="Top"
-                         Text="Rebuild or incrementally refresh the master card catalog (database.db) from the Home LocalData path plus install StreamingAssets/AssetBundle (names, descriptions, bundles, card_type, created_at). Prefer LocalData downloads when both exist. Incremental mode compares each illustration AssetBundle’s File.GetCreationTimeUtc against MAX(created_at) already stored in the database."
+                         Text="Rebuild or incrementally refresh the master card catalog (database.db) from the Home LocalData path plus install StreamingAssets/AssetBundle (names, descriptions, bundles, card_type, created_at). Prefer LocalData downloads when both exist. Incremental mode skips any AssetBundle whose File.GetCreationTimeUtc is not after MAX(created_at) already stored in the database — those files are never opened."
                          Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
               <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                 <Button x:Name="ToolsUpdateEntireDbButton" Content="Update entire DB"
@@ -444,7 +444,7 @@
                 <Button x:Name="ToolsUpdateNewFilesDbButton" Content="Update new files only"
                         Click="ToolsUpdateNewFilesDatabase_Click"
                         Padding="12,4" Margin="0,0,8,0"
-                        ToolTip="Only process illustration AssetBundles whose File.GetCreationTimeUtc is after the latest created_at in database.db."/>
+                        ToolTip="Only open AssetBundles whose File.GetCreationTimeUtc is after the latest created_at in database.db; older files are skipped entirely."/>
               </StackPanel>
               <TextBlock x:Name="ToolsUpdateDbStatusText"
                          Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
