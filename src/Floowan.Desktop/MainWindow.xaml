@@ -44,7 +44,7 @@
   <Grid>
   <DockPanel x:Name="MainContent" Margin="16">
     <Border DockPanel.Dock="Top" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,12">
-      <Expander IsExpanded="True" ExpandDirection="Down">
+      <Expander x:Name="HomePathsExpander" IsExpanded="True" ExpandDirection="Down">
         <Expander.Header>
           <StackPanel Orientation="Vertical" Margin="4,0,0,0">
             <TextBlock Text="Floowan" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
