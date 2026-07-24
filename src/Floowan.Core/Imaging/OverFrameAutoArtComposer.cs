@@ -83,17 +83,21 @@ public static class OverFrameAutoArtComposer
 
     /// <summary>
     /// Far-left vertical green chrome on Pendulum faces (outer border of the mint/lore
-    /// half). Measured from <c>card_frame14</c>. Subject-gated punch only — empty stays
-    /// frame green. Inside <see cref="PendulumLoreCream"/> so lore paint must respect
-    /// <c>occupied</c>.
+    /// half). X/width measured from <c>card_frame14</c>; Y starts at
+    /// <see cref="PendulumLoreCutTop"/> (not cream top 645) so the left column can punch
+    /// in the art-hole→mint junction the same way the right margin does. Left sits inside
+    /// <see cref="PendulumLoreCream"/>'s x-span, so without this allowlist those rows are
+    /// cream-skipped; right is outside cream and already punches from cut-top. Subject-gated
+    /// only — empty stays frame green. Lore paint must respect <c>occupied</c>.
     /// </summary>
-    public static Rectangle PendulumGreenLeft { get; } = new(26, 645, 17, 353);
+    public static Rectangle PendulumGreenLeft { get; } = new(26, PendulumLoreCutTop, 17, 358);
 
     /// <summary>
     /// Far-right vertical green chrome on Pendulum faces. Mostly outside lore cream
     /// (cream ends at x=654); included so side claws can overframe the green rim.
+    /// Shares <see cref="PendulumGreenLeft"/>'s Y/height so both sides punch from cut-top.
     /// </summary>
-    public static Rectangle PendulumGreenRight { get; } = new(662, 645, 16, 353);
+    public static Rectangle PendulumGreenRight { get; } = new(662, PendulumLoreCutTop, 16, 358);
 
     /// <summary>
     /// Bottom horizontal green chrome strip under the monster lore panel.

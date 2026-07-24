@@ -510,13 +510,23 @@ public class OverFrameAutoArtComposerTests
     [Fact]
     public void PendulumGreenChromeRects_MatchMeasuredOuterBorders()
     {
-        Assert.Equal(new Rectangle(26, 645, 17, 353), OverFrameAutoArtComposer.PendulumGreenLeft);
-        Assert.Equal(new Rectangle(662, 645, 16, 353), OverFrameAutoArtComposer.PendulumGreenRight);
+        // Y starts at lore cut-top (640), not cream top (645), so left matches right punch
+        // in the art-hole→mint junction band.
+        Assert.Equal(new Rectangle(26, 640, 17, 358), OverFrameAutoArtComposer.PendulumGreenLeft);
+        Assert.Equal(new Rectangle(662, 640, 16, 358), OverFrameAutoArtComposer.PendulumGreenRight);
         Assert.Equal(new Rectangle(26, 970, 652, 28), OverFrameAutoArtComposer.PendulumGreenBottom);
+        Assert.Equal(OverFrameAutoArtComposer.PendulumLoreCutTop, OverFrameAutoArtComposer.PendulumGreenLeft.Y);
+        Assert.Equal(OverFrameAutoArtComposer.PendulumGreenLeft.Y, OverFrameAutoArtComposer.PendulumGreenRight.Y);
+        Assert.Equal(OverFrameAutoArtComposer.PendulumGreenLeft.Height, OverFrameAutoArtComposer.PendulumGreenRight.Height);
 
         Assert.True(OverFrameAutoArtComposer.IsPendulumGreenChromePunch(30, 850));
         Assert.True(OverFrameAutoArtComposer.IsPendulumGreenChromePunch(670, 850));
         Assert.True(OverFrameAutoArtComposer.IsPendulumGreenChromePunch(350, 980));
+        // Junction band above mint/cream (y cut-top .. cream-1) is green punch on both sides.
+        Assert.True(OverFrameAutoArtComposer.IsPendulumGreenChromePunch(30, OverFrameAutoArtComposer.PendulumLoreCutTop));
+        Assert.True(OverFrameAutoArtComposer.IsPendulumGreenChromePunch(670, OverFrameAutoArtComposer.PendulumLoreCutTop));
+        Assert.True(OverFrameAutoArtComposer.IsPendulumGreenChromePunch(30, 642));
+        Assert.True(OverFrameAutoArtComposer.IsPendulumGreenChromePunch(670, 642));
         // Cream interior must not be treated as green punch.
         Assert.False(OverFrameAutoArtComposer.IsPendulumGreenChromePunch(350, 850));
     }
@@ -556,6 +566,50 @@ public class OverFrameAutoArtComposerTests
         var cream = OverFrameAutoArtComposer.PendulumMonsterLoreCream;
         var creamPix = result[cream.Left + cream.Width / 2, cream.Top + cream.Height / 2];
         Assert.True(creamPix.A >= 200, $"Pendulum lore cream must stay blended chrome, got {creamPix}");
+    }
+
+    [Fact]
+    public void Compose_Pendulum_PunchesLeftGreen_AtArtMintJunction_LikeRight()
+    {
+        // Regression: left green sits inside cream x-span, so without punch from lore
+        // cut-top the art-hole→mint band (y≈640–644) stayed chrome while the right
+        // outer margin punched cleanly at the same Y.
+        using var source = new Image<Rgba32>(512, 683, new Rgba32(10, 40, 80, 255));
+        using var mask = new Image<L8>(512, 683, new L8(0));
+        for (var y = 20; y < 663; y++)
+        for (var x = 20; x < 492; x++)
+        {
+            source[x, y] = new Rgba32(20, 220, 40, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, CardFrameStyle.PendulumEffect);
+
+        var left = OverFrameAutoArtComposer.PendulumGreenLeft;
+        var right = OverFrameAutoArtComposer.PendulumGreenRight;
+        var cut = OverFrameAutoArtComposer.PendulumLoreCutTop;
+        var creamTop = OverFrameAutoArtComposer.PendulumLoreCream.Top;
+        Assert.True(cut < creamTop, "junction band is between cut-top and cream top");
+
+        var lx = left.Left + left.Width / 2;
+        var rx = right.Left + right.Width / 2;
+        // Sample mid-junction (above blue/red scale chrome) and assert left matches right.
+        var junctionY = cut + (creamTop - cut) / 2;
+        var leftJunction = result[lx, junctionY];
+        var rightJunction = result[rx, junctionY];
+
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, leftJunction.A);
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, rightJunction.A);
+        Assert.True(leftJunction.G > 100, $"left junction must punch subject, got {leftJunction}");
+        Assert.True(rightJunction.G > 100, $"right junction must punch subject, got {rightJunction}");
+
+        // Also punch at cut-top itself (first row of the former dead zone).
+        var leftCut = result[lx, cut];
+        var rightCut = result[rx, cut];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, leftCut.A);
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, rightCut.A);
+        Assert.True(leftCut.G > 100, $"left at cut-top must punch subject, got {leftCut}");
+        Assert.True(rightCut.G > 100, $"right at cut-top must punch subject, got {rightCut}");
     }
 
     [Fact]
