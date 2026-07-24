@@ -51,6 +51,12 @@ public static class ImagePreparation
                     warning =
                         $"Image is {sourceDesc}; target texture is {targetDesc}. It will be scaled to match.";
                 }
+                else if (CardArtTextureSizes.IsPendulumArtOntoTallCanvas(image.Width, image.Height, w, h))
+                {
+                    warning =
+                        $"Image is {sourceDesc}; target texture is {targetDesc}. " +
+                        "It will be stretched to fill the live canvas (reverse of extract resize).";
+                }
                 else
                 {
                     warning =
@@ -71,8 +77,8 @@ public static class ImagePreparation
     /// Prepares Unity Texture2D RGBA32 pixel bytes (vertically flipped).
     /// Matches the Floowandereeze/UnityPy RGBA32 replacement approach.
     /// When <paramref name="preserveAspect"/> is true (card-art default), mismatched
-    /// aspect ratios are letterboxed instead of squashed — important for Pendulum 3:4 art.
-    /// 3:4 art into a tall Pendulum canvas (512×1024) is top-aligned so UV maps stay correct.
+    /// aspect ratios are letterboxed instead of squashed — except Pendulum 3:4 art
+    /// onto the tall live canvas (512×1024), which is stretched to reverse extract resize.
     /// </summary>
     public static byte[] PrepareRgba32TextureBytes(
         string imagePath,
@@ -83,18 +89,18 @@ public static class ImagePreparation
         using var image = Image.Load<Rgba32>(imagePath);
         if (image.Width != width || image.Height != height)
         {
-            var pad = preserveAspect && !CardArtTextureSizes.SameAspect(image.Width, image.Height, width, height);
+            var reversePendulumExport = CardArtTextureSizes.IsPendulumArtOntoTallCanvas(
+                image.Width, image.Height, width, height);
+            var pad = preserveAspect
+                && !reversePendulumExport
+                && !CardArtTextureSizes.SameAspect(image.Width, image.Height, width, height);
             var mode = pad ? ResizeMode.Pad : ResizeMode.Stretch;
-            // MD Pendulum UVs sample the top of the tall canvas — pin letterbox to the top.
-            var position = pad && CardArtTextureSizes.IsTallPendulumStorageCanvas(width, height)
-                ? AnchorPositionMode.Top
-                : AnchorPositionMode.Center;
 
             image.Mutate(ctx => ctx.Resize(new ResizeOptions
             {
                 Size = new Size(width, height),
                 Mode = mode,
-                Position = position,
+                Position = AnchorPositionMode.Center,
                 Sampler = KnownResamplers.Lanczos3,
                 PadColor = Color.Transparent
             }));
@@ -124,9 +130,9 @@ public static class ImagePreparation
     }
 
     /// <summary>
-    /// Writes a Card Art extract PNG. Pendulum tall canvases (e.g. 512×1024) are cropped
-    /// to the top 3:4 band and emitted as canonical <c>512×683</c>; other Pendulum 3:4
-    /// sources are scaled/letterboxed to that size. Normal illusts keep their live size.
+    /// Writes a Card Art extract PNG. Pendulum tall canvases (e.g. 512×1024) are
+    /// resized (full canvas, no crop) to canonical <c>512×683</c>; other Pendulum
+    /// sources are stretched to that size. Normal illusts keep their live size.
     /// </summary>
     public static void SaveCardArtExportPng(
         byte[] bgraOrRgbaPixels,
@@ -152,17 +158,11 @@ public static class ImagePreparation
 
     /// <summary>
     /// Mutates <paramref name="image"/> into the Card Art export size (Pendulum → 512×683).
+    /// Tall MD canvases are stretched in full — never top-cropped — so lower art is kept.
     /// </summary>
     public static void NormalizeToCardArtExport(Image<Rgba32> image)
     {
         ArgumentNullException.ThrowIfNull(image);
-
-        if (CardArtTextureSizes.IsTallPendulumStorageCanvas(image.Width, image.Height))
-        {
-            var cropHeight = Math.Min(image.Height, CardArtTextureSizes.PendulumArtCropHeight(image.Width));
-            if (cropHeight < image.Height)
-                image.Mutate(ctx => ctx.Crop(new Rectangle(0, 0, image.Width, cropHeight)));
-        }
 
         if (CardArtTextureSizes.Classify(image.Width, image.Height) != CardArtSizeKind.Pendulum &&
             !CardArtTextureSizes.IsTallPendulumStorageCanvas(image.Width, image.Height))
@@ -173,14 +173,11 @@ public static class ImagePreparation
 
         var targetW = CardArtTextureSizes.PendulumWidth;
         var targetH = CardArtTextureSizes.PendulumHeight;
-        var sameAspect = CardArtTextureSizes.SameAspect(image.Width, image.Height, targetW, targetH);
         image.Mutate(ctx => ctx.Resize(new ResizeOptions
         {
             Size = new Size(targetW, targetH),
-            Mode = sameAspect ? ResizeMode.Stretch : ResizeMode.Pad,
-            Position = AnchorPositionMode.Center,
-            Sampler = KnownResamplers.Lanczos3,
-            PadColor = Color.Transparent
+            Mode = ResizeMode.Stretch,
+            Sampler = KnownResamplers.Lanczos3
         }));
     }
 
