@@ -907,6 +907,68 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
+    public void Compose_LoreUnderlay_DoesNotVerticallySmearSubjectPastFootprint()
+    {
+        // Square sources cover-scale short of lore bottom (~y 819 vs cream through 962).
+        // Clamp-to-edge on sy used to repeat the last source row down the cream as
+        // vertical ghost streaks under subject "feet" (Mirrorjade claws).
+        const int size = 512;
+        using var source = new Image<Rgba32>(size, size, new Rgba32(20, 30, 50, 255));
+        using var mask = new Image<L8>(size, size, new L8(0));
+        // Tall centered subject so rembg overframes; paint hot magenta only on the
+        // bottom source rows (the edge that would be clamp-repeated into lore).
+        var footColor = new Rgba32(255, 16, 200, 255);
+        for (var y = 40; y < size - 8; y++)
+        for (var x = 80; x < size - 80; x++)
+            mask[x, y] = new L8(255);
+        for (var y = size - 8; y < size; y++)
+        for (var x = 180; x < 220; x++)
+        {
+            source[x, y] = footColor;
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        // Well below typical scaled-source bottom for 512² Effect cover×overflow.
+        var loreY = creamR.Bottom - 20;
+        Assert.True(loreY > 820, $"regression lore sample y={loreY} should be past scaled footprint");
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var scale = Math.Max(
+            art.Width / (float)size,
+            art.Height / (float)size) * OverFrameAutoArtComposer.OverflowScale;
+        var scaledW = Math.Max(1, (int)MathF.Round(size * scale));
+        var bgX = (int)MathF.Round(art.Left + art.Width / 2f - scaledW / 2f);
+        // Source feet columns mapped onto the canvas.
+        var footCanvasX = bgX + (int)MathF.Round(200 * scale);
+        Assert.True(footCanvasX >= creamR.Left && footCanvasX < creamR.Right,
+            $"foot column x={footCanvasX} should land in lore cream");
+
+        var streakCandidate = result[footCanvasX, loreY];
+        var neighbor = result[creamR.Left + creamR.Width / 2, loreY];
+        Assert.True(streakCandidate.A >= 200, $"lore must stay opaque, got {streakCandidate}");
+        Assert.True(neighbor.A >= 200, $"lore must stay opaque, got {neighbor}");
+
+        // Cream (no magenta underlay smear). Foot-edge clamp would pull R up / B toward footColor.
+        Assert.True(Math.Abs(streakCandidate.R - cream.R) < 40,
+            $"lore must not smear foot red into cream, got {streakCandidate}");
+        Assert.True(Math.Abs(streakCandidate.B - cream.B) < 40,
+            $"lore must not smear foot blue into cream, got {streakCandidate}");
+        Assert.True(
+            Math.Abs(streakCandidate.R - neighbor.R) < 12 &&
+            Math.Abs(streakCandidate.G - neighbor.G) < 12 &&
+            Math.Abs(streakCandidate.B - neighbor.B) < 12,
+            $"foot-column lore must match neighboring cream (no vertical streak): foot={streakCandidate} mid={neighbor}");
+    }
+
+    [Fact]
     public void Compose_LoreSideWings_KeepChrome_WithoutSubject()
     {
         using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 180, 40, 255));

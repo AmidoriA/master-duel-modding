@@ -874,6 +874,8 @@ public static class OverFrameAutoArtComposer
 
     /// <summary>
     /// Writes scaled source art into a rectangle at foil-mask alpha (art window or lore underlay).
+    /// Samples outside the scaled source footprint are skipped (no clamp-to-edge): clamping
+    /// the last source row/column would smear subject edge pixels through the lore cream.
     /// </summary>
     private static void FillRegionWithScaledArt(
         Image<Rgba32> canvas,
@@ -900,7 +902,11 @@ public static class OverFrameAutoArtComposer
             if ((uint)dy >= (uint)canvas.Height)
                 continue;
 
-            var sy = Math.Clamp(dy - bgY, 0, scaled.Height - 1);
+            var sy = dy - bgY;
+            // Past the scaled art footprint: leave destination unchanged (no vertical edge repeat).
+            if ((uint)sy >= (uint)scaled.Height)
+                continue;
+
             var srcRow = scaled.DangerousGetPixelRowMemory(sy).Span;
             var dstRow = canvas.DangerousGetPixelRowMemory(dy).Span;
             for (var x = 0; x < region.Width; x++)
@@ -909,7 +915,11 @@ public static class OverFrameAutoArtComposer
                 if ((uint)dx >= (uint)canvas.Width)
                     continue;
 
-                var sx = Math.Clamp(dx - bgX, 0, scaled.Width - 1);
+                var sx = dx - bgX;
+                // Past left/right of scaled art: leave destination unchanged (no horizontal edge repeat).
+                if ((uint)sx >= (uint)scaled.Width)
+                    continue;
+
                 var src = srcRow[sx];
                 dstRow[dx] = new Rgba32(src.R, src.G, src.B, FoilMaskAlpha);
             }
