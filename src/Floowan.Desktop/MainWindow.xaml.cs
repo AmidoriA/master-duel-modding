@@ -2073,15 +2073,6 @@ public partial class MainWindow : Window
         _dbPreviewTempPath = null;
     }
 
-    private static string FormatCreatedAtDisplay(string? createdAt)
-    {
-        if (string.IsNullOrWhiteSpace(createdAt))
-            return "";
-        if (!DateTimeOffset.TryParse(createdAt, null, System.Globalization.DateTimeStyles.RoundtripKind, out var dto))
-            return createdAt;
-        return dto.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") + " (local)";
-    }
-
     private void DbDiscard_Click(object sender, RoutedEventArgs e)
     {
         if (_dbSelected is null)
