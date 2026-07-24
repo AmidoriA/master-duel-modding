@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Floowan — Master Duel Card Art"
-        Height="800" Width="1240"
-        MinHeight="620" MinWidth="1000"
+        Height="800" Width="1400"
+        MinHeight="620" MinWidth="1100"
         Background="{StaticResource BgBrush}"
         Foreground="{StaticResource TextBrush}"
         FontFamily="Segoe UI">
@@ -342,9 +342,11 @@
 
           <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="1.6*"/>
+              <ColumnDefinition Width="1.4*"/>
               <ColumnDefinition Width="12"/>
               <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="12"/>
+              <ColumnDefinition Width="0.95*"/>
             </Grid.ColumnDefinitions>
 
             <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
@@ -356,6 +358,8 @@
                   <DataGrid.Columns>
                     <DataGridTextColumn Header="id" Binding="{Binding Id}" Width="70"/>
                     <DataGridTextColumn Header="name" Binding="{Binding Name}" Width="140"/>
+                    <DataGridTextColumn x:Name="DbColCardType" Header="card_type" Binding="{Binding CardType}" Width="90"/>
+                    <DataGridTextColumn x:Name="DbColCreatedAt" Header="created_at" Binding="{Binding CreatedAtDisplay}" Width="140"/>
                     <DataGridTextColumn Header="description" Binding="{Binding Description}" Width="180"/>
                     <DataGridTextColumn Header="modded_name" Binding="{Binding ModdedName}" Width="120"/>
                     <DataGridTextColumn Header="modded_description" Binding="{Binding ModdedDescription}" Width="140"/>
@@ -391,6 +395,8 @@
                       <RowDefinition Height="Auto"/>
                       <RowDefinition Height="Auto"/>
                       <RowDefinition Height="Auto"/>
+                      <RowDefinition Height="Auto"/>
+                      <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="id" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
@@ -410,19 +416,37 @@
                     <TextBox x:Name="DbEditModdedDescBox" Grid.Row="4" Grid.Column="1" Height="90" TextWrapping="Wrap"
                              AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Margin="0,0,0,8"/>
 
-                    <TextBlock Grid.Row="5" Text="bundle" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                    <TextBox x:Name="DbEditBundleBox" Grid.Row="5" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
+                    <TextBlock x:Name="DbEditCardTypeLabel" Grid.Row="5" Text="card_type" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                    <TextBox x:Name="DbEditCardTypeBox" Grid.Row="5" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
 
-                    <TextBlock Grid.Row="6" Text="data_index" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                    <TextBox x:Name="DbEditDataIndexBox" Grid.Row="6" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
+                    <TextBlock x:Name="DbEditCreatedAtLabel" Grid.Row="6" Text="created_at" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                    <TextBox x:Name="DbEditCreatedAtBox" Grid.Row="6" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
 
-                    <TextBlock Grid.Row="7" Text="favorite" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                    <CheckBox x:Name="DbEditFavoriteBox" Grid.Row="7" Grid.Column="1" Content="Favorite" Margin="0,0,0,8"/>
+                    <TextBlock Grid.Row="7" Text="bundle" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                    <TextBox x:Name="DbEditBundleBox" Grid.Row="7" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
 
-                    <TextBlock Grid.Row="8" Text="has_backup" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
-                    <TextBox x:Name="DbEditHasBackupBox" Grid.Row="8" Grid.Column="1" IsReadOnly="True"/>
+                    <TextBlock Grid.Row="8" Text="data_index" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                    <TextBox x:Name="DbEditDataIndexBox" Grid.Row="8" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
+
+                    <TextBlock Grid.Row="9" Text="favorite" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                    <CheckBox x:Name="DbEditFavoriteBox" Grid.Row="9" Grid.Column="1" Content="Favorite" Margin="0,0,0,8"/>
+
+                    <TextBlock Grid.Row="10" Text="has_backup" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                    <TextBox x:Name="DbEditHasBackupBox" Grid.Row="10" Grid.Column="1" IsReadOnly="True"/>
                   </Grid>
                 </ScrollViewer>
+              </DockPanel>
+            </Border>
+
+            <Border Grid.Column="4" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Card art" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock x:Name="DbArtMetaText" DockPanel.Dock="Top"
+                           Text="Select a card to preview live art."
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                <Border Background="#12161A" CornerRadius="4">
+                  <Image x:Name="DbArtPreviewImage" Stretch="Uniform" Margin="8"/>
+                </Border>
               </DockPanel>
             </Border>
           </Grid>
