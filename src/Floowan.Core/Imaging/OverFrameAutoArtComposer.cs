@@ -71,11 +71,13 @@ public static class OverFrameAutoArtComposer
 
     /// <summary>
     /// Extra downward shift (px) for Pendulum OF Auto-create. Tall 3:4 sources centered
-    /// on the short Pendulum hole sit a bit high (name-bar overlap, floating feet).
-    /// Applied to foil base + rembg subject together so they stay locked. Non-Pendulum
-    /// styles are unchanged.
+    /// on the short Pendulum hole sit too high (name-bar overlap; mint/scale bar cuts
+    /// mid-figure). Applied to foil base + rembg subject together so they stay locked.
+    /// The mint/scale chrome is fixed in the frame PNG — Floowan cannot move it — so
+    /// this offset is the lever that sits the subject lower relative to that bar.
+    /// Non-Pendulum styles are unchanged.
     /// </summary>
-    public const int PendulumVerticalOffset = 56;
+    public const int PendulumVerticalOffset = 140;
 
     /// <summary>
     /// Top crop height from a native 512×1024 Pendulum Texture2D that yields the
@@ -109,7 +111,7 @@ public static class OverFrameAutoArtComposer
     /// <summary>
     /// Canonical outer lore border (gold rim) from <c>Effect.png</c>, including side wings.
     /// Dark card margins outside this rect (x &lt; 26 and x ≥ 678 on a 704-wide canvas)
-    /// are soft-filled with art so they match lore transparency.
+    /// stay frame chrome unless the rembg subject occupies those pixels.
     /// </summary>
     public static Rectangle EffectLoreOuter { get; } = new(26, 766, 652, 196);
 
@@ -267,8 +269,6 @@ public static class OverFrameAutoArtComposer
         // 1) Art window + type-line strip + soft lore underlay (not lore side wings).
         var textBox = ResolveTextBox(frame, artWindow, useSharedEffectLayout, layout);
         var loreCutTop = ResolveLoreCutTop(frame, textBox, artWindow, useSharedEffectLayout, layout);
-        var loreOuter = ResolveLoreOuterBorder(frame, textBox, artWindow, useSharedEffectLayout);
-        var (leftMargin, rightMargin) = ResolveLoreDarkMargins(loreOuter, Assets.OverFrameConstants.Width);
         // Type-line fill stays art-hole-wide (avoids horizontal corner stubs).
         var typeLineStrip = ResolveTypeLineStrip(artWindow, loreCutTop);
         var canvas = CreateFoilMaskArtBase(source, artWindow, scaledSourceW, scaledSourceH, bgX, bgY);
@@ -278,20 +278,16 @@ public static class OverFrameAutoArtComposer
         // Soft continuation under the cream lore panel (Mirrorjade). Never rembg here.
         FillRegionWithScaledArt(canvas, textBox, source, scaledSourceW, scaledSourceH, bgX, bgY);
 
-        // Dark card margins flanking the lore gold rim — same foil underlay so art
-        // shows through (were left as opaque frame edge before).
-        FillRegionWithScaledArt(canvas, leftMargin, source, scaledSourceW, scaledSourceH, bgX, bgY);
-        FillRegionWithScaledArt(canvas, rightMargin, source, scaledSourceW, scaledSourceH, bgX, bgY);
-
-        // 2) Overflow silhouette — may punch lore side wings + dark margins where the
-        //    subject is; never punch the cream interior.
+        // 2) Overflow silhouette — may punch lore side wings + dark card margins where
+        //    the rembg subject is present; never punch the cream interior. Empty dark
+        //    margins stay opaque frame chrome (no always-on foil soft-fill).
         var occupied = new bool[canvas.Width * canvas.Height];
         BlitSubjectFoilMask(canvas, resized, xOffset, yOffset, occupied, loreCutTop, textBox);
 
         // 3) Frame chrome + mostly-opaque lore panel over the soft underlay.
         EnsureArtWindowHole(frame, artWindow);
         DrawFramePunchedByRectangleAndSilhouette(
-            canvas, frame, artWindow, textBox, typeLineStrip, leftMargin, rightMargin, occupied);
+            canvas, frame, artWindow, textBox, typeLineStrip, occupied);
         PaintLorePanel(canvas, frame, textBox);
 
         return canvas;
@@ -818,28 +814,9 @@ public static class OverFrameAutoArtComposer
         return Math.Clamp(EffectLoreCutTop, 0, Assets.OverFrameConstants.Height - 1);
     }
 
-    private static Rectangle ResolveLoreOuterBorder(
-        Image<Rgba32> frame,
-        Rectangle creamPanel,
-        Rectangle artWindow,
-        bool useSharedEffectLayout)
-    {
-        if (!useSharedEffectLayout)
-        {
-            if (creamPanel.IsEmpty)
-                return creamPanel;
-            var inflated = Rectangle.Inflate(creamPanel, 12, 4);
-            return ClampToFrame(inflated, frame.Width, frame.Height);
-        }
-
-        _ = creamPanel;
-        _ = artWindow;
-        return ClampToFrame(EffectLoreOuter, frame.Width, frame.Height);
-    }
-
     /// <summary>
     /// Dark card-edge strips to the left/right of the lore gold rim (outside
-    /// <paramref name="loreOuter"/>). Soft-filled with art so they are not opaque chrome.
+    /// <paramref name="loreOuter"/>). Kept as frame chrome unless rembg occupies them.
     /// </summary>
     public static (Rectangle Left, Rectangle Right) ResolveLoreDarkMargins(Rectangle loreOuter, int canvasWidth)
     {
@@ -972,7 +949,7 @@ public static class OverFrameAutoArtComposer
                 if (dy >= loreCutTop)
                 {
                     // Keep cream clear of rembg hard edges (Mirrorjade underlay instead).
-                    // Gold lore wings AND dark card margins may punch when subject covers them.
+                    // Gold lore wings and dark card margins punch only where subject covers them.
                     if (dx >= textBox.Left && dx < textBox.Right)
                         continue;
                 }
@@ -989,8 +966,6 @@ public static class OverFrameAutoArtComposer
         Rectangle artWindow,
         Rectangle textBox,
         Rectangle typeLineStrip,
-        Rectangle leftLoreMargin,
-        Rectangle rightLoreMargin,
         bool[] occupied)
     {
         for (var y = 0; y < canvas.Height; y++)
@@ -1007,10 +982,7 @@ public static class OverFrameAutoArtComposer
                 // Lore panel is painted in a dedicated pass — skip here.
                 if (textBox.Contains(x, y))
                     continue;
-                // Dark lore-side margins keep soft art underlay (not opaque card edge).
-                if (leftLoreMargin.Contains(x, y) || rightLoreMargin.Contains(x, y))
-                    continue;
-                // Lore side wings stay frame chrome unless rembg marked them occupied.
+                // Lore side wings + dark card margins stay chrome unless rembg occupied them.
                 if (occupied[rowOffset + x])
                     continue;
 
