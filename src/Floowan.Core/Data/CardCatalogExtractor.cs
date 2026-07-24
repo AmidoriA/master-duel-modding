@@ -33,9 +33,10 @@ namespace Floowan.Core.Data;
 /// via <see cref="File.GetCreationTimeUtc"/>.
 /// </para>
 /// <para>
-/// Incremental scans (optional illust creation cutoff) still open CARD_* candidates of any age,
-/// but skip illustration AssetBundle files whose <see cref="File.GetCreationTimeUtc"/> is not
-/// strictly after that cutoff (compared against DB <c>MAX(created_at)</c>).
+/// Incremental scans (optional creation cutoff) skip <b>entire</b> AssetBundle files whose
+/// <see cref="File.GetCreationTimeUtc"/> is not strictly after that cutoff (DB
+/// <c>MAX(created_at)</c>) — no <c>LoadBundleFile</c>, CARD_* parse, or illust parse for those
+/// files. Only newer candidates are opened with AssetsTools.
 /// </para>
 /// </summary>
 public sealed class CardCatalogExtractor
@@ -60,9 +61,9 @@ public sealed class CardCatalogExtractor
     }
 
     /// <param name="illustCreatedAfterUtc">
-    /// When set, illustration AssetBundles with <see cref="File.GetCreationTimeUtc"/> ≤ this
-    /// cutoff are not opened for Texture2D collection (speed). CARD_* TextAsset candidates are
-    /// still scanned regardless of file age.
+    /// When set (incremental mode), any AssetBundle with <see cref="File.GetCreationTimeUtc"/>
+    /// ≤ this cutoff is skipped entirely before AssetsTools open — no CARD_* or illust parse.
+    /// Only files strictly newer than the cutoff are candidates for <c>LoadBundleFile</c>.
     /// </param>
     public CardCatalogExtractResult Extract(
         string playerDataPath,
@@ -80,13 +81,14 @@ public sealed class CardCatalogExtractor
 
         DateTime? illustCutoffUtc = illustCreatedAfterUtc?.UtcDateTime;
         if (illustCutoffUtc is not null)
-            progress?.Report($"Incremental: only illustration files newer than {illustCutoffUtc:o} (File.GetCreationTimeUtc vs DB created_at).");
+            progress?.Report($"Incremental: only files newer than {illustCutoffUtc:o} (File.GetCreationTimeUtc vs DB created_at); older files are not opened.");
 
         progress?.Report($"Scanning {bundleFiles.Count} bundles for card data and illustrations…");
         var artToBundle = new ConcurrentDictionary<int, string>();
         var artBundlePaths = new ConcurrentDictionary<int, string>();
         var cardData = new CardDataPayloads();
-        var skippedOldIllust = 0;
+        var skippedOldBundles = 0;
+        var openedBundles = 0;
 
         var checkedCount = 0;
         // One AssetsManager per worker thread; serialize LoadClassPackage.
@@ -105,6 +107,24 @@ public sealed class CardCatalogExtractor
                 if (n % 400 == 0)
                     progress?.Report($"Scanning bundles… {n}/{bundleFiles.Count}");
 
+                // Incremental: date gate before any size window / LoadBundleFile.
+                if (illustCutoffUtc is DateTime cutoff)
+                {
+                    try
+                    {
+                        if (File.GetCreationTimeUtc(path) <= cutoff)
+                        {
+                            Interlocked.Increment(ref skippedOldBundles);
+                            return am;
+                        }
+                    }
+                    catch
+                    {
+                        Interlocked.Increment(ref skippedOldBundles);
+                        return am;
+                    }
+                }
+
                 long length;
                 try { length = new FileInfo(path).Length; }
                 catch { return am; }
@@ -112,27 +132,12 @@ public sealed class CardCatalogExtractor
                 var mayHaveCardData = !cardData.IsComplete
                     && length is >= MinCardDataBytes and <= MaxCardDataBytes;
                 var mayHaveIllust = length is >= MinIllustBytes and <= MaxIllustBytes;
-                if (mayHaveIllust && illustCutoffUtc is DateTime cutoff)
-                {
-                    try
-                    {
-                        if (File.GetCreationTimeUtc(path) <= cutoff)
-                        {
-                            mayHaveIllust = false;
-                            Interlocked.Increment(ref skippedOldIllust);
-                        }
-                    }
-                    catch
-                    {
-                        mayHaveIllust = false;
-                    }
-                }
-
                 if (!mayHaveCardData && !mayHaveIllust)
                     return am;
 
                 try
                 {
+                    Interlocked.Increment(ref openedBundles);
                     // Single LoadBundleFile per path — a second load on a dirty manager
                     // silently drops illustration hits.
                     TryCollectFromBundle(
@@ -153,8 +158,8 @@ public sealed class CardCatalogExtractor
             },
             am => am.UnloadAll());
 
-        if (illustCutoffUtc is not null && skippedOldIllust > 0)
-            progress?.Report($"Skipped {skippedOldIllust} illustration candidate files older than cutoff.");
+        if (illustCutoffUtc is not null && skippedOldBundles > 0)
+            progress?.Report($"Skipped {skippedOldBundles} files older than cutoff (not opened). Opened {openedBundles} newer candidates.");
 
         if (illustCutoffUtc is not null && artToBundle.IsEmpty)
         {
