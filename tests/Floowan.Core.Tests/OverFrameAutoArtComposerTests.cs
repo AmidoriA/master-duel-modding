@@ -410,6 +410,103 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
+    public void Compose_Pendulum_AppliesModestDownwardVerticalOffset()
+    {
+        Assert.Equal(56, OverFrameAutoArtComposer.PendulumVerticalOffset);
+        Assert.True(OverFrameAutoArtComposer.PendulumVerticalOffset > 0);
+        Assert.True(OverFrameAutoArtComposer.PendulumVerticalOffset < 120,
+            "Pendulum vertical nudge should stay modest (\"a bit\"), not a full hole shift.");
+
+        // Thin horizontal subject bar at a known source Y — placement must include the
+        // Pendulum-only downward bias (foil + rembg stay locked via bgY).
+        const int srcW = 512;
+        const int srcH = 683;
+        const int barY = 200;
+        using var source = new Image<Rgba32>(srcW, srcH, new Rgba32(10, 180, 40, 255));
+        using var mask = new Image<L8>(srcW, srcH, new L8(0));
+        for (var x = 180; x < 330; x++)
+            mask[x, barY] = new L8(255);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, CardFrameStyle.PendulumEffect);
+        var hole = OverFrameAutoArtComposer.PendulumArtWindow;
+        var cover = Math.Max(hole.Width / (float)srcW, hole.Height / (float)srcH);
+        var scale = cover * OverFrameAutoArtComposer.OverflowScale;
+        var scaledH = Math.Max(1, (int)MathF.Round(srcH * scale));
+        var artCenterY = hole.Top + hole.Height / 2f;
+        var bgYCentered = (int)MathF.Round(artCenterY - scaledH / 2f);
+        var expectedY = bgYCentered + OverFrameAutoArtComposer.PendulumVerticalOffset +
+                        (int)MathF.Round(barY * scale);
+
+        var found = false;
+        for (var x = 0; x < result.Width && !found; x++)
+        {
+            var p = result[x, expectedY];
+            if (p.A == OverFrameAutoArtComposer.FoilMaskAlpha && p.G > 100)
+                found = true;
+        }
+
+        Assert.True(found,
+            $"expected Pendulum subject foil at y={expectedY} (centered bgY={bgYCentered} + offset {OverFrameAutoArtComposer.PendulumVerticalOffset})");
+
+        // Without the offset, that same row would be empty of this green bar.
+        var unshiftedY = bgYCentered + (int)MathF.Round(barY * scale);
+        Assert.NotEqual(expectedY, unshiftedY);
+        var greenAtUnshifted = false;
+        for (var x = 0; x < result.Width; x++)
+        {
+            var p = result[x, unshiftedY];
+            if (p.A == OverFrameAutoArtComposer.FoilMaskAlpha && p.G > 100 && p.R < 80)
+            {
+                greenAtUnshifted = true;
+                break;
+            }
+        }
+
+        Assert.False(greenAtUnshifted,
+            $"subject bar must not remain at centered y={unshiftedY}; Pendulum offset should have moved it down");
+    }
+
+    [Fact]
+    public void Compose_Pendulum_BottomMonsterLoreGetsMirrorjadeUnderlay()
+    {
+        // Saturated source so blended lore RGB diverges from opaque frame cream.
+        using var source = new Image<Rgba32>(512, 683, new Rgba32(220, 40, 200, 255));
+        using var mask = new Image<L8>(512, 683, new L8(0));
+        for (var y = 80; y < 500; y++)
+        for (var x = 120; x < 390; x++)
+            mask[x, y] = new L8(255);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, CardFrameStyle.PendulumEffect);
+        using var frame = CardFrameTemplates.Load(CardFrameStyle.PendulumEffect);
+
+        var mint = OverFrameAutoArtComposer.PendulumMintTextBox;
+        var bottom = OverFrameAutoArtComposer.PendulumMonsterLoreCream;
+        var midX = bottom.Left + bottom.Width / 2;
+        var mintY = mint.Top + mint.Height / 2;
+        var bottomY = bottom.Top + bottom.Height / 2;
+
+        var mintPix = result[midX, mintY];
+        var bottomPix = result[midX, bottomY];
+        var frameMint = frame[midX, mintY];
+        var frameBottom = frame[midX, bottomY];
+
+        // Both panels keep high alpha (frame chrome), but RGB must pull toward source art
+        // — opaque full-frame paint would match the template cream exactly.
+        Assert.True(mintPix.A >= 200, $"mint lore alpha, got {mintPix}");
+        Assert.True(bottomPix.A >= 200, $"bottom lore alpha, got {bottomPix}");
+        Assert.True(
+            Math.Abs(bottomPix.R - frameBottom.R) > 5 ||
+            Math.Abs(bottomPix.G - frameBottom.G) > 5 ||
+            Math.Abs(bottomPix.B - frameBottom.B) > 5,
+            $"bottom monster lore must blend art underlay, not stay pure frame chrome ({frameBottom} vs {bottomPix})");
+        Assert.True(
+            Math.Abs(mintPix.R - frameMint.R) > 5 ||
+            Math.Abs(mintPix.G - frameMint.G) > 5 ||
+            Math.Abs(mintPix.B - frameMint.B) > 5,
+            $"mint strip must keep Mirrorjade blend ({frameMint} vs {mintPix})");
+    }
+
+    [Fact]
     public void LooksLikeFramedCardArt_DetectsLorePanelAndFoilMask()
     {
         using var clean = new Image<Rgba32>(512, 512, new Rgba32(40, 80, 120, 255));
@@ -517,6 +614,37 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
+    public void Compose_LoreDarkMargins_ShowArtUnderlay()
+    {
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 180, 40, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 0; y < 100; y++)
+        for (var x = 40; x < 60; x++)
+            mask[x, y] = new L8(255);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, CardFrameStyle.Effect);
+        var outer = OverFrameAutoArtComposer.EffectLoreOuter;
+        var (left, right) = OverFrameAutoArtComposer.ResolveLoreDarkMargins(
+            outer, OverFrameConstants.Width);
+
+        Assert.Equal(new Rectangle(0, 766, 26, 196), left);
+        Assert.Equal(new Rectangle(678, 766, 26, 196), right);
+
+        var loreY = outer.Top + 40;
+        var leftPix = result[left.Left + left.Width / 2, loreY];
+        var rightPix = result[right.Left + right.Width / 2, loreY];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, leftPix.A);
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, rightPix.A);
+        Assert.True(leftPix.G > 80, $"left dark margin must show art, got {leftPix}");
+        Assert.True(rightPix.G > 80, $"right dark margin must show art, got {rightPix}");
+
+        // Cream interior still Mirrorjade-opaque (not foil).
+        var cream = OverFrameAutoArtComposer.EffectLoreCream;
+        var lore = result[cream.Left + cream.Width / 2, loreY];
+        Assert.True(lore.A >= 200, $"lore cream must stay blended chrome, got {lore}");
+    }
+
+    [Fact]
     public void Compose_LoreSideWings_KeepChrome_WithoutSubject()
     {
         using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 180, 40, 255));
@@ -589,7 +717,7 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
-    public void Compose_CutsSubjectAtLoreTop_NoSideBleedPastLore()
+    public void Compose_CutsSubjectAtLoreTop_AllowsDarkMarginPunch()
     {
         using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 80, 200, 255));
         using var mask = new Image<L8>(100, 100, new L8(0));
@@ -616,9 +744,10 @@ public class OverFrameAutoArtComposerTests
         using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
 
         var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        // Dark margins keep foil art underlay (and may include rembg punch) — not opaque chrome.
         var side = result[20, creamR.Top + 30];
-        Assert.True(side.A >= 200, $"outer chrome beyond lore wings must stay frame, got {side}");
-        Assert.True(Math.Abs(side.R - chrome.R) < 40, $"expected outer chrome, got {side}");
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, side.A);
+        Assert.True(side.R + side.G + side.B > 40, $"expected art in dark lore margin, got {side}");
 
         var lore = result[creamR.Left + creamR.Width / 2, creamR.Top + 30];
         Assert.True(lore.A >= 200, $"lore interior must stay opaque, got {lore}");
