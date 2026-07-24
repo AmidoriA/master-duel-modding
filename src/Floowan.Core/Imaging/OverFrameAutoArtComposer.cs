@@ -44,7 +44,7 @@ public static class OverFrameAutoArtComposer
 
     /// <summary>
     /// Fallback art window for Master Duel Pendulum faces (<c>card_frame13</c>–<c>17</c>, <c>19</c>).
-    /// Measured independently per variant; all six share this hole on current MD builds.
+    /// Measured independently per variant; all seven share this hole on current MD builds.
     /// </summary>
     public static Rectangle PendulumArtWindow { get; } = new(50, 186, 604, 451);
 
@@ -123,6 +123,7 @@ public static class OverFrameAutoArtComposer
         CardFrameStyle.PendulumFusion => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
         CardFrameStyle.PendulumSynchro => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
         CardFrameStyle.PendulumXyz => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
+        CardFrameStyle.PendulumRitual => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
         CardFrameStyle.PendulumToken => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
         _ => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop)
     };
