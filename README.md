@@ -5,7 +5,7 @@
 ## Features (MVP)
 
 - Discover / browse Master Duel `LocalData/<playerId>` paths (Steam libraries + registry)
-- Load and search cards from Floowandereeze-compatible master `database.db` (user settings/state in `user.db` beside the app)
+- Load and search cards from Floowan’s master `database.db` (inspired by Floowandereeze catalog ideas; schema/contents maintained here — user settings/state in `user.db` beside the app)
 - **Tools → Update entire DB** / **Update new files only**: rebuild or incrementally refresh master catalog from LocalData + `masterduel_Data/StreamingAssets/AssetBundle` (CARD_* decrypt + illust scan); stores `card_type` / `created_at`. Incremental compares illustration `File.GetCreationTimeUtc` against DB `MAX(created_at)`.
 - Preview current Texture2D art from the card AssetBundle
 - Validate / prepare a replacement image (resize to texture size, RGBA32)
@@ -29,7 +29,7 @@
 
 - Windows, .NET 8 SDK
 - Master Duel install (for live replace)
-- `database.db` master catalog (already in repo root, or from [Floowandereeze and Modding](https://github.com/Nauder/floowandereeze-and-modding-qt)); writable `user.db` is created next to the exe on first run
+- `database.db` master catalog (shipped in repo root; rebuild/refresh via **Tools** from a local Master Duel install). Inspired by [Floowandereeze ETL](https://github.com/Nauder/floowandereeze-and-modding-etl) / [Modding Qt](https://github.com/Nauder/floowandereeze-and-modding-qt), but **not** a verbatim upstream dump — Floowan adds fields such as `card_type` / `created_at` and its own update flow. Writable `user.db` is created next to the exe on first run
 - `classdata.tpk` (shipped under `src/Floowan.Core/Resources`, from UABEA release files)
 
 ## Build & run
@@ -74,4 +74,4 @@ Game updates may reset `of_card_asset` (and card bundles). Keep backups under `b
 
 ## Attribution
 
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Approach and `database.db` schema align with Floowandereeze and Modding (GPL-3.0). Bundle I/O uses AssetsTools.NET / UABEA (MIT). Over-frame steps follow the community Nexus guide linked above.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Path layout and art-replacement approach are inspired by Floowandereeze and Modding (GPL-3.0); Floowan’s `database.db` is maintained separately (Tools update, extra columns). Bundle I/O uses AssetsTools.NET / UABEA (MIT). Over-frame steps follow the community Nexus guide linked above.
