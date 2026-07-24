@@ -13,6 +13,8 @@ namespace Floowan.Core.Imaging;
 /// meets the cream lore panel with no chrome gap. Overflow is hard-cut across the
 /// lore panel width (gold rim + cream stay clear). Left/right lore side wings keep
 /// frame chrome unless the rembg subject actually occupies those pixels.
+/// Pendulum faces additionally allow subject punch on the outer green side borders
+/// and bottom green strip (subject-gated only).
 /// Lore cream / outer / cut geometry is always taken from Effect.png so Normal,
 /// Synchro, Link, and other styles share the same punch layout.
 /// </summary>
@@ -41,6 +43,93 @@ public static class OverFrameAutoArtComposer
     public static Rectangle ArtWindow { get; } = new(89, 191, 527, 528);
 
     /// <summary>
+    /// Fallback art window for Master Duel Pendulum faces (<c>card_frame13</c>–<c>17</c>, <c>19</c>).
+    /// Measured independently per variant; all six share this hole on current MD builds.
+    /// </summary>
+    public static Rectangle PendulumArtWindow { get; } = new(50, 186, 604, 451);
+
+    /// <summary>
+    /// Mint pendulum-effect / scale text strip on Pendulum faces (between art hole and
+    /// monster lore). Measured from <c>card_frame14</c>; shared across Pendulum variants.
+    /// </summary>
+    public static Rectangle PendulumMintTextBox { get; } = new(27, 645, 627, 114);
+
+    /// <summary>
+    /// Bottom monster-effect lore cream on Pendulum faces (user-visible lower text box).
+    /// </summary>
+    public static Rectangle PendulumMonsterLoreCream { get; } = new(27, 766, 627, 196);
+
+    /// <summary>
+    /// Combined Pendulum text panels (mint strip + monster lore) for Mirrorjade soft
+    /// underlay + frame blend. <see cref="DetectTextBox"/> alone stops at the mint strip
+    /// and would leave the bottom box fully opaque frame chrome.
+    /// </summary>
+    public static Rectangle PendulumLoreCream { get; } = new(27, 645, 627, 317);
+
+    /// <summary>
+    /// Overflow hard-cut just under the Pendulum art hole (before the mint pendulum box).
+    /// </summary>
+    public const int PendulumLoreCutTop = 640;
+
+    /// <summary>
+    /// Extra downward shift (px) for Pendulum OF Auto-create. Tall 3:4 sources centered
+    /// on the short Pendulum hole sit too high (name-bar overlap; mint/scale bar cuts
+    /// mid-figure). Applied to foil base + rembg subject together so they stay locked.
+    /// The mint/scale chrome is fixed in the frame PNG — Floowan cannot move it — so
+    /// this offset is the lever that sits the subject lower relative to that bar.
+    /// Non-Pendulum styles are unchanged.
+    /// </summary>
+    public const int PendulumVerticalOffset = 200;
+
+    /// <summary>
+    /// Far-left vertical green chrome on Pendulum faces (outer border of the mint/lore
+    /// half). X/width measured from <c>card_frame14</c>; Y starts at
+    /// <see cref="PendulumLoreCutTop"/> (not cream top 645) so the left column can punch
+    /// in the art-hole→mint junction the same way the right margin does. Left sits inside
+    /// <see cref="PendulumLoreCream"/>'s x-span, so without this allowlist those rows are
+    /// cream-skipped; right is outside cream and already punches from cut-top. Subject-gated
+    /// only — empty stays frame green. Lore paint must respect <c>occupied</c>.
+    /// </summary>
+    public static Rectangle PendulumGreenLeft { get; } = new(26, PendulumLoreCutTop, 17, 358);
+
+    /// <summary>
+    /// Far-right vertical green chrome on Pendulum faces. Mostly outside lore cream
+    /// (cream ends at x=654); included so side claws can overframe the green rim.
+    /// Shares <see cref="PendulumGreenLeft"/>'s Y/height so both sides punch from cut-top.
+    /// </summary>
+    public static Rectangle PendulumGreenRight { get; } = new(662, PendulumLoreCutTop, 16, 358);
+
+    /// <summary>
+    /// Bottom horizontal green chrome strip under the monster lore panel.
+    /// Below <see cref="PendulumLoreCream"/> (cream bottom=962); rembg must be allowed
+    /// here even when x is within the cream horizontal span.
+    /// </summary>
+    public static Rectangle PendulumGreenBottom { get; } = new(26, 970, 652, 28);
+
+    /// <summary>
+    /// Top crop height from a native 512×1024 Pendulum Texture2D that yields the
+    /// canonical 3:4 art band (512×683).
+    /// </summary>
+    public const int PendulumIllustArtHeight = CardArtTextureSizes.PendulumHeight;
+
+    /// <summary>
+    /// Per-style Pendulum layout fallbacks (art hole + monster lore + cut). Values are
+    /// measured from each <c>card_frame*</c> PNG; current MD builds share the same hole.
+    /// </summary>
+    public static FrameLayout GetPendulumLayout(CardFrameStyle style) => style switch
+    {
+        CardFrameStyle.PendulumNormal => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
+        CardFrameStyle.PendulumEffect => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
+        CardFrameStyle.PendulumFusion => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
+        CardFrameStyle.PendulumSynchro => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
+        CardFrameStyle.PendulumXyz => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
+        CardFrameStyle.PendulumToken => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
+        _ => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop)
+    };
+
+    public readonly record struct FrameLayout(Rectangle ArtWindow, Rectangle LoreCream, int LoreCutTop);
+
+    /// <summary>
     /// Canonical lore cream panel from <c>Effect.png</c>. All frame styles use this
     /// layout for punch/cut (color detection fails on Synchro white, Link dark, Normal yellow).
     /// </summary>
@@ -48,6 +137,8 @@ public static class OverFrameAutoArtComposer
 
     /// <summary>
     /// Canonical outer lore border (gold rim) from <c>Effect.png</c>, including side wings.
+    /// Dark card margins outside this rect (x &lt; 26 and x ≥ 678 on a 704-wide canvas)
+    /// stay frame chrome unless the rembg subject occupies those pixels.
     /// </summary>
     public static Rectangle EffectLoreOuter { get; } = new(26, 766, 652, 196);
 
@@ -72,13 +163,35 @@ public static class OverFrameAutoArtComposer
         ArgumentNullException.ThrowIfNull(mask);
 
         using var frame = CardFrameTemplates.Load(frameStyle, frameDirectory);
-        return Compose(source, mask, frame);
+        return Compose(
+            source,
+            mask,
+            frame,
+            useSharedEffectLayout: !CardFrameTemplates.IsPendulumStyle(frameStyle),
+            pendulumLayout: CardFrameTemplates.IsPendulumStyle(frameStyle)
+                ? GetPendulumLayout(frameStyle)
+                : null);
     }
 
     public static Image<Rgba32> Compose(
         Image<Rgba32> source,
         Image<L8> mask,
-        Image<Rgba32> frameTemplate)
+        Image<Rgba32> frameTemplate) =>
+        Compose(source, mask, frameTemplate, useSharedEffectLayout: true, pendulumLayout: null);
+
+    public static Image<Rgba32> Compose(
+        Image<Rgba32> source,
+        Image<L8> mask,
+        Image<Rgba32> frameTemplate,
+        bool useSharedEffectLayout) =>
+        Compose(source, mask, frameTemplate, useSharedEffectLayout, pendulumLayout: null);
+
+    public static Image<Rgba32> Compose(
+        Image<Rgba32> source,
+        Image<L8> mask,
+        Image<Rgba32> frameTemplate,
+        bool useSharedEffectLayout,
+        FrameLayout? pendulumLayout)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(mask);
@@ -136,10 +249,22 @@ public static class OverFrameAutoArtComposer
             Sampler = KnownResamplers.Lanczos3
         }));
 
-        // All styles share Effect art-hole + lore geometry. Styles with a larger hole used to
-        // shift scale / type-line / wings — patch oversized holes, then use ArtWindow.
-        NormalizeFrameToSharedArtLayout(frame);
-        var artWindow = ArtWindow;
+        Rectangle artWindow;
+        var layout = pendulumLayout ?? GetPendulumLayout(CardFrameStyle.PendulumEffect);
+        if (useSharedEffectLayout)
+        {
+            // All non-Pendulum styles share Effect art-hole + lore geometry.
+            NormalizeFrameToSharedArtLayout(frame);
+            artWindow = ArtWindow;
+        }
+        else
+        {
+            // Pendulum faces keep their native wider/shorter hole (measured per PNG).
+            artWindow = DetectArtWindow(frame);
+            if (artWindow.IsEmpty)
+                artWindow = layout.ArtWindow;
+            EnsureArtWindowHole(frame, artWindow);
+        }
 
         var cover = Math.Max(
             artWindow.Width / (float)source.Width,
@@ -150,8 +275,11 @@ public static class OverFrameAutoArtComposer
 
         var artCenterX = artWindow.Left + artWindow.Width / 2f;
         var artCenterY = artWindow.Top + artWindow.Height / 2f;
+        // Pendulum-only: nudge the centered 3:4 cover down so the silhouette sits
+        // more naturally in the short art hole (see PendulumVerticalOffset).
+        var verticalOffset = useSharedEffectLayout ? 0 : PendulumVerticalOffset;
         var bgX = (int)MathF.Round(artCenterX - scaledSourceW / 2f);
-        var bgY = (int)MathF.Round(artCenterY - scaledSourceH / 2f);
+        var bgY = (int)MathF.Round(artCenterY - scaledSourceH / 2f) + verticalOffset;
 
         var targetWidth = Math.Max(1, (int)MathF.Round(subject.Width * scale));
         var targetHeight = Math.Max(1, (int)MathF.Round(subject.Height * scale));
@@ -166,9 +294,8 @@ public static class OverFrameAutoArtComposer
         var yOffset = bgY + (int)MathF.Round(bounds.Top * scale);
 
         // 1) Art window + type-line strip + soft lore underlay (not lore side wings).
-        var textBox = ResolveTextBox(frame, artWindow);
-        var loreCutTop = ResolveLoreCutTop(frame, textBox, artWindow);
-        var loreOuter = ResolveLoreOuterBorder(frame, textBox, artWindow);
+        var textBox = ResolveTextBox(frame, artWindow, useSharedEffectLayout, layout);
+        var loreCutTop = ResolveLoreCutTop(frame, textBox, artWindow, useSharedEffectLayout, layout);
         // Type-line fill stays art-hole-wide (avoids horizontal corner stubs).
         var typeLineStrip = ResolveTypeLineStrip(artWindow, loreCutTop);
         var canvas = CreateFoilMaskArtBase(source, artWindow, scaledSourceW, scaledSourceH, bgX, bgY);
@@ -178,19 +305,32 @@ public static class OverFrameAutoArtComposer
         // Soft continuation under the cream lore panel (Mirrorjade). Never rembg here.
         FillRegionWithScaledArt(canvas, textBox, source, scaledSourceW, scaledSourceH, bgX, bgY);
 
-        // 2) Overflow silhouette — may punch lore side wings only where the subject is;
-        //    never punch the cream interior / gold top span / empty wings.
+        // 2) Overflow silhouette — may punch lore side wings + dark card margins where
+        //    the rembg subject is present; never punch the cream interior. Empty dark
+        //    margins stay opaque frame chrome (no always-on foil soft-fill).
+        //    Pendulum also allows subject punch on outer green side/bottom chrome.
         var occupied = new bool[canvas.Width * canvas.Height];
-        BlitSubjectFoilMask(canvas, resized, xOffset, yOffset, occupied, loreCutTop, textBox, loreOuter);
+        var pendulumGreenPunch = !useSharedEffectLayout;
+        BlitSubjectFoilMask(
+            canvas, resized, xOffset, yOffset, occupied, loreCutTop, textBox, pendulumGreenPunch);
 
         // 3) Frame chrome + mostly-opaque lore panel over the soft underlay.
         EnsureArtWindowHole(frame, artWindow);
         DrawFramePunchedByRectangleAndSilhouette(
             canvas, frame, artWindow, textBox, typeLineStrip, occupied);
-        PaintLorePanel(canvas, frame, textBox);
+        PaintLorePanel(canvas, frame, textBox, occupied);
 
         return canvas;
     }
+
+    /// <summary>
+    /// Pendulum-only outer green chrome (left/right vertical + bottom strip) where rembg
+    /// may overframe when the subject occupies those pixels.
+    /// </summary>
+    public static bool IsPendulumGreenChromePunch(int x, int y) =>
+        PendulumGreenLeft.Contains(x, y) ||
+        PendulumGreenRight.Contains(x, y) ||
+        PendulumGreenBottom.Contains(x, y);
 
     /// <summary>
     /// Reads the transparent art hole from a 704×1024 frame template.
@@ -223,7 +363,7 @@ public static class OverFrameAutoArtComposer
             return Rectangle.Empty;
 
         var hole = Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
-        // Ignore stray transparent edge pixels; real MD holes are ~500px+.
+        // Ignore stray transparent edge pixels; real MD holes are ~450px+ (Pendulum) / ~500px+.
         return hole.Width >= 400 && hole.Height >= 400 ? hole : Rectangle.Empty;
     }
 
@@ -515,9 +655,10 @@ public static class OverFrameAutoArtComposer
     }
 
     /// <summary>
-    /// Master Duel illustrations are 512×512. An existing over-frame texture is
-    /// 704×1024; Cover-scaling that full card face into the art hole misaligns the
-    /// lore cut and produces frame-in-frame. Re-extract the art-hole pixels as 512×512.
+    /// Master Duel illustrations are 512×512 (normal) or Pendulum 3:4 art (typically
+    /// 512×683). Live Pendulum Texture2D canvases are often 512×1024 — OF Auto-create
+    /// crops to the top 3:4 band. An existing over-frame texture is 704×1024;
+    /// Cover-scaling that full card face into the art hole misaligns the lore cut.
     /// </summary>
     public static Image<Rgba32> ExtractIllustrationSource(Image<Rgba32> source)
     {
@@ -540,6 +681,20 @@ public static class OverFrameAutoArtComposer
                     Sampler = KnownResamplers.Lanczos3
                 });
             });
+        }
+
+        // Native MD Pendulum canvas (512×1024) → top 3:4 art band.
+        if (CardArtTextureSizes.IsPendulumNativeCanvas(source.Width, source.Height))
+        {
+            var cropHeight = Math.Min(source.Height, PendulumIllustArtHeight);
+            return source.Clone(ctx => ctx.Crop(new Rectangle(0, 0, source.Width, cropHeight)));
+        }
+
+        // Already 3:4 (or exact 512×683) — keep as-is.
+        if (CardArtTextureSizes.IsPendulum(source.Width, source.Height) ||
+            CardArtTextureSizes.HasPendulumAspect(source.Width, source.Height))
+        {
+            return source.Clone();
         }
 
         return source.Clone();
@@ -651,31 +806,74 @@ public static class OverFrameAutoArtComposer
         width == Assets.OverFrameConstants.Width && height == Assets.OverFrameConstants.Height;
 
     public static bool IsLikelyOriginalIllustrationSize(int width, int height) =>
-        width == 512 && height == 512;
+        CardArtTextureSizes.IsNormal(width, height) ||
+        CardArtTextureSizes.IsPendulum(width, height) ||
+        CardArtTextureSizes.IsPendulumNativeCanvas(width, height) ||
+        CardArtTextureSizes.HasPendulumAspect(width, height);
 
-    private static Rectangle ResolveTextBox(Image<Rgba32> frame, Rectangle artWindow)
+    private static Rectangle ResolveTextBox(
+        Image<Rgba32> frame,
+        Rectangle artWindow,
+        bool useSharedEffectLayout,
+        FrameLayout pendulumLayout)
     {
+        if (!useSharedEffectLayout)
+        {
+            // Pendulum has two cream bands. DetectTextBox finds only the mint strip and
+            // stops at the separator — always punch/paint the measured dual-panel rect so
+            // the bottom monster lore gets the same Mirrorjade treatment.
+            _ = artWindow;
+            return ClampToFrame(pendulumLayout.LoreCream, frame.Width, frame.Height);
+        }
+
         // Always use Effect lore geometry so Normal/Synchro/Link/… match Effect punch layout.
-        _ = artWindow;
         return ClampToFrame(EffectLoreCream, frame.Width, frame.Height);
     }
 
-    private static int ResolveLoreCutTop(Image<Rgba32> frame, Rectangle creamPanel, Rectangle artWindow)
+    private static int ResolveLoreCutTop(
+        Image<Rgba32> frame,
+        Rectangle creamPanel,
+        Rectangle artWindow,
+        bool useSharedEffectLayout,
+        FrameLayout pendulumLayout)
     {
+        if (!useSharedEffectLayout)
+        {
+            // Prefer measured Pendulum cut (under art hole / before mint pendulum box).
+            if (pendulumLayout.LoreCutTop > 0)
+                return Math.Clamp(pendulumLayout.LoreCutTop, artWindow.Bottom, frame.Height - 1);
+            if (!creamPanel.IsEmpty)
+                return Math.Clamp(creamPanel.Top - 4, artWindow.Bottom, frame.Height - 1);
+            return Math.Clamp(artWindow.Bottom + 4, 0, frame.Height - 1);
+        }
+
         _ = frame;
         _ = creamPanel;
         _ = artWindow;
         return Math.Clamp(EffectLoreCutTop, 0, Assets.OverFrameConstants.Height - 1);
     }
 
-    private static Rectangle ResolveLoreOuterBorder(
-        Image<Rgba32> frame,
-        Rectangle creamPanel,
-        Rectangle artWindow)
+    /// <summary>
+    /// Dark card-edge strips to the left/right of the lore gold rim (outside
+    /// <paramref name="loreOuter"/>). Kept as frame chrome unless rembg occupies them.
+    /// </summary>
+    public static (Rectangle Left, Rectangle Right) ResolveLoreDarkMargins(Rectangle loreOuter, int canvasWidth)
     {
-        _ = creamPanel;
-        _ = artWindow;
-        return ClampToFrame(EffectLoreOuter, frame.Width, frame.Height);
+        if (loreOuter.IsEmpty || loreOuter.Height <= 0 || canvasWidth <= 0)
+            return (Rectangle.Empty, Rectangle.Empty);
+
+        var leftW = Math.Max(0, loreOuter.Left);
+        var left = leftW > 0
+            ? new Rectangle(0, loreOuter.Top, leftW, loreOuter.Height)
+            : Rectangle.Empty;
+
+        var rightX = Math.Clamp(loreOuter.Right, 0, canvasWidth);
+        var rightW = Math.Max(0, canvasWidth - rightX);
+        var right = rightW > 0
+            ? new Rectangle(rightX, loreOuter.Top, rightW, loreOuter.Height)
+            : Rectangle.Empty;
+
+        return (left, right);
     }
 
     private static Rectangle ClampToFrame(Rectangle rect, int width, int height)
@@ -768,7 +966,7 @@ public static class OverFrameAutoArtComposer
         bool[] occupied,
         int loreCutTop,
         Rectangle textBox,
-        Rectangle loreOuter)
+        bool allowPendulumGreenPunch = false)
     {
         for (var y = 0; y < subject.Height; y++)
         {
@@ -790,12 +988,17 @@ public static class OverFrameAutoArtComposer
 
                 if (dy >= loreCutTop)
                 {
-                    // Keep cream + gold top span clear; punch lore side wings only when
-                    // the subject actually covers those pixels (no default wing fill).
-                    if (dx >= textBox.Left && dx < textBox.Right)
+                    // Pendulum: outer green side/bottom chrome may overframe where subject is.
+                    if (allowPendulumGreenPunch && IsPendulumGreenChromePunch(dx, dy))
+                    {
+                        // fall through — punch green chrome
+                    }
+                    // Keep cream clear of rembg hard edges (Mirrorjade underlay instead).
+                    // Gold lore wings and dark card margins punch only where subject covers them.
+                    else if (dx >= textBox.Left && dx < textBox.Right)
+                    {
                         continue;
-                    if (dx < loreOuter.Left || dx >= loreOuter.Right)
-                        continue;
+                    }
                 }
 
                 dstRow[dx] = new Rgba32(src.R, src.G, src.B, FoilMaskAlpha);
@@ -826,7 +1029,7 @@ public static class OverFrameAutoArtComposer
                 // Lore panel is painted in a dedicated pass — skip here.
                 if (textBox.Contains(x, y))
                     continue;
-                // Lore side wings stay frame chrome unless rembg marked them occupied.
+                // Lore side wings + dark card margins stay chrome unless rembg occupied them.
                 if (occupied[rowOffset + x])
                     continue;
 
@@ -842,11 +1045,14 @@ public static class OverFrameAutoArtComposer
     /// <summary>
     /// Paints the lore panel over the soft full-art underlay. Never uses the rembg
     /// cutout (those hard sleeve/panel edges caused the vertical-line glitch).
+    /// Skips <paramref name="occupied"/> pixels so Pendulum green side chrome that sits
+    /// inside the lore cream rect can still be punched by the subject silhouette.
     /// </summary>
     private static void PaintLorePanel(
         Image<Rgba32> canvas,
         Image<Rgba32> frame,
-        Rectangle textBox)
+        Rectangle textBox,
+        bool[]? occupied = null)
     {
         if (textBox.Width <= 0 || textBox.Height <= 0)
             return;
@@ -856,10 +1062,14 @@ public static class OverFrameAutoArtComposer
             if (y < 0) continue;
             var frameRow = frame.DangerousGetPixelRowMemory(y).Span;
             var dstRow = canvas.DangerousGetPixelRowMemory(y).Span;
+            var rowOffset = y * canvas.Width;
             var x0 = Math.Max(0, textBox.Left);
             var x1 = Math.Min(canvas.Width, textBox.Right);
             for (var x = x0; x < x1; x++)
             {
+                if (occupied != null && occupied[rowOffset + x])
+                    continue;
+
                 var fp = frameRow[x];
                 if (fp.A <= VisibleAlphaThreshold)
                     continue;
