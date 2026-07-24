@@ -33,7 +33,9 @@ public sealed class CardArtBundleService : IDisposable
         session.Texture.FillPictureData(session.Assets);
         var decoded = session.Texture.DecodeTextureRaw(session.Texture.pictureData)
                       ?? throw new InvalidOperationException("Failed to decode Texture2D pixels.");
-        ImagePreparation.SavePng(decoded, session.Texture.m_Width, session.Texture.m_Height, outputPngPath, inputIsBgra: true);
+        // Pendulum live canvas is often 512×1024; Card Art export is the top 3:4 band (512×683).
+        ImagePreparation.SaveCardArtExportPng(
+            decoded, session.Texture.m_Width, session.Texture.m_Height, outputPngPath, inputIsBgra: true);
     }
 
     public void ReplaceTexture(
