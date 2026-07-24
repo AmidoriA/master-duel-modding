@@ -120,8 +120,6 @@
                 <Button Content="Extract PNG" Click="Extract_Click"/>
                 <Button Content="Restore backup" Click="Restore_Click"/>
               </StackPanel>
-              <CheckBox x:Name="CreateBackupBox" DockPanel.Dock="Bottom" Content="Backup original bundle before replace"
-                        IsChecked="True" Foreground="{StaticResource TextBrush}" Margin="0,8,0,0"/>
               <Grid>
                 <Grid.RowDefinitions>
                   <RowDefinition Height="Auto"/>
