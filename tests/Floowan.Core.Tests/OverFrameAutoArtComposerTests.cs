@@ -787,8 +787,7 @@ public class OverFrameAutoArtComposerTests
             $"type-line must not stay dark frame chrome, got {typeLine}");
 
         var lore = result[midX, OverFrameAutoArtComposer.EffectLoreCream.Top + 40];
-        Assert.True(lore.A >= 200, $"lore must stay opaque, got {lore}");
-        Assert.True(Math.Abs(lore.R - cream.R) < 40, $"expected lore cream, got {lore}");
+        Assert.Equal(cream, lore);
     }
 
     [Fact]
@@ -818,8 +817,7 @@ public class OverFrameAutoArtComposerTests
         Assert.True(typeLinePix.G > 100, $"expected foil art in type-line gap, got {typeLinePix}");
 
         var loreTop = result[midX, OverFrameAutoArtComposer.EffectLoreCream.Top];
-        Assert.True(loreTop.A >= 200, $"lore top must stay opaque, got {loreTop}");
-        Assert.True(Math.Abs(loreTop.R - cream.R) < 40, $"expected cream at lore top, got {loreTop}");
+        Assert.Equal(cream, loreTop);
     }
 
     [Fact]
@@ -857,10 +855,10 @@ public class OverFrameAutoArtComposerTests
         Assert.True(Math.Abs(leftPix.R - chrome.R) < 40, $"expected frame chrome in left margin, got {leftPix}");
         Assert.True(Math.Abs(rightPix.R - chrome.R) < 40, $"expected frame chrome in right margin, got {rightPix}");
 
-        // Cream interior still Mirrorjade-opaque (not foil).
+        // Cream interior still fully opaque frame cream (not foil).
         var creamR = OverFrameAutoArtComposer.EffectLoreCream;
         var lore = result[creamR.Left + creamR.Width / 2, loreY];
-        Assert.True(lore.A >= 200, $"lore cream must stay blended chrome, got {lore}");
+        Assert.Equal(cream, lore);
     }
 
     [Fact]
@@ -903,7 +901,33 @@ public class OverFrameAutoArtComposerTests
 
         var creamR = OverFrameAutoArtComposer.EffectLoreCream;
         var lore = result[creamR.Left + creamR.Width / 2, loreY];
-        Assert.True(lore.A >= 200, $"lore cream must stay blended chrome, got {lore}");
+        Assert.Equal(cream, lore);
+    }
+
+    [Fact]
+    public void Compose_Effect_LoreCream_IsFullyOpaqueExactFrame()
+    {
+        // Saturated art that would dim cream if soft underlay + 0.92 blend still ran.
+        using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 255, 255));
+        using var mask = new Image<L8>(512, 512, new L8(0));
+        for (var y = 20; y < 492; y++)
+        for (var x = 40; x < 472; x++)
+            mask[x, y] = new L8(255);
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var top = result[creamR.Left + creamR.Width / 2, creamR.Top];
+        var mid = result[creamR.Left + creamR.Width / 2, creamR.Top + 40];
+        var bottom = result[creamR.Left + creamR.Width / 2, creamR.Bottom - 10];
+
+        Assert.Equal(cream, top);
+        Assert.Equal(cream, mid);
+        Assert.Equal(cream, bottom);
     }
 
     [Fact]
@@ -912,6 +936,7 @@ public class OverFrameAutoArtComposerTests
         // Square sources cover-scale short of lore bottom (~y 819 vs cream through 962).
         // Clamp-to-edge on sy used to repeat the last source row down the cream as
         // vertical ghost streaks under subject "feet" (Mirrorjade claws).
+        // Effect lore is fully opaque now; still assert no foot-column tint vs cream.
         const int size = 512;
         using var source = new Image<Rgba32>(size, size, new Rgba32(20, 30, 50, 255));
         using var mask = new Image<L8>(size, size, new L8(0));
@@ -953,19 +978,8 @@ public class OverFrameAutoArtComposerTests
 
         var streakCandidate = result[footCanvasX, loreY];
         var neighbor = result[creamR.Left + creamR.Width / 2, loreY];
-        Assert.True(streakCandidate.A >= 200, $"lore must stay opaque, got {streakCandidate}");
-        Assert.True(neighbor.A >= 200, $"lore must stay opaque, got {neighbor}");
-
-        // Cream (no magenta underlay smear). Foot-edge clamp would pull R up / B toward footColor.
-        Assert.True(Math.Abs(streakCandidate.R - cream.R) < 40,
-            $"lore must not smear foot red into cream, got {streakCandidate}");
-        Assert.True(Math.Abs(streakCandidate.B - cream.B) < 40,
-            $"lore must not smear foot blue into cream, got {streakCandidate}");
-        Assert.True(
-            Math.Abs(streakCandidate.R - neighbor.R) < 12 &&
-            Math.Abs(streakCandidate.G - neighbor.G) < 12 &&
-            Math.Abs(streakCandidate.B - neighbor.B) < 12,
-            $"foot-column lore must match neighboring cream (no vertical streak): foot={streakCandidate} mid={neighbor}");
+        Assert.Equal(cream, streakCandidate);
+        Assert.Equal(cream, neighbor);
     }
 
     [Fact]
@@ -1000,8 +1014,7 @@ public class OverFrameAutoArtComposerTests
         Assert.True(Math.Abs(rightWing.R - gold.R) < 40, $"expected gold right wing, got {rightWing}");
 
         var lore = result[creamR.Left + creamR.Width / 2, loreY];
-        Assert.True(lore.A >= 200, $"lore interior must stay opaque, got {lore}");
-        Assert.True(Math.Abs(lore.R - cream.R) < 40, $"expected lore cream, got {lore}");
+        Assert.Equal(cream, lore);
     }
 
     [Fact]
@@ -1036,8 +1049,7 @@ public class OverFrameAutoArtComposerTests
         Assert.True(rightWing.G > 80, $"expected subject punch in right lore wing, got {rightWing}");
 
         var lore = result[creamR.Left + creamR.Width / 2, loreY];
-        Assert.True(lore.A >= 200, $"lore interior must stay opaque, got {lore}");
-        Assert.True(Math.Abs(lore.R - cream.R) < 40, $"expected lore cream, got {lore}");
+        Assert.Equal(cream, lore);
     }
 
     [Fact]
@@ -1076,8 +1088,7 @@ public class OverFrameAutoArtComposerTests
         Assert.True(side.R > 150, $"expected rembg subject punch in dark lore margin, got {side}");
 
         var lore = result[creamR.Left + creamR.Width / 2, creamR.Top + 30];
-        Assert.True(lore.A >= 200, $"lore interior must stay opaque, got {lore}");
-        Assert.True(Math.Abs(lore.R - cream.R) < 40, $"expected lore cream, got {lore}");
+        Assert.Equal(cream, lore);
     }
 
     [Fact]
@@ -1102,10 +1113,7 @@ public class OverFrameAutoArtComposerTests
         var creamR = OverFrameAutoArtComposer.EffectLoreCream;
         var midX = creamR.Left + creamR.Width / 2;
         var lore = result[midX, creamR.Top + 40];
-        Assert.True(lore.A >= 200, $"lore must be opaque, got {lore}");
-        Assert.True(lore.R < 250 || lore.B < 250, $"magenta cutout bled into lore: {lore}");
-        Assert.True(Math.Abs(lore.R - cream.R) < 40 && Math.Abs(lore.G - cream.G) < 40,
-            $"expected cream-dominant lore panel, got {lore}");
+        Assert.Equal(cream, lore);
 
         var hole = OverFrameAutoArtComposer.ArtWindow;
         var inArt = result[midX, hole.Top + hole.Height / 2];
