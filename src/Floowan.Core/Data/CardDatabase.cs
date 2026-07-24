@@ -6,7 +6,7 @@ namespace Floowan.Core.Data;
 /// <summary>
 /// Card catalog + user state facade over two SQLite files:
 /// <list type="bullet">
-/// <item><description><c>database.db</c> (master) — identity/catalog: id, name, description, bundle, data_index</description></item>
+/// <item><description><c>database.db</c> (master) — identity/catalog: id, name, description, bundle, data_index, card_type, created_at</description></item>
 /// <item><description><c>user.db</c> — app_config and per-card mutable state</description></item>
 /// </list>
 /// Opens master and ATTACHes user. On first open, migrates legacy user columns/rows from a
@@ -47,8 +47,39 @@ public sealed class CardDatabase : IDisposable
         _connection.Open();
 
         AttachUserDatabase();
+        EnsureMasterSchema();
         EnsureUserSchema();
         MigrateLegacyUserDataIfNeeded();
+    }
+
+    /// <summary>
+    /// Adds optional master catalog columns when missing.
+    /// <list type="bullet">
+    /// <item><description><c>card_type</c> — type label inferred from CARD_Desc type lines</description></item>
+    /// <item><description><c>created_at</c> — ISO-8601 UTC creation time of the illustration AssetBundle file</description></item>
+    /// </list>
+    /// </summary>
+    private void EnsureMasterSchema()
+    {
+        EnsureMasterCardColumn("card_type", "TEXT");
+        EnsureMasterCardColumn("created_at", "TEXT");
+    }
+
+    private void EnsureMasterCardColumn(string column, string typeSql)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "PRAGMA main.table_info(card);";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                return;
+        }
+
+        reader.Close();
+        using var alter = _connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE main.card ADD COLUMN {column} {typeSql};";
+        alter.ExecuteNonQuery();
     }
 
     /// <summary>
@@ -317,11 +348,78 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value;";
 c.id, c.name, c.description, c.bundle,
 u.modded_name, u.modded_description, c.data_index,
 IFNULL(u.favorite, 0), IFNULL(u.has_backup, 0),
-IFNULL(u.is_overframe, 0), u.overframe_base_id, u.art_id";
+IFNULL(u.is_overframe, 0), u.overframe_base_id, u.art_id,
+c.card_type, c.created_at";
 
     private const string CardFromJoin = @"
 FROM card c
 LEFT JOIN user.card_state u ON u.id = c.id";
+
+    /// <summary>
+    /// Replaces all master <c>card</c> catalog rows with <paramref name="rows"/>.
+    /// Preserves legacy NOT NULL defaults for favorite/has_backup/is_overframe on master.
+    /// Does not modify <c>user.card_state</c>.
+    /// </summary>
+    public int ReplaceMasterCatalog(IEnumerable<CatalogCardRow> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        EnsureMasterSchema();
+
+        var list = rows as IList<CatalogCardRow> ?? rows.ToList();
+        using var tx = _connection.BeginTransaction();
+        using (var delete = _connection.CreateCommand())
+        {
+            delete.Transaction = tx;
+            delete.CommandText = "DELETE FROM main.card;";
+            delete.ExecuteNonQuery();
+        }
+
+        using var insert = _connection.CreateCommand();
+        insert.Transaction = tx;
+        insert.CommandText = @"
+INSERT INTO main.card (
+  id, name, description, bundle, data_index, card_type, created_at,
+  favorite, has_backup, is_overframe
+) VALUES (
+  $id, $name, $description, $bundle, $data_index, $card_type, $created_at,
+  0, 0, 0
+);";
+        var pId = insert.Parameters.Add("$id", SqliteType.Integer);
+        var pName = insert.Parameters.Add("$name", SqliteType.Text);
+        var pDesc = insert.Parameters.Add("$description", SqliteType.Text);
+        var pBundle = insert.Parameters.Add("$bundle", SqliteType.Text);
+        var pIndex = insert.Parameters.Add("$data_index", SqliteType.Integer);
+        var pType = insert.Parameters.Add("$card_type", SqliteType.Text);
+        var pCreated = insert.Parameters.Add("$created_at", SqliteType.Text);
+
+        var written = 0;
+        foreach (var row in list)
+        {
+            pId.Value = row.Id;
+            pName.Value = row.Name;
+            pDesc.Value = row.Description;
+            pBundle.Value = row.Bundle;
+            pIndex.Value = row.DataIndex;
+            pType.Value = string.IsNullOrWhiteSpace(row.CardType) ? DBNull.Value : row.CardType;
+            pCreated.Value = string.IsNullOrWhiteSpace(row.CreatedAt) ? DBNull.Value : row.CreatedAt;
+            insert.ExecuteNonQuery();
+            written++;
+        }
+
+        tx.Commit();
+        return written;
+    }
+
+    public bool HasMasterColumn(string columnName)
+    {
+        foreach (var name in GetColumnNames("main", "card"))
+        {
+            if (string.Equals(name, columnName, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
 
     public string? GetStoredGamePath()
     {
@@ -703,7 +801,9 @@ ON CONFLICT(id) DO NOTHING;";
         HasBackup = Convert.ToInt64(reader.GetValue(8)) != 0,
         IsOverframe = !reader.IsDBNull(9) && Convert.ToInt64(reader.GetValue(9)) != 0,
         OverframeBaseId = reader.IsDBNull(10) ? null : reader.GetInt32(10),
-        ArtId = reader.IsDBNull(11) ? null : reader.GetInt32(11)
+        ArtId = reader.IsDBNull(11) ? null : reader.GetInt32(11),
+        CardType = reader.FieldCount > 12 && !reader.IsDBNull(12) ? reader.GetString(12) : null,
+        CreatedAt = reader.FieldCount > 13 && !reader.IsDBNull(13) ? reader.GetString(13) : null
     };
 
     public void Dispose()
