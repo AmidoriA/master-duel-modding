@@ -570,7 +570,13 @@ public partial class MainWindow : Window
 
     // --- Tools tab (backup browser) ---
 
-    private async void ToolsUpdateDatabase_Click(object sender, RoutedEventArgs e)
+    private async void ToolsUpdateEntireDatabase_Click(object sender, RoutedEventArgs e) =>
+        await RunToolsDatabaseUpdateAsync(incremental: false);
+
+    private async void ToolsUpdateNewFilesDatabase_Click(object sender, RoutedEventArgs e) =>
+        await RunToolsDatabaseUpdateAsync(incremental: true);
+
+    private async Task RunToolsDatabaseUpdateAsync(bool incremental)
     {
         if (_database is null)
         {
@@ -590,20 +596,44 @@ public partial class MainWindow : Window
             return;
         }
 
+        string confirmBody;
+        string confirmTitle;
+        if (incremental)
+        {
+            var latest = _database.GetLatestCreatedAtUtc();
+            var latestText = latest is DateTimeOffset dto
+                ? dto.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " UTC"
+                : "(none — run Update entire DB first)";
+            confirmBody =
+                "Upsert only cards whose illustration AssetBundle File.GetCreationTimeUtc is after the latest created_at in:\n" +
+                _database.MasterDatabasePath +
+                "\n\nLatest DB created_at: " + latestText +
+                "\nGame path:\n" + gamePath +
+                "\n\nExisting catalog rows are kept. User favorites/mods in user.db are kept. Continue?";
+            confirmTitle = "Update new files only";
+        }
+        else
+        {
+            confirmBody =
+                "Replace the entire master card catalog in:\n" + _database.MasterDatabasePath +
+                "\n\nwith data extracted from:\n" + gamePath +
+                "\n\nUser favorites/mods in user.db are kept. Continue?";
+            confirmTitle = "Update entire DB";
+        }
+
         var confirm = MessageBox.Show(
-            "Replace the master card catalog in:\n" + _database.MasterDatabasePath +
-            "\n\nwith data extracted from:\n" + gamePath +
-            "\n\nUser favorites/mods in user.db are kept. Continue?",
-            "Update card database",
+            confirmBody,
+            confirmTitle,
             MessageBoxButton.YesNo,
             MessageBoxImage.Question);
         if (confirm != MessageBoxResult.Yes)
             return;
 
-        ToolsUpdateDbButton.IsEnabled = false;
+        ToolsUpdateEntireDbButton.IsEnabled = false;
+        ToolsUpdateNewFilesDbButton.IsEnabled = false;
         SetUiBusy(true);
         ToolsUpdateDbStatusText.Text = "Starting…";
-        Status("Updating card database from game…");
+        Status(incremental ? "Updating new catalog files from game…" : "Updating entire card database from game…");
 
         var database = _database;
         var progress = new Progress<string>(msg =>
@@ -617,7 +647,9 @@ public partial class MainWindow : Window
             var result = await Task.Run(() =>
             {
                 var updater = new CardCatalogUpdater();
-                return updater.UpdateFromGame(database, gamePath, progress);
+                return incremental
+                    ? updater.UpdateNewFilesOnly(database, gamePath, progress)
+                    : updater.UpdateFromGame(database, gamePath, progress);
             });
 
             RunSearch();
@@ -647,7 +679,8 @@ public partial class MainWindow : Window
         }
         finally
         {
-            ToolsUpdateDbButton.IsEnabled = true;
+            ToolsUpdateEntireDbButton.IsEnabled = true;
+            ToolsUpdateNewFilesDbButton.IsEnabled = true;
             SetUiBusy(false);
         }
     }
@@ -1917,6 +1950,8 @@ public partial class MainWindow : Window
         DbEditDescBox.Text = card.Description;
         DbEditModdedNameBox.Text = card.ModdedName ?? "";
         DbEditModdedDescBox.Text = card.ModdedDescription ?? "";
+        DbEditCardTypeBox.Text = card.CardType ?? "";
+        DbEditCreatedAtBox.Text = FormatCreatedAtDisplay(card.CreatedAt);
         DbEditBundleBox.Text = card.Bundle;
         DbEditDataIndexBox.Text = card.DataIndex.ToString();
         DbEditFavoriteBox.IsChecked = card.Favorite;
@@ -1931,10 +1966,21 @@ public partial class MainWindow : Window
         DbEditDescBox.Text = "";
         DbEditModdedNameBox.Text = "";
         DbEditModdedDescBox.Text = "";
+        DbEditCardTypeBox.Text = "";
+        DbEditCreatedAtBox.Text = "";
         DbEditBundleBox.Text = "";
         DbEditDataIndexBox.Text = "";
         DbEditFavoriteBox.IsChecked = false;
         DbEditHasBackupBox.Text = "";
+    }
+
+    private static string FormatCreatedAtDisplay(string? createdAt)
+    {
+        if (string.IsNullOrWhiteSpace(createdAt))
+            return "";
+        if (!DateTimeOffset.TryParse(createdAt, null, System.Globalization.DateTimeStyles.RoundtripKind, out var dto))
+            return createdAt;
+        return dto.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") + " (local)";
     }
 
     private void DbDiscard_Click(object sender, RoutedEventArgs e)

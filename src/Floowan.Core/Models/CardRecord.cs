@@ -15,6 +15,18 @@ public sealed class CardRecord
     /// ISO-8601 UTC creation time of the illustration AssetBundle used for this catalog row.
     /// </summary>
     public string? CreatedAt { get; init; }
+    /// <summary>Human-readable local display of <see cref="CreatedAt"/> for UI grids/details.</summary>
+    public string CreatedAtDisplay
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(CreatedAt))
+                return "";
+            if (!DateTimeOffset.TryParse(CreatedAt, null, System.Globalization.DateTimeStyles.RoundtripKind, out var dto))
+                return CreatedAt;
+            return dto.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+        }
+    }
     public bool Favorite { get; init; }
     public bool HasBackup { get; init; }
     public bool IsOverframe { get; init; }

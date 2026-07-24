@@ -29,7 +29,13 @@ namespace Floowan.Core.Data;
 /// </list>
 /// <para>
 /// <c>created_at</c> is the filesystem creation time (UTC, ISO-8601) of the illustration
-/// AssetBundle file chosen for that card (LocalData copy when present, otherwise StreamingAssets).
+/// AssetBundle file chosen for that card (LocalData copy when present, otherwise StreamingAssets),
+/// via <see cref="File.GetCreationTimeUtc"/>.
+/// </para>
+/// <para>
+/// Incremental scans (optional illust creation cutoff) still open CARD_* candidates of any age,
+/// but skip illustration AssetBundle files whose <see cref="File.GetCreationTimeUtc"/> is not
+/// strictly after that cutoff (compared against DB <c>MAX(created_at)</c>).
 /// </para>
 /// </summary>
 public sealed class CardCatalogExtractor
@@ -53,10 +59,16 @@ public sealed class CardCatalogExtractor
         _classDataPath = ClassDataLocator.FindClassDataPath(classDataPath);
     }
 
+    /// <param name="illustCreatedAfterUtc">
+    /// When set, illustration AssetBundles with <see cref="File.GetCreationTimeUtc"/> ≤ this
+    /// cutoff are not opened for Texture2D collection (speed). CARD_* TextAsset candidates are
+    /// still scanned regardless of file age.
+    /// </param>
     public CardCatalogExtractResult Extract(
         string playerDataPath,
         IProgress<string>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        DateTimeOffset? illustCreatedAfterUtc = null)
     {
         if (!GamePathLocator.IsValidGamePath(playerDataPath, out var pathError))
             return CardCatalogExtractResult.Fail(pathError ?? "Invalid game path.");
@@ -66,10 +78,15 @@ public sealed class CardCatalogExtractor
         if (bundleFiles.Count == 0)
             return CardCatalogExtractResult.Fail("No AssetBundle files found under LocalData/0000 or StreamingAssets/AssetBundle.");
 
+        DateTime? illustCutoffUtc = illustCreatedAfterUtc?.UtcDateTime;
+        if (illustCutoffUtc is not null)
+            progress?.Report($"Incremental: only illustration files newer than {illustCutoffUtc:o} (File.GetCreationTimeUtc vs DB created_at).");
+
         progress?.Report($"Scanning {bundleFiles.Count} bundles for card data and illustrations…");
         var artToBundle = new ConcurrentDictionary<int, string>();
         var artBundlePaths = new ConcurrentDictionary<int, string>();
         var cardData = new CardDataPayloads();
+        var skippedOldIllust = 0;
 
         var checkedCount = 0;
         // One AssetsManager per worker thread; serialize LoadClassPackage.
@@ -95,6 +112,22 @@ public sealed class CardCatalogExtractor
                 var mayHaveCardData = !cardData.IsComplete
                     && length is >= MinCardDataBytes and <= MaxCardDataBytes;
                 var mayHaveIllust = length is >= MinIllustBytes and <= MaxIllustBytes;
+                if (mayHaveIllust && illustCutoffUtc is DateTime cutoff)
+                {
+                    try
+                    {
+                        if (File.GetCreationTimeUtc(path) <= cutoff)
+                        {
+                            mayHaveIllust = false;
+                            Interlocked.Increment(ref skippedOldIllust);
+                        }
+                    }
+                    catch
+                    {
+                        mayHaveIllust = false;
+                    }
+                }
+
                 if (!mayHaveCardData && !mayHaveIllust)
                     return am;
 
@@ -119,6 +152,19 @@ public sealed class CardCatalogExtractor
                 return am;
             },
             am => am.UnloadAll());
+
+        if (illustCutoffUtc is not null && skippedOldIllust > 0)
+            progress?.Report($"Skipped {skippedOldIllust} illustration candidate files older than cutoff.");
+
+        if (illustCutoffUtc is not null && artToBundle.IsEmpty)
+        {
+            progress?.Report("No new illustration files after cutoff; nothing to upsert.");
+            return CardCatalogExtractResult.Ok(
+                Array.Empty<CatalogCardRow>(),
+                cryptoKey: 0,
+                illustCount: 0,
+                bundlesScanned: bundleFiles.Count);
+        }
 
         if (cardData.Indx is null || cardData.Name is null || cardData.Desc is null || cardData.Prop is null)
         {
@@ -200,7 +246,15 @@ public sealed class CardCatalogExtractor
         }
 
         if (rows.Count == 0)
+        {
+            if (illustCutoffUtc is not null)
+            {
+                progress?.Report("No new illustration files after cutoff; nothing to upsert.");
+                return CardCatalogExtractResult.Ok(rows, cryptoKey, artToBundle.Count, bundleFiles.Count);
+            }
+
             return CardCatalogExtractResult.Fail("No card rows could be joined from illustrations + CARD_* data.");
+        }
 
         progress?.Report($"Extracted {rows.Count} cards (crypto key 0x{cryptoKey:X}).");
         return CardCatalogExtractResult.Ok(rows, cryptoKey, artToBundle.Count, bundleFiles.Count);
