@@ -537,6 +537,8 @@ public class OverFrameAutoArtComposerTests
     public void Compose_Pendulum_BottomMonsterLoreGetsMirrorjadeUnderlay()
     {
         // Saturated source so blended lore RGB diverges from opaque frame cream.
+        // Soft→solid falls from combined lore top: mint stays soft; sample near the
+        // top of the monster panel (still in the falloff) rather than the solid-ish bottom.
         using var source = new Image<Rgba32>(512, 683, new Rgba32(220, 40, 200, 255));
         using var mask = new Image<L8>(512, 683, new L8(0));
         for (var y = 80; y < 500; y++)
@@ -550,27 +552,34 @@ public class OverFrameAutoArtComposerTests
         var bottom = OverFrameAutoArtComposer.PendulumMonsterLoreCream;
         var midX = bottom.Left + bottom.Width / 2;
         var mintY = mint.Top + mint.Height / 2;
-        var bottomY = bottom.Top + bottom.Height / 2;
+        var bottomSoftY = bottom.Top + 12;
+        var bottomSolidY = bottom.Bottom - 12;
 
         var mintPix = result[midX, mintY];
-        var bottomPix = result[midX, bottomY];
+        var bottomSoftPix = result[midX, bottomSoftY];
+        var bottomSolidPix = result[midX, bottomSolidY];
         var frameMint = frame[midX, mintY];
-        var frameBottom = frame[midX, bottomY];
+        var frameBottomSoft = frame[midX, bottomSoftY];
+        var frameBottomSolid = frame[midX, bottomSolidY];
 
-        // Both panels keep high alpha (frame chrome), but RGB must pull toward source art
-        // — opaque full-frame paint would match the template cream exactly.
+        // Upper panels keep high alpha (frame chrome), but RGB must pull toward source art.
         Assert.True(mintPix.A >= 200, $"mint lore alpha, got {mintPix}");
-        Assert.True(bottomPix.A >= 200, $"bottom lore alpha, got {bottomPix}");
+        Assert.True(bottomSoftPix.A >= 200, $"bottom lore alpha, got {bottomSoftPix}");
         Assert.True(
-            Math.Abs(bottomPix.R - frameBottom.R) > 5 ||
-            Math.Abs(bottomPix.G - frameBottom.G) > 5 ||
-            Math.Abs(bottomPix.B - frameBottom.B) > 5,
-            $"bottom monster lore must blend art underlay, not stay pure frame chrome ({frameBottom} vs {bottomPix})");
+            Math.Abs(bottomSoftPix.R - frameBottomSoft.R) > 5 ||
+            Math.Abs(bottomSoftPix.G - frameBottomSoft.G) > 5 ||
+            Math.Abs(bottomSoftPix.B - frameBottomSoft.B) > 5,
+            $"top of monster lore must still soft-blend underlay ({frameBottomSoft} vs {bottomSoftPix})");
         Assert.True(
             Math.Abs(mintPix.R - frameMint.R) > 5 ||
             Math.Abs(mintPix.G - frameMint.G) > 5 ||
             Math.Abs(mintPix.B - frameMint.B) > 5,
             $"mint strip must keep Mirrorjade blend ({frameMint} vs {mintPix})");
+        // Lower monster lore approaches solid cream (large vertical falloff).
+        Assert.True(bottomSolidPix.A >= 200, $"lower monster lore alpha, got {bottomSolidPix}");
+        Assert.True(
+            ColorDistance(bottomSolidPix, frameBottomSolid) < ColorDistance(bottomSoftPix, frameBottomSoft),
+            $"lower monster lore should be closer to frame cream than the soft top ({bottomSoftPix} vs {bottomSolidPix})");
     }
 
     [Fact]
@@ -908,8 +917,8 @@ public class OverFrameAutoArtComposerTests
     public void Compose_Effect_LoreCream_SolidWhereUncovered_SoftWhereArtUnderlay()
     {
         // Cover×overflow for square sources ends ~y 819; cream runs through 962.
-        // Saturated cyan underlay must Mirrorjade-blend covered lore, while uncovered
-        // lore past the footprint (+ feather) stays exact solid cream (no dimming over empty foil).
+        // Saturated cyan underlay must Mirrorjade-blend near lore top, while uncovered
+        // lore past the footprint stays exact solid cream (no dimming over empty foil).
         using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 255, 255));
         using var mask = new Image<L8>(512, 512, new L8(0));
         for (var y = 20; y < 492; y++)
@@ -939,10 +948,11 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
-    public void Compose_Effect_LoreCream_FeathersSoftToSolidAcrossFootprintEdge()
+    public void Compose_Effect_LoreCream_VerticalSoftToSolidFromLoreTop()
     {
-        // Soft lore must not hard-cut to solid cream at the scaled-art footprint;
-        // a short gradient past the edge should still tint toward underlay, then go solid.
+        // Soft→solid must fall off from the lore box top over LoreArtUnderlayBlendHeight,
+        // not a tiny footprint-edge feather. Near top stays softest; lower covered lore
+        // is closer to cream; past the scaled footprint is exact solid cream.
         using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 255, 255));
         using var mask = new Image<L8>(512, 512, new L8(0));
         for (var y = 20; y < 492; y++)
@@ -963,22 +973,27 @@ public class OverFrameAutoArtComposerTests
         var scaledH = Math.Max(1, (int)MathF.Round(size * scale));
         var bgY = (int)MathF.Round(art.Top + art.Height / 2f - scaledH / 2f);
         var edgeY = bgY + scaledH - 1;
-        var radius = OverFrameAutoArtComposer.LoreArtUnderlayBlendRadius;
+        var blendH = OverFrameAutoArtComposer.LoreArtUnderlayBlendHeight;
         var creamR = OverFrameAutoArtComposer.EffectLoreCream;
         var midX = creamR.Left + creamR.Width / 2;
 
+        Assert.Equal(creamR.Height, blendH);
         Assert.True(edgeY >= creamR.Top && edgeY < creamR.Bottom,
             $"footprint edge y={edgeY} should fall inside lore cream {creamR}");
+        Assert.True(edgeY - creamR.Top < blendH,
+            $"covered lore should sit inside the vertical falloff ({edgeY - creamR.Top} < {blendH})");
 
-        var covered = result[midX, edgeY];
-        var midFeather = result[midX, edgeY + radius / 2];
-        var pastFeather = result[midX, edgeY + radius + 2];
+        var nearTop = result[midX, creamR.Top + 4];
+        var nearFootprint = result[midX, edgeY];
+        var pastFootprint = result[midX, edgeY + 8];
+        var lowerLore = result[midX, creamR.Bottom - 10];
 
-        Assert.True(covered.B > cream.B, $"covered edge should soft-tint cyan, got {covered}");
-        Assert.True(midFeather.B > cream.B, $"mid-feather should still tint cyan, got {midFeather}");
-        Assert.True(midFeather.B < covered.B,
-            $"mid-feather should be closer to cream than covered ({covered} vs {midFeather})");
-        Assert.Equal(cream, pastFeather);
+        Assert.True(nearTop.B > cream.B, $"near lore top should soft-tint cyan, got {nearTop}");
+        Assert.True(nearFootprint.B > cream.B, $"covered lower lore should still tint cyan, got {nearFootprint}");
+        Assert.True(nearFootprint.B < nearTop.B,
+            $"lower covered lore should be closer to cream than top ({nearTop} vs {nearFootprint})");
+        Assert.Equal(cream, pastFootprint);
+        Assert.Equal(cream, lowerLore);
     }
 
     [Fact]
@@ -987,7 +1002,7 @@ public class OverFrameAutoArtComposerTests
         // Square sources cover-scale short of lore bottom (~y 819 vs cream through 962).
         // Clamp-to-edge on sy used to repeat the last source row down the cream as
         // vertical ghost streaks under subject "feet" (Mirrorjade claws).
-        // Uncovered lore past the footprint (+ feather) must stay solid cream (no foot-column tint).
+        // Uncovered lore past the footprint must stay solid cream (no foot-column tint).
         const int size = 512;
         using var source = new Image<Rgba32>(size, size, new Rgba32(20, 30, 50, 255));
         using var mask = new Image<L8>(size, size, new L8(0));
@@ -1233,6 +1248,9 @@ public class OverFrameAutoArtComposerTests
 
     private static Image<Rgba32> CreateSolidFrame() =>
         new(OverFrameConstants.Width, OverFrameConstants.Height, new Rgba32(220, 200, 40, 255));
+
+    private static int ColorDistance(Rgba32 a, Rgba32 b) =>
+        Math.Abs(a.R - b.R) + Math.Abs(a.G - b.G) + Math.Abs(a.B - b.B);
 
     /// <summary>
     /// Covered lore is soft-blended (≈92% cream), so RGB may drift slightly from exact
