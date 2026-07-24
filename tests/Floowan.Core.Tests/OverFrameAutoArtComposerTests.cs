@@ -1040,6 +1040,36 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
+    public void Compose_NonPendulumLore_IsOpaqueCream_NotMirrorjadeBlend()
+    {
+        // Saturated blue underlay would visibly tint a 0.92 Mirrorjade lore blend.
+        // Non-Pendulum must copy frame cream opaquely (no soft underlay bleed / dimming).
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(5, 20, 220, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var lore = result[creamR.Left + creamR.Width / 2, creamR.Top + 40];
+        Assert.True(lore.A >= 200, $"non-Pendulum lore must be opaque, got {lore}");
+        Assert.Equal(cream.R, lore.R);
+        Assert.Equal(cream.G, lore.G);
+        Assert.Equal(cream.B, lore.B);
+        Assert.True(lore.B < 200, $"lore must not show blue underlay bleed, got {lore}");
+    }
+
+    [Fact]
     public void RequireCleanIllustrationSource_ExtractsWithoutFramedHeuristic()
     {
         // Cream lore-like panel previously false-triggered LooksLikeFramedCardArt.
@@ -1085,7 +1115,9 @@ public class OverFrameAutoArtComposerTests
 
         var lore = result[midX, OverFrameAutoArtComposer.EffectLoreCream.Top + 40];
         Assert.True(lore.A >= 200, $"lore must stay opaque, got {lore}");
-        Assert.True(Math.Abs(lore.R - cream.R) < 40, $"expected lore cream, got {lore}");
+        Assert.Equal(cream.R, lore.R);
+        Assert.Equal(cream.G, lore.G);
+        Assert.Equal(cream.B, lore.B);
     }
 
     [Fact]

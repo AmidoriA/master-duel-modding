@@ -39,8 +39,9 @@ public static class OverFrameAutoArtComposer
     public const byte FoilMaskAlpha = 4;
 
     /// <summary>
-    /// Lore panel: mostly opaque frame chrome over a soft full-art underlay.
+    /// Pendulum lore panel: mostly opaque frame chrome over a soft full-art underlay.
     /// High opacity hides hard cutout edges; a little underlay keeps Mirrorjade depth.
+    /// Non-Pendulum (Effect/shared) lore is painted fully opaque — no soft underlay bleed.
     /// </summary>
     public const float TextBoxFrameOpacity = 0.92f;
 
@@ -364,8 +365,10 @@ public static class OverFrameAutoArtComposer
 
         FillRegionWithScaledArt(canvas, typeLineStrip, source, scaledSourceW, scaledSourceH, bgX, bgY);
 
-        // Soft continuation under the cream lore panel (Mirrorjade). Never rembg here.
-        FillRegionWithScaledArt(canvas, textBox, source, scaledSourceW, scaledSourceH, bgX, bgY);
+        // Pendulum only: soft full-art under the dual lore cream (Mirrorjade). Non-Pendulum
+        // Effect lore stays solid opaque cream — no translucent underlay dimming.
+        if (!useSharedEffectLayout)
+            FillRegionWithScaledArt(canvas, textBox, source, scaledSourceW, scaledSourceH, bgX, bgY);
 
         // 2) Overflow silhouette — may punch lore side wings + dark card margins where
         //    the rembg subject is present; never punch the cream interior. Empty dark
@@ -376,7 +379,7 @@ public static class OverFrameAutoArtComposer
         BlitSubjectFoilMask(
             canvas, resized, xOffset, yOffset, occupied, loreCutTop, textBox, pendulumGreenPunch);
 
-        // 3) Frame chrome + mostly-opaque lore panel over the soft underlay.
+        // 3) Frame chrome + lore panel (opaque for Effect; Mirrorjade blend for Pendulum).
         EnsureArtWindowHole(frame, artWindow);
         DrawFramePunchedByRectangleAndSilhouette(
             canvas, frame, artWindow, textBox, typeLineStrip, occupied);
@@ -388,7 +391,9 @@ public static class OverFrameAutoArtComposer
             scaledSourceW, scaledSourceH, bgX, bgY,
             xOffset, xOffset + resized.Width, occupied);
 
-        PaintLorePanel(canvas, frame, textBox, occupied);
+        PaintLorePanel(
+            canvas, frame, textBox, occupied,
+            frameOpacity: useSharedEffectLayout ? 1f : TextBoxFrameOpacity);
 
         return canvas;
     }
@@ -1229,16 +1234,19 @@ public static class OverFrameAutoArtComposer
     }
 
     /// <summary>
-    /// Paints the lore panel over the soft full-art underlay. Never uses the rembg
-    /// cutout (those hard sleeve/panel edges caused the vertical-line glitch).
-    /// Skips <paramref name="occupied"/> pixels so Pendulum green side chrome that sits
-    /// inside the lore cream rect can still be punched by the subject silhouette.
+    /// Paints the lore panel. Never uses the rembg cutout (those hard sleeve/panel edges
+    /// caused the vertical-line glitch). Skips <paramref name="occupied"/> pixels so
+    /// Pendulum green side chrome that sits inside the lore cream rect can still be
+    /// punched by the subject silhouette.
+    /// <paramref name="frameOpacity"/> of 1 copies frame cream opaquely (Effect/shared);
+    /// &lt;1 blends over soft underlay (Pendulum Mirrorjade).
     /// </summary>
     private static void PaintLorePanel(
         Image<Rgba32> canvas,
         Image<Rgba32> frame,
         Rectangle textBox,
-        bool[]? occupied = null)
+        bool[]? occupied = null,
+        float frameOpacity = TextBoxFrameOpacity)
     {
         if (textBox.Width <= 0 || textBox.Height <= 0)
             return;
@@ -1260,7 +1268,9 @@ public static class OverFrameAutoArtComposer
                 if (fp.A <= VisibleAlphaThreshold)
                     continue;
 
-                dstRow[x] = BlendFrameOverArt(dstRow[x], fp, TextBoxFrameOpacity);
+                dstRow[x] = frameOpacity >= 0.999f
+                    ? fp
+                    : BlendFrameOverArt(dstRow[x], fp, frameOpacity);
             }
         }
     }
