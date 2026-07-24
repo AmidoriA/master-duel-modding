@@ -26,6 +26,8 @@ public partial class MainWindow : Window
     private CardArtModService? _modService;
     private OverFrameModService? _overFrameService;
     private AutoOverFrameArtService? _autoOverFrameArtService;
+    private readonly CardFrameStyleResolver _frameStyleResolver = new();
+    private int _ofFrameSuggestGeneration;
     private CardRecord? _selected;
     private CardRecord? _ofSelected;
     private string? _replacementImagePath;
@@ -703,6 +705,7 @@ public partial class MainWindow : Window
             RunSearch();
             RunOfSearch();
             RunDatabaseQuery(resetOffset: true);
+            _frameStyleResolver.InvalidateCache();
 
             if (!result.Success)
             {
@@ -1037,12 +1040,76 @@ public partial class MainWindow : Window
         LoadOfCurrentPreview();
     }
 
-    private void SuggestOfFrameStyle(CardRecord card)
+    private async void SuggestOfFrameStyle(CardRecord card)
     {
         if (OfFrameStyleBox is null)
             return;
 
-        var inferred = CardFrameTemplates.InferStyle(card.Name, card.Description);
+        var generation = Interlocked.Increment(ref _ofFrameSuggestGeneration);
+
+        // Fast path: DB card_type or description InferStyle without touching game files.
+        if (CardTypeLabels.TryParseStyle(card.CardType, out var fromDb))
+        {
+            ApplyOfFrameStyleSelection(fromDb);
+            return;
+        }
+
+        var gamePath = GamePathBox?.Text?.Trim();
+        var canBackfill = _database is not null
+            && !string.IsNullOrWhiteSpace(gamePath)
+            && GamePathLocator.IsValidGamePath(gamePath, out _);
+
+        if (!canBackfill)
+        {
+            ApplyOfFrameStyleSelection(CardFrameTemplates.InferStyle(card.Name, card.Description));
+            return;
+        }
+
+        // Provisional description guess while CARD_Prop loads (overwritten when backfill wins).
+        ApplyOfFrameStyleSelection(CardFrameTemplates.InferStyle(card.Name, card.Description));
+
+        CardFrameStyle? resolved = null;
+        string? resolvedLabel = null;
+        try
+        {
+            await Task.Run(() =>
+            {
+                resolved = _frameStyleResolver.Resolve(
+                    card,
+                    _database,
+                    gamePath,
+                    progress: null,
+                    CancellationToken.None);
+                resolvedLabel = resolved is CardFrameStyle s ? CardTypeLabels.ToLabel(s) : null;
+            }).ConfigureAwait(true);
+        }
+        catch
+        {
+            if (generation != _ofFrameSuggestGeneration || !ReferenceEquals(_ofSelected, card))
+                return;
+            ApplyOfFrameStyleSelection(CardFrameTemplates.InferStyle(card.Name, card.Description));
+            return;
+        }
+
+        if (generation != _ofFrameSuggestGeneration || !ReferenceEquals(_ofSelected, card))
+            return;
+
+        // Refresh selected card so later OF actions see the upserted card_type.
+        if (_database is not null && !string.IsNullOrWhiteSpace(resolvedLabel))
+        {
+            var refreshed = _database.GetById(card.Id);
+            if (refreshed is not null)
+                _ofSelected = refreshed;
+        }
+
+        ApplyOfFrameStyleSelection(resolved);
+    }
+
+    private void ApplyOfFrameStyleSelection(CardFrameStyle? inferred)
+    {
+        if (OfFrameStyleBox is null)
+            return;
+
         if (inferred is null)
         {
             OfFrameStyleBox.SelectedIndex = -1;

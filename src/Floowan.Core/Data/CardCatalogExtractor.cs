@@ -265,6 +265,101 @@ public sealed class CardCatalogExtractor
         return CardCatalogExtractResult.Ok(rows, cryptoKey, artToBundle.Count, bundleFiles.Count);
     }
 
+    /// <summary>
+    /// Minimal CARD_* read: finds CARD_Indx + CARD_Prop (no illustration scan), decrypts, and
+    /// returns card id → <see cref="CardPropTypeDecoder.InferLabel"/> (null when undecodable).
+    /// Used for single-card <c>card_type</c> backfill without a full catalog rebuild.
+    /// </summary>
+    public IReadOnlyDictionary<int, string?> LoadCardPropTypeMap(
+        string playerDataPath,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!GamePathLocator.IsValidGamePath(playerDataPath, out var pathError))
+            throw new InvalidOperationException(pathError ?? "Invalid game path.");
+
+        progress?.Report("Loading CARD_Prop for card types…");
+        var bundleFiles = EnumerateBundleFiles(playerDataPath);
+        if (bundleFiles.Count == 0)
+            throw new InvalidOperationException(
+                "No AssetBundle files found under LocalData/0000 or StreamingAssets/AssetBundle.");
+
+        var cardData = new CardDataPayloads();
+        var checkedCount = 0;
+        // Illust maps unused (collectIllusts: false); shared so workers don't allocate per file.
+        var unusedArt = new ConcurrentDictionary<int, string>();
+        var unusedArtPaths = new ConcurrentDictionary<int, string>();
+
+        Parallel.ForEach(
+            bundleFiles,
+            new ParallelOptions
+            {
+                CancellationToken = cancellationToken,
+                MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount)
+            },
+            () => CreateAssetsManager(),
+            (path, _, am) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (cardData.HasIndxAndProp)
+                    return am;
+
+                var n = Interlocked.Increment(ref checkedCount);
+                if (n % 400 == 0)
+                    progress?.Report($"Scanning for CARD_Prop… {n}/{bundleFiles.Count}");
+
+                long length;
+                try { length = new FileInfo(path).Length; }
+                catch { return am; }
+
+                if (length is < MinCardDataBytes or > MaxCardDataBytes)
+                    return am;
+
+                try
+                {
+                    // Illust collection off — type map only needs CARD_Indx / CARD_Prop TextAssets.
+                    TryCollectFromBundle(
+                        am, path,
+                        collectCardData: true,
+                        collectIllusts: false,
+                        cardData,
+                        unusedArt,
+                        unusedArtPaths,
+                        progress);
+                }
+                catch
+                {
+                    // Skip unreadable / non-bundle files.
+                }
+                finally
+                {
+                    am.UnloadAll(unloadClassData: false);
+                }
+
+                return am;
+            },
+            am => am.UnloadAll());
+
+        if (cardData.Indx is null || cardData.Prop is null)
+        {
+            throw new InvalidOperationException(
+                "Could not find encrypted CARD_Indx / CARD_Prop TextAssets under LocalData/StreamingAssets.");
+        }
+
+        progress?.Report("Decrypting CARD_Prop…");
+        var cryptoKey = CardDataCrypto.FindCryptoKey(cardData.Indx);
+        var decProp = CardDataCrypto.Decrypt(cardData.Prop, cryptoKey);
+        var propEntries = CardPropTypeDecoder.ParseEntries(decProp);
+        var map = propEntries
+            .GroupBy(e => e.Id)
+            .ToDictionary(
+                g => g.Key,
+                g => CardPropTypeDecoder.InferLabel(g.First().TypeByte, g.First().TypeByte2));
+
+        progress?.Report($"Loaded types for {map.Count} CARD_Prop ids.");
+        return map;
+    }
+
     private AssetsManager CreateAssetsManager()
     {
         var am = new AssetsManager();
@@ -523,6 +618,16 @@ public sealed class CardCatalogExtractor
             {
                 lock (_gate)
                     return Indx is not null && Name is not null && Desc is not null && Prop is not null;
+            }
+        }
+
+        /// <summary>True when CARD_Indx + CARD_Prop are loaded (enough to decrypt type bytes).</summary>
+        public bool HasIndxAndProp
+        {
+            get
+            {
+                lock (_gate)
+                    return Indx is not null && Prop is not null;
             }
         }
 
