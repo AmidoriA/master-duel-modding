@@ -45,7 +45,7 @@ public class FrameLoreLayoutTests
         Assert.Equal(new Rectangle(27, 645, 627, 114), OverFrameAutoArtComposer.PendulumMintTextBox);
         Assert.Equal(new Rectangle(27, 766, 627, 196), OverFrameAutoArtComposer.PendulumMonsterLoreCream);
         Assert.Equal(new Rectangle(27, 645, 627, 317), OverFrameAutoArtComposer.PendulumLoreCream);
-        Assert.Equal(240, OverFrameAutoArtComposer.PendulumVerticalOffset);
+        Assert.Equal(200, OverFrameAutoArtComposer.PendulumVerticalOffset);
         // DetectTextBox alone only finds the mint strip — compose must use the union.
         var detected = OverFrameAutoArtComposer.DetectTextBox(pend, art);
         Assert.False(detected.IsEmpty);

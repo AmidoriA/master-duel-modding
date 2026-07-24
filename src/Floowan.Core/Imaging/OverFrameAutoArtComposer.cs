@@ -13,6 +13,8 @@ namespace Floowan.Core.Imaging;
 /// meets the cream lore panel with no chrome gap. Overflow is hard-cut across the
 /// lore panel width (gold rim + cream stay clear). Left/right lore side wings keep
 /// frame chrome unless the rembg subject actually occupies those pixels.
+/// Pendulum faces additionally allow subject punch on the outer green side borders
+/// and bottom green strip (subject-gated only).
 /// Lore cream / outer / cut geometry is always taken from Effect.png so Normal,
 /// Synchro, Link, and other styles share the same punch layout.
 /// </summary>
@@ -77,7 +79,28 @@ public static class OverFrameAutoArtComposer
     /// this offset is the lever that sits the subject lower relative to that bar.
     /// Non-Pendulum styles are unchanged.
     /// </summary>
-    public const int PendulumVerticalOffset = 240;
+    public const int PendulumVerticalOffset = 200;
+
+    /// <summary>
+    /// Far-left vertical green chrome on Pendulum faces (outer border of the mint/lore
+    /// half). Measured from <c>card_frame14</c>. Subject-gated punch only — empty stays
+    /// frame green. Inside <see cref="PendulumLoreCream"/> so lore paint must respect
+    /// <c>occupied</c>.
+    /// </summary>
+    public static Rectangle PendulumGreenLeft { get; } = new(26, 645, 17, 353);
+
+    /// <summary>
+    /// Far-right vertical green chrome on Pendulum faces. Mostly outside lore cream
+    /// (cream ends at x=654); included so side claws can overframe the green rim.
+    /// </summary>
+    public static Rectangle PendulumGreenRight { get; } = new(662, 645, 16, 353);
+
+    /// <summary>
+    /// Bottom horizontal green chrome strip under the monster lore panel.
+    /// Below <see cref="PendulumLoreCream"/> (cream bottom=962); rembg must be allowed
+    /// here even when x is within the cream horizontal span.
+    /// </summary>
+    public static Rectangle PendulumGreenBottom { get; } = new(26, 970, 652, 28);
 
     /// <summary>
     /// Top crop height from a native 512×1024 Pendulum Texture2D that yields the
@@ -281,17 +304,29 @@ public static class OverFrameAutoArtComposer
         // 2) Overflow silhouette — may punch lore side wings + dark card margins where
         //    the rembg subject is present; never punch the cream interior. Empty dark
         //    margins stay opaque frame chrome (no always-on foil soft-fill).
+        //    Pendulum also allows subject punch on outer green side/bottom chrome.
         var occupied = new bool[canvas.Width * canvas.Height];
-        BlitSubjectFoilMask(canvas, resized, xOffset, yOffset, occupied, loreCutTop, textBox);
+        var pendulumGreenPunch = !useSharedEffectLayout;
+        BlitSubjectFoilMask(
+            canvas, resized, xOffset, yOffset, occupied, loreCutTop, textBox, pendulumGreenPunch);
 
         // 3) Frame chrome + mostly-opaque lore panel over the soft underlay.
         EnsureArtWindowHole(frame, artWindow);
         DrawFramePunchedByRectangleAndSilhouette(
             canvas, frame, artWindow, textBox, typeLineStrip, occupied);
-        PaintLorePanel(canvas, frame, textBox);
+        PaintLorePanel(canvas, frame, textBox, occupied);
 
         return canvas;
     }
+
+    /// <summary>
+    /// Pendulum-only outer green chrome (left/right vertical + bottom strip) where rembg
+    /// may overframe when the subject occupies those pixels.
+    /// </summary>
+    public static bool IsPendulumGreenChromePunch(int x, int y) =>
+        PendulumGreenLeft.Contains(x, y) ||
+        PendulumGreenRight.Contains(x, y) ||
+        PendulumGreenBottom.Contains(x, y);
 
     /// <summary>
     /// Reads the transparent art hole from a 704×1024 frame template.
@@ -926,7 +961,8 @@ public static class OverFrameAutoArtComposer
         int yOffset,
         bool[] occupied,
         int loreCutTop,
-        Rectangle textBox)
+        Rectangle textBox,
+        bool allowPendulumGreenPunch = false)
     {
         for (var y = 0; y < subject.Height; y++)
         {
@@ -948,10 +984,17 @@ public static class OverFrameAutoArtComposer
 
                 if (dy >= loreCutTop)
                 {
+                    // Pendulum: outer green side/bottom chrome may overframe where subject is.
+                    if (allowPendulumGreenPunch && IsPendulumGreenChromePunch(dx, dy))
+                    {
+                        // fall through — punch green chrome
+                    }
                     // Keep cream clear of rembg hard edges (Mirrorjade underlay instead).
                     // Gold lore wings and dark card margins punch only where subject covers them.
-                    if (dx >= textBox.Left && dx < textBox.Right)
+                    else if (dx >= textBox.Left && dx < textBox.Right)
+                    {
                         continue;
+                    }
                 }
 
                 dstRow[dx] = new Rgba32(src.R, src.G, src.B, FoilMaskAlpha);
@@ -998,11 +1041,14 @@ public static class OverFrameAutoArtComposer
     /// <summary>
     /// Paints the lore panel over the soft full-art underlay. Never uses the rembg
     /// cutout (those hard sleeve/panel edges caused the vertical-line glitch).
+    /// Skips <paramref name="occupied"/> pixels so Pendulum green side chrome that sits
+    /// inside the lore cream rect can still be punched by the subject silhouette.
     /// </summary>
     private static void PaintLorePanel(
         Image<Rgba32> canvas,
         Image<Rgba32> frame,
-        Rectangle textBox)
+        Rectangle textBox,
+        bool[]? occupied = null)
     {
         if (textBox.Width <= 0 || textBox.Height <= 0)
             return;
@@ -1012,10 +1058,14 @@ public static class OverFrameAutoArtComposer
             if (y < 0) continue;
             var frameRow = frame.DangerousGetPixelRowMemory(y).Span;
             var dstRow = canvas.DangerousGetPixelRowMemory(y).Span;
+            var rowOffset = y * canvas.Width;
             var x0 = Math.Max(0, textBox.Left);
             var x1 = Math.Min(canvas.Width, textBox.Right);
             for (var x = x0; x < x1; x++)
             {
+                if (occupied != null && occupied[rowOffset + x])
+                    continue;
+
                 var fp = frameRow[x];
                 if (fp.A <= VisibleAlphaThreshold)
                     continue;

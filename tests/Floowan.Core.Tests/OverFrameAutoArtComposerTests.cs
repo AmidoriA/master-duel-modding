@@ -412,7 +412,7 @@ public class OverFrameAutoArtComposerTests
     [Fact]
     public void Compose_Pendulum_AppliesSubstantialDownwardVerticalOffset()
     {
-        Assert.Equal(240, OverFrameAutoArtComposer.PendulumVerticalOffset);
+        Assert.Equal(200, OverFrameAutoArtComposer.PendulumVerticalOffset);
         Assert.True(OverFrameAutoArtComposer.PendulumVerticalOffset >= 120,
             "Pendulum subject must sit a lot lower so the fixed mint/scale bar crosses lower on the figure.");
         Assert.True(OverFrameAutoArtComposer.PendulumVerticalOffset <= 280,
@@ -505,6 +505,120 @@ public class OverFrameAutoArtComposerTests
             Math.Abs(mintPix.G - frameMint.G) > 5 ||
             Math.Abs(mintPix.B - frameMint.B) > 5,
             $"mint strip must keep Mirrorjade blend ({frameMint} vs {mintPix})");
+    }
+
+    [Fact]
+    public void PendulumGreenChromeRects_MatchMeasuredOuterBorders()
+    {
+        Assert.Equal(new Rectangle(26, 645, 17, 353), OverFrameAutoArtComposer.PendulumGreenLeft);
+        Assert.Equal(new Rectangle(662, 645, 16, 353), OverFrameAutoArtComposer.PendulumGreenRight);
+        Assert.Equal(new Rectangle(26, 970, 652, 28), OverFrameAutoArtComposer.PendulumGreenBottom);
+
+        Assert.True(OverFrameAutoArtComposer.IsPendulumGreenChromePunch(30, 850));
+        Assert.True(OverFrameAutoArtComposer.IsPendulumGreenChromePunch(670, 850));
+        Assert.True(OverFrameAutoArtComposer.IsPendulumGreenChromePunch(350, 980));
+        // Cream interior must not be treated as green punch.
+        Assert.False(OverFrameAutoArtComposer.IsPendulumGreenChromePunch(350, 850));
+    }
+
+    [Fact]
+    public void Compose_Pendulum_PunchesGreenSideAndBottomChrome_WhereSubjectPresent()
+    {
+        // Wide rembg that reaches canvas edges after Cover×overflow + Pendulum offset,
+        // but leave margins clear so the >92% opaque guard does not fire.
+        using var source = new Image<Rgba32>(512, 683, new Rgba32(10, 40, 80, 255));
+        using var mask = new Image<L8>(512, 683, new L8(0));
+        for (var y = 20; y < 663; y++)
+        for (var x = 20; x < 492; x++)
+        {
+            source[x, y] = new Rgba32(20, 220, 40, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, CardFrameStyle.PendulumEffect);
+
+        var left = OverFrameAutoArtComposer.PendulumGreenLeft;
+        var right = OverFrameAutoArtComposer.PendulumGreenRight;
+        var bottom = OverFrameAutoArtComposer.PendulumGreenBottom;
+
+        var leftPix = result[left.Left + left.Width / 2, left.Top + left.Height / 2];
+        var rightPix = result[right.Left + right.Width / 2, right.Top + right.Height / 2];
+        var bottomPix = result[bottom.Left + bottom.Width / 2, bottom.Top + bottom.Height / 2];
+
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, leftPix.A);
+        Assert.True(leftPix.G > 100, $"left green chrome must punch subject, got {leftPix}");
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, rightPix.A);
+        Assert.True(rightPix.G > 100, $"right green chrome must punch subject, got {rightPix}");
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, bottomPix.A);
+        Assert.True(bottomPix.G > 100, $"bottom green chrome must punch subject, got {bottomPix}");
+
+        // Cream interior stays Mirrorjade-opaque (not rembg foil).
+        var cream = OverFrameAutoArtComposer.PendulumMonsterLoreCream;
+        var creamPix = result[cream.Left + cream.Width / 2, cream.Top + cream.Height / 2];
+        Assert.True(creamPix.A >= 200, $"Pendulum lore cream must stay blended chrome, got {creamPix}");
+    }
+
+    [Fact]
+    public void Compose_Pendulum_KeepsGreenChrome_WithoutSubject()
+    {
+        // Narrow center subject — must not reach outer green side/bottom strips.
+        using var source = new Image<Rgba32>(512, 683, new Rgba32(10, 180, 40, 255));
+        using var mask = new Image<L8>(512, 683, new L8(0));
+        for (var y = 200; y < 350; y++)
+        for (var x = 230; x < 280; x++)
+            mask[x, y] = new L8(255);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, CardFrameStyle.PendulumEffect);
+        using var frame = CardFrameTemplates.Load(CardFrameStyle.PendulumEffect);
+
+        var left = OverFrameAutoArtComposer.PendulumGreenLeft;
+        var right = OverFrameAutoArtComposer.PendulumGreenRight;
+        var bottom = OverFrameAutoArtComposer.PendulumGreenBottom;
+        var lx = left.Left + left.Width / 2;
+        var ly = left.Top + 80;
+        var rx = right.Left + right.Width / 2;
+        var bx = bottom.Left + bottom.Width / 2;
+        var by = bottom.Top + bottom.Height / 2;
+
+        var leftPix = result[lx, ly];
+        var rightPix = result[rx, ly];
+        var bottomPix = result[bx, by];
+        var frameLeft = frame[lx, ly];
+        var frameRight = frame[rx, ly];
+        var frameBottom = frame[bx, by];
+
+        Assert.True(leftPix.A >= 200, $"left green must stay chrome without subject, got {leftPix}");
+        Assert.True(rightPix.A >= 200, $"right green must stay chrome without subject, got {rightPix}");
+        Assert.True(bottomPix.A >= 200, $"bottom green must stay chrome without subject, got {bottomPix}");
+        Assert.True(Math.Abs(leftPix.G - frameLeft.G) < 40, $"expected frame green left, got {leftPix} vs {frameLeft}");
+        Assert.True(Math.Abs(rightPix.G - frameRight.G) < 40, $"expected frame green right, got {rightPix} vs {frameRight}");
+        Assert.True(Math.Abs(bottomPix.G - frameBottom.G) < 40, $"expected frame green bottom, got {bottomPix} vs {frameBottom}");
+    }
+
+    [Fact]
+    public void Compose_Effect_DoesNotPunchPendulumGreenBottomAsSubjectFoil()
+    {
+        // Non-Pendulum: cream-span pixels below lore must not use Pendulum green punch.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 40, 80, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 5; x < 95; x++)
+        {
+            source[x, y] = new Rgba32(20, 220, 40, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, CardFrameStyle.Effect);
+        var cream = OverFrameAutoArtComposer.EffectLoreCream;
+        var lore = result[cream.Left + cream.Width / 2, cream.Top + 40];
+        Assert.True(lore.A >= 200, $"Effect lore cream must stay opaque, got {lore}");
+
+        // Bottom strip under cream within cream x — still no rembg foil on Effect.
+        var belowCreamY = cream.Bottom + 10;
+        Assert.True(belowCreamY < OverFrameConstants.Height);
+        var below = result[cream.Left + cream.Width / 2, belowCreamY];
+        Assert.True(below.A >= 200,
+            $"Effect must keep frame chrome below lore (no Pendulum green punch), got {below}");
     }
 
     [Fact]
