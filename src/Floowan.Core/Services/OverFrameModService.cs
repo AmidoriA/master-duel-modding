@@ -447,8 +447,8 @@ public sealed class OverFrameModService : IDisposable
     }
 
     /// <summary>
-    /// Resolves source art for Auto-create. Prefers clean pre-over-frame backups and
-    /// refuses framed / already-OF textures so Auto-create cannot nest frames.
+    /// Resolves source art for Auto-create. Prefers pre-over-frame backups; refuses
+    /// already-OF live textures (704×1024 / IsOverframe) so Auto-create cannot nest frames.
     /// </summary>
     public string ResolveAutoCreateSourceArt(string playerDataPath, CardRecord card, string outputPngPath)
     {
@@ -460,7 +460,7 @@ public sealed class OverFrameModService : IDisposable
             if (TryCopyCleanIllustration(textureBackup, outputPngPath))
                 return "original texture backup";
 
-            // Poisoned backup (saved after a nested OF) — ignore it.
+            // Unusable backup (corrupt / unreadable) — ignore it.
             try { File.Delete(textureBackup); } catch { /* best effort */ }
         }
 
@@ -498,8 +498,7 @@ public sealed class OverFrameModService : IDisposable
             if (!TryCopyCleanIllustration(liveTemp, outputPngPath))
             {
                 throw new InvalidOperationException(
-                    $"Live art for '{card.DisplayName}' looks like a framed card. " +
-                    "Restore the original illustration backup before Auto-create.");
+                    $"Could not read live art for '{card.DisplayName}'.");
             }
 
             return "live texture";
@@ -519,7 +518,7 @@ public sealed class OverFrameModService : IDisposable
             clean.Save(outputPngPath, new PngEncoder());
             return true;
         }
-        catch (InvalidOperationException)
+        catch
         {
             return false;
         }
@@ -534,7 +533,7 @@ public sealed class OverFrameModService : IDisposable
         var textureBackup = _backupService.GetOverFrameTextureBackupPath(card.Name);
         if (File.Exists(textureBackup))
         {
-            // Replace poisoned backups that still look framed.
+            // Replace backups that are already OF-sized (not original illustration).
             if (IsCleanIllustrationFile(textureBackup))
                 return;
             try { File.Delete(textureBackup); } catch { return; }
@@ -575,8 +574,9 @@ public sealed class OverFrameModService : IDisposable
         try
         {
             using var image = Image.Load<Rgba32>(path);
-            using var clean = OverFrameAutoArtComposer.ExtractIllustrationSource(image);
-            return !OverFrameAutoArtComposer.LooksLikeFramedCardArt(clean);
+            // Reject actual OF canvases; illustration-sized art (including cream-heavy
+            // cards) is accepted — the old "looks framed" heuristic false-triggered.
+            return !OverFrameAutoArtComposer.IsOverFrameTextureSize(image.Width, image.Height);
         }
         catch
         {
