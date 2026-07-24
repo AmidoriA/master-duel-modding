@@ -537,8 +537,7 @@ public class OverFrameAutoArtComposerTests
     public void Compose_Pendulum_BottomMonsterLoreGetsMirrorjadeUnderlay()
     {
         // Saturated source so blended lore RGB diverges from opaque frame cream.
-        // Soft→solid falls from combined lore top: mint stays soft; sample near the
-        // top of the monster panel (still in the falloff) rather than the solid-ish bottom.
+        // Pendulum keeps constant Mirrorjade soft (no Effect lore-top gradient).
         using var source = new Image<Rgba32>(512, 683, new Rgba32(220, 40, 200, 255));
         using var mask = new Image<L8>(512, 683, new L8(0));
         for (var y = 80; y < 500; y++)
@@ -552,34 +551,66 @@ public class OverFrameAutoArtComposerTests
         var bottom = OverFrameAutoArtComposer.PendulumMonsterLoreCream;
         var midX = bottom.Left + bottom.Width / 2;
         var mintY = mint.Top + mint.Height / 2;
-        var bottomSoftY = bottom.Top + 12;
-        var bottomSolidY = bottom.Bottom - 12;
+        var bottomY = bottom.Top + bottom.Height / 2;
 
         var mintPix = result[midX, mintY];
-        var bottomSoftPix = result[midX, bottomSoftY];
-        var bottomSolidPix = result[midX, bottomSolidY];
+        var bottomPix = result[midX, bottomY];
         var frameMint = frame[midX, mintY];
-        var frameBottomSoft = frame[midX, bottomSoftY];
-        var frameBottomSolid = frame[midX, bottomSolidY];
+        var frameBottom = frame[midX, bottomY];
 
-        // Upper panels keep high alpha (frame chrome), but RGB must pull toward source art.
+        // Both panels keep high alpha (frame chrome), but RGB must pull toward source art
+        // — opaque full-frame paint would match the template cream exactly.
         Assert.True(mintPix.A >= 200, $"mint lore alpha, got {mintPix}");
-        Assert.True(bottomSoftPix.A >= 200, $"bottom lore alpha, got {bottomSoftPix}");
+        Assert.True(bottomPix.A >= 200, $"bottom lore alpha, got {bottomPix}");
         Assert.True(
-            Math.Abs(bottomSoftPix.R - frameBottomSoft.R) > 5 ||
-            Math.Abs(bottomSoftPix.G - frameBottomSoft.G) > 5 ||
-            Math.Abs(bottomSoftPix.B - frameBottomSoft.B) > 5,
-            $"top of monster lore must still soft-blend underlay ({frameBottomSoft} vs {bottomSoftPix})");
+            Math.Abs(bottomPix.R - frameBottom.R) > 5 ||
+            Math.Abs(bottomPix.G - frameBottom.G) > 5 ||
+            Math.Abs(bottomPix.B - frameBottom.B) > 5,
+            $"bottom monster lore must blend art underlay, not stay pure frame chrome ({frameBottom} vs {bottomPix})");
         Assert.True(
             Math.Abs(mintPix.R - frameMint.R) > 5 ||
             Math.Abs(mintPix.G - frameMint.G) > 5 ||
             Math.Abs(mintPix.B - frameMint.B) > 5,
             $"mint strip must keep Mirrorjade blend ({frameMint} vs {mintPix})");
-        // Lower monster lore approaches solid cream (large vertical falloff).
-        Assert.True(bottomSolidPix.A >= 200, $"lower monster lore alpha, got {bottomSolidPix}");
+    }
+
+    [Fact]
+    public void Compose_Pendulum_DoesNotApplyEffectLoreGradient()
+    {
+        // Effect lore ramps soft→solid down the cream; Pendulum must keep constant
+        // Mirrorjade soft across covered dual-lore (mint + lower monster stay similarly soft).
+        using var source = new Image<Rgba32>(512, 683, new Rgba32(40, 200, 255, 255));
+        using var mask = new Image<L8>(512, 683, new L8(0));
+        for (var y = 80; y < 500; y++)
+        for (var x = 120; x < 390; x++)
+            mask[x, y] = new L8(255);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, CardFrameStyle.PendulumEffect);
+        using var frame = CardFrameTemplates.Load(CardFrameStyle.PendulumEffect);
+
+        var mint = OverFrameAutoArtComposer.PendulumMintTextBox;
+        var bottom = OverFrameAutoArtComposer.PendulumMonsterLoreCream;
+        var midX = bottom.Left + bottom.Width / 2;
+        var mintY = mint.Top + 8;
+        var lowerMonsterY = bottom.Bottom - 16;
+
+        var mintPix = result[midX, mintY];
+        var lowerPix = result[midX, lowerMonsterY];
+        var frameMint = frame[midX, mintY];
+        var frameLower = frame[midX, lowerMonsterY];
+
+        Assert.True(mintPix.B > frameMint.B, $"mint must soft-tint cyan, got {mintPix}");
+        Assert.True(lowerPix.B > frameLower.B, $"lower monster lore must stay soft (not Effect solid), got {lowerPix}");
+
+        // Constant opacity: upper and lower covered lore should tint similarly — not a
+        // large soft→solid vertical ramp toward cream (Effect LoreArtUnderlayBlendHeight).
+        var mintTint = ColorDistance(mintPix, frameMint);
+        var lowerTint = ColorDistance(lowerPix, frameLower);
+        Assert.True(mintTint > 5 && lowerTint > 5,
+            $"both samples must stay Mirrorjade-soft (mintTint={mintTint}, lowerTint={lowerTint})");
         Assert.True(
-            ColorDistance(bottomSolidPix, frameBottomSolid) < ColorDistance(bottomSoftPix, frameBottomSoft),
-            $"lower monster lore should be closer to frame cream than the soft top ({bottomSoftPix} vs {bottomSolidPix})");
+            Math.Abs(mintTint - lowerTint) <= Math.Max(3, mintTint / 4),
+            $"Pendulum must not apply Effect lore gradient (mintTint={mintTint} vs lowerTint={lowerTint})");
     }
 
     [Fact]
