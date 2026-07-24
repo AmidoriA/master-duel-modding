@@ -1,4 +1,6 @@
+using Floowan.Core.Assets;
 using Floowan.Core.Backup;
+using Floowan.Core.Services;
 
 namespace Floowan.Core.Tests;
 
@@ -14,6 +16,22 @@ public sealed class BackupServiceTests
             var path = backups.GetOverFrameTextureBackupPath("Garura, Wings of Resonant Life");
             Assert.EndsWith(Path.Combine("cards", "garura-wings-of-resonant-life-overframe.png"), path);
             Assert.False(backups.HasOverFrameTextureBackup("Garura, Wings of Resonant Life"));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
+    public void TextureBackupPath_UsesReadableSlug()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "floowan-backup-tests-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var backups = new BackupService(root);
+            var path = backups.GetTextureBackupPath("Blue-Eyes White Dragon");
+            Assert.EndsWith(Path.Combine("cards", "blue-eyes-white-dragon.png"), path);
         }
         finally
         {
@@ -45,5 +63,18 @@ public sealed class BackupServiceTests
         {
             try { Directory.Delete(root, recursive: true); } catch { /* ignore */ }
         }
+    }
+
+    [Theory]
+    [InlineData(false, 512, 512, false)]
+    [InlineData(false, 512, 683, false)]
+    [InlineData(false, 512, 1024, false)]
+    [InlineData(false, OverFrameConstants.Width, OverFrameConstants.Height, true)]
+    [InlineData(true, 512, 512, true)]
+    [InlineData(true, OverFrameConstants.Width, OverFrameConstants.Height, true)]
+    public void IsLiveOverFrameTexture_DetectsOfCanvas(
+        bool cardIsOverframe, int width, int height, bool expected)
+    {
+        Assert.Equal(expected, CardArtModService.IsLiveOverFrameTexture(cardIsOverframe, width, height));
     }
 }
