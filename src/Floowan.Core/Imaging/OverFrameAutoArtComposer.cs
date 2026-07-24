@@ -41,8 +41,8 @@ public static class OverFrameAutoArtComposer
 
     /// <summary>
     /// Lore panel pixels that have scaled-art underlay: mostly opaque frame chrome with a
-    /// soft Mirrorjade blend near the lore top. High opacity hides hard cutout edges; a
-    /// little underlay keeps depth. Frame opacity ramps soft→solid over
+    /// soft Mirrorjade blend near the lore top. High opacity keeps text readable; a little
+    /// underlay keeps depth. Frame opacity ramps soft→solid over
     /// <see cref="LoreArtUnderlayBlendHeight"/> from the lore box top. Lore pixels with
     /// no art underlay paint exact frame cream (solid), except within
     /// <see cref="LoreArtUnderlayBlendRadius"/> of the footprint edge.
@@ -62,11 +62,12 @@ public static class OverFrameAutoArtComposer
 
     /// <summary>
     /// Soft→solid lore cream feather width (px) past the scaled-art footprint.
-    /// Combined with the lore-top vertical falloff so underlay presence never jumps
-    /// from soft blend to exact cream in one pixel. Edge-art tint for the feather comes
-    /// from a pre-paint underlay snapshot (no foil underlay write / no vertical smear).
+    /// Matches Effect cream height so footprint exit cannot form a hard horizontal seam
+    /// inside the box; vertical falloff still drives lower lore to exact cream.
+    /// Edge-art tint for the feather comes from a pre-paint underlay snapshot
+    /// (no foil underlay write / no vertical smear).
     /// </summary>
-    public const int LoreArtUnderlayBlendRadius = 40;
+    public const int LoreArtUnderlayBlendRadius = 196;
 
     /// <summary>
     /// Fallback art window matching Master Duel <c>card_frame</c> Effect (and most)
@@ -1070,9 +1071,10 @@ public static class OverFrameAutoArtComposer
             return;
 
         // Soft→solid spans the painted lore rect (Effect 196 / Pendulum dual-panel 317).
-        // Constant documents the Effect cream height used as the reference falloff.
+        // Footprint feather is at least that tall so underlay presence cannot cliff
+        // mid-box; vertical falloff still reaches exact cream at the lore bottom.
         var blendHeight = Math.Max(1, textBox.Height);
-        var radius = LoreArtUnderlayBlendRadius;
+        var radius = Math.Max(LoreArtUnderlayBlendRadius, blendHeight);
         var artRight = bgX + scaledSourceW;
         var artBottom = bgY + scaledSourceH;
 
