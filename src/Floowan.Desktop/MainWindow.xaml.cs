@@ -129,12 +129,32 @@ public partial class MainWindow : Window
                 RefreshOfGateStatusFromCache();
                 RunDatabaseQuery(resetOffset: true);
             }
+
+            UpdateHomePathsExpanderExpanded();
         }
         catch (Exception ex)
         {
             Status("Startup error: " + ex.Message);
             MessageBox.Show(ex.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+
+    /// <summary>
+    /// Collapse the Home path header once LocalData is valid (same gate as mod operations).
+    /// Keep expanded on first run / empty LocalData so paths can be set.
+    /// </summary>
+    private void UpdateHomePathsExpanderExpanded()
+    {
+        HomePathsExpander.IsExpanded = !IsHomeConfigured();
+    }
+
+    /// <summary>
+    /// True when LocalData is a non-empty valid player folder (unity3d + 0000) and master DB is open.
+    /// </summary>
+    private bool IsHomeConfigured()
+    {
+        return _database is not null
+            && GamePathLocator.IsValidGamePath(GamePathBox.Text, out _);
     }
 
     private static string? FindDefaultDatabase()
@@ -158,6 +178,7 @@ public partial class MainWindow : Window
         UserDatabasePathBox.Text = _database.UserDatabasePath;
 
         RefreshOfGateStatusFromCache();
+        UpdateHomePathsExpanderExpanded();
     }
 
     private void SetGamePath(string path)
@@ -166,6 +187,7 @@ public partial class MainWindow : Window
         try { _database?.SetStoredGamePath(path); } catch { /* read-only ok */ }
         _ofGateReady = false;
         RefreshOfGateStatusFromCache();
+        UpdateHomePathsExpanderExpanded();
     }
 
     private void DiscoverSteam_Click(object sender, RoutedEventArgs e)
