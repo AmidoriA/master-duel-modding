@@ -17,10 +17,12 @@ namespace Floowan.Core.Imaging;
 /// and bottom green strip (subject-gated only).
 /// When the rembg subject would not overframe the art-hole chrome on the left and/or
 /// right, foil+subject are biased: one missing side → horizontal shift toward that
-/// chrome; both missing (non-Pendulum) → slight bilateral scale boost, still centered.
-/// Horizontal bias is clamped so Cover foil still spans the art hole (translate only —
-/// never edge-repeat / smear). If the rembg silhouette still does not overframe the
-/// art hole on any side after bias, compose fails with
+/// chrome (scale-up if Cover-safe clamp cannot reach the target); both missing
+/// (non-Pendulum) → centered bilateral scale-up large enough that content punches
+/// both side chromes (not a token ~8% nudge that leaves teal gutters). Horizontal
+/// bias is clamped so Cover foil still spans the art hole (translate only — never
+/// edge-repeat / smear). If the rembg silhouette still does not overframe the art
+/// hole on any side after bias, compose fails with
 /// <see cref="CannotDetectSubjectMessage"/> (no flat in-frame OF).
 /// Lore cream / outer / cut geometry is always taken from Effect.png so Normal,
 /// Synchro, Link, and other styles share the same punch layout.
@@ -168,18 +170,30 @@ public static class OverFrameAutoArtComposer
     public const string CannotDetectSubjectMessage = "Cannot detect subject.";
 
     /// <summary>
-    /// Minimum horizontal overframe (px past the art-hole edge) the rembg subject
-    /// should achieve on a side that would otherwise sit flush inside the hole.
-    /// Applied by shifting foil+subject together (locked) toward that chrome.
+    /// Minimum horizontal overframe (px past the art-hole edge) that counts as
+    /// "already overframed" — sides at/above this skip bias.
     /// </summary>
     public const int SideOverframeMinPx = 24;
 
     /// <summary>
-    /// When the rembg subject is missing overframe on <em>both</em> left and right,
-    /// multiply scale by this (bilateral expand) and keep horizontal centering.
-    /// Avoids contradictory left+right shifts that would cancel each other.
+    /// Upper bound on bilateral / rescue scale multipliers relative to the
+    /// pre-bias Cover×<see cref="OverflowScale"/> placement. Guards tiny silhouettes.
     /// </summary>
-    public const float SideOverframeBothMissingScaleBoost = 1.08f;
+    public const float SideOverframeMaxScaleBoost = 4f;
+
+    /// <summary>
+    /// Target overframe (px past the art-hole edge) when correcting a missing side.
+    /// Matches OverflowScale half-excess on the art width so L/R punch reads like a
+    /// full-bleed OF rather than a token nibble into teal chrome.
+    /// </summary>
+    public static int GetSideOverframeCorrectionTargetPx(Rectangle artWindow)
+    {
+        if (artWindow.IsEmpty || artWindow.Width <= 0)
+            return SideOverframeMinPx;
+
+        var overflowHalf = (int)MathF.Round(artWindow.Width * (OverflowScale - 1f) / 2f);
+        return Math.Max(SideOverframeMinPx, overflowHalf);
+    }
 
     public static Image<Rgba32> Compose(
         Image<Rgba32> source,
@@ -320,16 +334,32 @@ public static class OverFrameAutoArtComposer
             sideBias = SideOverframeBias.None;
         }
 
-        // Both-missing: bilateral scale boost, still centered. One-sided: shift only,
-        // clamped so Cover foil still spans the art hole (no horizontal edge-smear).
+        // Apply bias scale, then Cover-safe horizontal clamp. If clamp (or rounding) still
+        // leaves a missing side, scale up again so L/R chrome actually fills — never smear.
+        var preBiasScale = scale;
         scale *= sideBias.ScaleMultiplier;
-        var scaledSourceW = Math.Max(1, (int)MathF.Round(source.Width * scale));
-        var scaledSourceH = Math.Max(1, (int)MathF.Round(source.Height * scale));
-        var centeredBgX = (int)MathF.Round(artCenterX - scaledSourceW / 2f);
-        var biasOffset = ClampHorizontalBiasForArtCover(
-            sideBias.HorizontalOffset, centeredBgX, scaledSourceW, artWindow);
-        var bgX = centeredBgX + biasOffset;
-        var bgY = (int)MathF.Round(artCenterY - scaledSourceH / 2f) + verticalOffset;
+        var desiredShift = sideBias.HorizontalOffset;
+        int scaledSourceW;
+        int scaledSourceH;
+        int bgX;
+        int bgY;
+        if (useSharedEffectLayout)
+        {
+            (scale, desiredShift, scaledSourceW, scaledSourceH, bgX, bgY) =
+                ApplySideOverframePlacement(
+                    source.Width, source.Height, scale, preBiasScale, desiredShift,
+                    artWindow, artCenterX, artCenterY, verticalOffset, bounds);
+        }
+        else
+        {
+            scaledSourceW = Math.Max(1, (int)MathF.Round(source.Width * scale));
+            scaledSourceH = Math.Max(1, (int)MathF.Round(source.Height * scale));
+            var centeredBgX = (int)MathF.Round(artCenterX - scaledSourceW / 2f);
+            var biasOffset = ClampHorizontalBiasForArtCover(
+                desiredShift, centeredBgX, scaledSourceW, artWindow);
+            bgX = centeredBgX + biasOffset;
+            bgY = (int)MathF.Round(artCenterY - scaledSourceH / 2f) + verticalOffset;
+        }
 
         var targetWidth = Math.Max(1, (int)MathF.Round(subject.Width * scale));
         var targetHeight = Math.Max(1, (int)MathF.Round(subject.Height * scale));
@@ -425,15 +455,16 @@ public static class OverFrameAutoArtComposer
             || subjectBottomExclusive > artWindow.Bottom;
     }
 
-        /// <summary>
+    /// <summary>
     /// Decides how to bias foil+subject placement when the rembg silhouette would not
     /// overframe the art-hole chrome on one or both sides.
     /// <list type="bullet">
     /// <item>Already overframes both sides (≥ <see cref="SideOverframeMinPx"/>) → no change.</item>
-    /// <item>Missing left only → negative <see cref="SideOverframeBias.HorizontalOffset"/> (shift left).</item>
+    /// <item>Missing left only → negative <see cref="SideOverframeBias.HorizontalOffset"/> toward
+    /// <see cref="GetSideOverframeCorrectionTargetPx"/> (shift; Compose may add scale if clamp bites).</item>
     /// <item>Missing right only → positive offset (shift right).</item>
-    /// <item>Missing both → <see cref="SideOverframeBothMissingScaleBoost"/> (centered bilateral expand);
-    /// no horizontal shift (would cancel).</item>
+    /// <item>Missing both → centered bilateral scale large enough to hit the correction target on
+    /// both sides (not a fixed ~8% nudge); no horizontal shift (would cancel).</item>
     /// </list>
     /// Horizontal offsets are later clamped by <see cref="ClampHorizontalBiasForArtCover"/> so
     /// Cover foil still spans the art hole (no edge-repeat smear).
@@ -457,22 +488,148 @@ public static class OverFrameAutoArtComposer
         if (leftOk && rightOk)
             return SideOverframeBias.None;
 
+        var target = GetSideOverframeCorrectionTargetPx(artWindow);
+
         if (!leftOk && rightOk)
         {
-            // Target: subjectLeft == artWindow.Left - SideOverframeMinPx
-            var shift = (artWindow.Left - SideOverframeMinPx) - subjectLeft;
+            // Target: subjectLeft == artWindow.Left - target
+            var shift = (artWindow.Left - target) - subjectLeft;
             return new SideOverframeBias(shift, 1f);
         }
 
         if (leftOk && !rightOk)
         {
-            // Target: subjectRightExclusive == artWindow.Right + SideOverframeMinPx
-            var shift = (artWindow.Right + SideOverframeMinPx) - subjectRightExclusive;
+            // Target: subjectRightExclusive == artWindow.Right + target
+            var shift = (artWindow.Right + target) - subjectRightExclusive;
             return new SideOverframeBias(shift, 1f);
         }
 
-        // Both sides short of min overframe — expand scale, keep centered.
-        return new SideOverframeBias(0, SideOverframeBothMissingScaleBoost);
+        // Both sides short — expand from art center until both hit the correction target.
+        var boost = ComputeScaleMultiplierForMissingSides(
+            artWindow, subjectLeft, subjectRightExclusive, fixLeft: true, fixRight: true);
+        return new SideOverframeBias(0, boost);
+    }
+
+    /// <summary>
+    /// Scale multiplier (relative to the current centered placement) so expanding the
+    /// rembg AABB from the art-hole center reaches the correction target on the requested sides.
+    /// </summary>
+    public static float ComputeScaleMultiplierForMissingSides(
+        Rectangle artWindow,
+        int subjectLeft,
+        int subjectRightExclusive,
+        bool fixLeft,
+        bool fixRight)
+    {
+        if (artWindow.IsEmpty || subjectRightExclusive <= subjectLeft)
+            return 1f;
+
+        var target = GetSideOverframeCorrectionTargetPx(artWindow);
+        var artCenterX = artWindow.Left + artWindow.Width / 2f;
+        var targetLeft = artWindow.Left - target;
+        var targetRight = artWindow.Right + target;
+        var m = 1f;
+
+        if (fixLeft && subjectLeft > targetLeft)
+        {
+            var denom = subjectLeft - artCenterX;
+            if (denom < -0.01f)
+                m = Math.Max(m, (targetLeft - artCenterX) / denom);
+            else
+                m = Math.Max(m, WidthBasedBilateralBoost(artWindow, subjectLeft, subjectRightExclusive, target));
+        }
+
+        if (fixRight && subjectRightExclusive < targetRight)
+        {
+            var denom = subjectRightExclusive - artCenterX;
+            if (denom > 0.01f)
+                m = Math.Max(m, (targetRight - artCenterX) / denom);
+            else
+                m = Math.Max(m, WidthBasedBilateralBoost(artWindow, subjectLeft, subjectRightExclusive, target));
+        }
+
+        if (float.IsNaN(m) || float.IsInfinity(m) || m < 1f)
+            return 1f;
+
+        return Math.Min(m, SideOverframeMaxScaleBoost);
+    }
+
+    private static float WidthBasedBilateralBoost(
+        Rectangle artWindow,
+        int subjectLeft,
+        int subjectRightExclusive,
+        int targetPx)
+    {
+        var subjectW = Math.Max(1, subjectRightExclusive - subjectLeft);
+        var needW = artWindow.Width + 2 * targetPx;
+        return needW / (float)subjectW;
+    }
+
+    /// <summary>
+    /// Applies Cover-safe horizontal bias, then scales up (still Cover-safe, no edge-smear)
+    /// when a clamped translate alone cannot reach side overframe targets.
+    /// </summary>
+    private static (float Scale, int DesiredShift, int ScaledW, int ScaledH, int BgX, int BgY)
+        ApplySideOverframePlacement(
+            int sourceWidth,
+            int sourceHeight,
+            float scale,
+            float preBiasScale,
+            int desiredShift,
+            Rectangle artWindow,
+            float artCenterX,
+            float artCenterY,
+            int verticalOffset,
+            Rectangle bounds)
+    {
+        var maxScale = preBiasScale * SideOverframeMaxScaleBoost;
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var scaledW = Math.Max(1, (int)MathF.Round(sourceWidth * scale));
+            var scaledH = Math.Max(1, (int)MathF.Round(sourceHeight * scale));
+            var centeredBgX = (int)MathF.Round(artCenterX - scaledW / 2f);
+            var biasOffset = ClampHorizontalBiasForArtCover(
+                desiredShift, centeredBgX, scaledW, artWindow);
+            var bgX = centeredBgX + biasOffset;
+            var bgY = (int)MathF.Round(artCenterY - scaledH / 2f) + verticalOffset;
+
+            var subjectLeft = bgX + (int)MathF.Round(bounds.Left * scale);
+            var subjectRight = subjectLeft + Math.Max(1, (int)MathF.Round(bounds.Width * scale));
+            var leftOk = artWindow.Left - subjectLeft >= SideOverframeMinPx;
+            var rightOk = subjectRight - artWindow.Right >= SideOverframeMinPx;
+            if (leftOk && rightOk)
+                return (scale, desiredShift, scaledW, scaledH, bgX, bgY);
+
+            var extra = ComputeScaleMultiplierForMissingSides(
+                artWindow, subjectLeft, subjectRight, fixLeft: !leftOk, fixRight: !rightOk);
+            if (extra <= 1.001f)
+                return (scale, desiredShift, scaledW, scaledH, bgX, bgY);
+
+            var nextScale = Math.Min(scale * extra, maxScale);
+            if (nextScale <= scale * 1.001f)
+                return (scale, desiredShift, scaledW, scaledH, bgX, bgY);
+
+            scale = nextScale;
+            // Refresh one-sided shift from a centered probe at the new scale (shift only —
+            // scale rescue already handled via ComputeScaleMultiplierForMissingSides).
+            var (probeW, _) = ScaledSourceSize(sourceWidth, sourceHeight, scale);
+            var probeBgX = (int)MathF.Round(artCenterX - probeW / 2f);
+            var probeLeft = probeBgX + (int)MathF.Round(bounds.Left * scale);
+            var probeRight = probeLeft + Math.Max(1, (int)MathF.Round(bounds.Width * scale));
+            desiredShift = ResolveSideOverframeBias(artWindow, probeLeft, probeRight).HorizontalOffset;
+        }
+
+        {
+            var scaledW = Math.Max(1, (int)MathF.Round(sourceWidth * scale));
+            var scaledH = Math.Max(1, (int)MathF.Round(sourceHeight * scale));
+            var centeredBgX = (int)MathF.Round(artCenterX - scaledW / 2f);
+            var biasOffset = ClampHorizontalBiasForArtCover(
+                desiredShift, centeredBgX, scaledW, artWindow);
+            var bgX = centeredBgX + biasOffset;
+            var bgY = (int)MathF.Round(artCenterY - scaledH / 2f) + verticalOffset;
+            return (scale, desiredShift, scaledW, scaledH, bgX, bgY);
+        }
     }
 
     /// <summary>

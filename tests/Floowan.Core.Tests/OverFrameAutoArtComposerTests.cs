@@ -52,9 +52,10 @@ public class OverFrameAutoArtComposerTests
     [Fact]
     public void Compose_ScalesBackgroundWithSubject()
     {
+        // Foil + rembg must share one scale. Narrow subjects also get bilateral side-bias
+        // scale-up (fills L/R chrome), so verify via subject canvas width rather than a
+        // foil marker that side-bias may push outside the art hole.
         using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 80, 200, 255));
-        for (var y = 0; y < 100; y++)
-            source[35, y] = new Rgba32(0, 255, 255, 255); // cyan marker just left of subject
         for (var y = 5; y < 95; y++)
         for (var x = 40; x < 60; x++)
             source[x, y] = new Rgba32(220, 30, 20, 255);
@@ -67,44 +68,15 @@ public class OverFrameAutoArtComposerTests
         using var frame = CreateSolidFrame();
         using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
 
-        var win = OverFrameAutoArtComposer.ArtWindow;
-        var midY = win.Top + win.Height / 2;
+        var midY = OverFrameAutoArtComposer.ArtWindow.Top + OverFrameAutoArtComposer.ArtWindow.Height / 2;
+        var subjectLeft = FindSubjectLeftAtY(result, midY);
+        var subjectRight = FindSubjectRightExclusiveAtY(result, midY);
+        Assert.True(subjectLeft >= 0 && subjectRight > subjectLeft, "expected rembg subject");
 
-        // Left edge of the red subject inside the art window.
-        var subjectLeft = -1;
-        for (var x = win.Left; x < win.Right; x++)
-        {
-            var p = result[x, midY];
-            if (p.A == OverFrameAutoArtComposer.FoilMaskAlpha && p.R > 180 && p.G < 80)
-            {
-                subjectLeft = x;
-                break;
-            }
-        }
-
-        Assert.True(subjectLeft > win.Left, $"expected subject in window, left={subjectLeft}");
-
-        // Marker is 5 source px left of subject — with matching scale it lands ~5*scale px left.
-        var expectedGap = (int)MathF.Round(5 * ComputeExpectedScale(100, 100));
-        Assert.True(expectedGap > 8, $"expected meaningful overflow scale gap, got {expectedGap}");
-
-        var foundCyan = false;
-        for (var dx = expectedGap - 4; dx <= expectedGap + 4; dx++)
-        {
-            var x = subjectLeft - dx;
-            if (x < win.Left || x >= win.Right)
-                continue;
-            var marker = result[x, midY];
-            if (marker.A == OverFrameAutoArtComposer.FoilMaskAlpha &&
-                marker.G > 180 && marker.B > 180 && marker.R < 80)
-            {
-                foundCyan = true;
-                break;
-            }
-        }
-
-        Assert.True(foundCyan,
-            $"expected cyan background ~{expectedGap}px left of subject (aligned scale), subjectLeft={subjectLeft}");
+        var scale = ComputeExpectedScale(100, 100);
+        var expectedW = Math.Max(1, (int)MathF.Round(20 * scale));
+        Assert.True(scale > 1.5f, $"expected meaningful overflow scale, got {scale}");
+        Assert.InRange(subjectRight - subjectLeft, expectedW - 4, expectedW + 4);
     }
 
     [Fact]
@@ -146,29 +118,29 @@ public class OverFrameAutoArtComposerTests
     public void ResolveSideOverframeBias_MissingLeft_ShiftsLeft()
     {
         var art = OverFrameAutoArtComposer.ArtWindow;
-        // Subject sits inside the hole, flush of left chrome but past the right edge.
+        var target = OverFrameAutoArtComposer.GetSideOverframeCorrectionTargetPx(art);
+        // Subject sits inside the hole on the left but past the right edge.
         var subjectLeft = art.Left + 40;
         var subjectRight = art.Right + 80;
         var bias = OverFrameAutoArtComposer.ResolveSideOverframeBias(art, subjectLeft, subjectRight);
 
         Assert.Equal(1f, bias.ScaleMultiplier);
         Assert.True(bias.HorizontalOffset < 0, $"expected left shift, got {bias.HorizontalOffset}");
-        Assert.Equal((art.Left - OverFrameAutoArtComposer.SideOverframeMinPx) - subjectLeft,
-            bias.HorizontalOffset);
+        Assert.Equal((art.Left - target) - subjectLeft, bias.HorizontalOffset);
     }
 
     [Fact]
     public void ResolveSideOverframeBias_MissingRight_ShiftsRight()
     {
         var art = OverFrameAutoArtComposer.ArtWindow;
+        var target = OverFrameAutoArtComposer.GetSideOverframeCorrectionTargetPx(art);
         var subjectLeft = art.Left - 80;
         var subjectRight = art.Right - 40;
         var bias = OverFrameAutoArtComposer.ResolveSideOverframeBias(art, subjectLeft, subjectRight);
 
         Assert.Equal(1f, bias.ScaleMultiplier);
         Assert.True(bias.HorizontalOffset > 0, $"expected right shift, got {bias.HorizontalOffset}");
-        Assert.Equal((art.Right + OverFrameAutoArtComposer.SideOverframeMinPx) - subjectRight,
-            bias.HorizontalOffset);
+        Assert.Equal((art.Right + target) - subjectRight, bias.HorizontalOffset);
     }
 
     [Fact]
@@ -187,12 +159,37 @@ public class OverFrameAutoArtComposerTests
     public void ResolveSideOverframeBias_MissingBoth_BilateralScaleBoost_NoShift()
     {
         var art = OverFrameAutoArtComposer.ArtWindow;
-        // Narrow subject entirely inside the hole.
-        var bias = OverFrameAutoArtComposer.ResolveSideOverframeBias(
-            art, art.Left + 100, art.Right - 100);
+        // Subject hugs the art-hole width — spell/landscape rembg that only overframes
+        // top/bottom. Legacy fixed 1.08× left teal gutters; need a dynamic boost.
+        var subjectLeft = art.Left + 2;
+        var subjectRight = art.Right - 2;
+        var bias = OverFrameAutoArtComposer.ResolveSideOverframeBias(art, subjectLeft, subjectRight);
 
         Assert.Equal(0, bias.HorizontalOffset);
-        Assert.Equal(OverFrameAutoArtComposer.SideOverframeBothMissingScaleBoost, bias.ScaleMultiplier);
+        var expected = OverFrameAutoArtComposer.ComputeScaleMultiplierForMissingSides(
+            art, subjectLeft, subjectRight, fixLeft: true, fixRight: true);
+        Assert.Equal(expected, bias.ScaleMultiplier);
+        Assert.True(bias.ScaleMultiplier > 1.08f,
+            $"expected boost > legacy 1.08, got {bias.ScaleMultiplier}");
+    }
+
+    [Fact]
+    public void ComputeScaleMultiplierForMissingSides_HoleWidthSubject_ReachesCorrectionTarget()
+    {
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var subjectLeft = art.Left;
+        var subjectRight = art.Right;
+        var m = OverFrameAutoArtComposer.ComputeScaleMultiplierForMissingSides(
+            art, subjectLeft, subjectRight, fixLeft: true, fixRight: true);
+        var artCenterX = art.Left + art.Width / 2f;
+        var target = OverFrameAutoArtComposer.GetSideOverframeCorrectionTargetPx(art);
+        var newLeft = artCenterX + (subjectLeft - artCenterX) * m;
+        var newRight = artCenterX + (subjectRight - artCenterX) * m;
+
+        Assert.True(newLeft <= art.Left - target + 0.5f,
+            $"left {newLeft} should be ≤ {art.Left - target}");
+        Assert.True(newRight >= art.Right + target - 0.5f,
+            $"right {newRight} should be ≥ {art.Right + target}");
     }
 
     [Fact]
@@ -227,8 +224,8 @@ public class OverFrameAutoArtComposerTests
     [Fact]
     public void Compose_MissingLeftOverframe_ShiftsCompositionLeft()
     {
-        // Subject already overframes right when centered; sits slightly inside on the left
-        // so a modest (cover-safe) left shift reaches SideOverframeMinPx.
+        // Subject already overframes right when centered; sits slightly inside on the left.
+        // Shift and/or Cover-safe scale rescue must reach SideOverframeMinPx (no edge-smear).
         using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 40, 80, 255));
         using var mask = new Image<L8>(100, 100, new L8(0));
         for (var y = 5; y < 95; y++)
@@ -272,6 +269,39 @@ public class OverFrameAutoArtComposerTests
         Assert.True(
             subjectRight >= art.Right + OverFrameAutoArtComposer.SideOverframeMinPx,
             $"expected right overframe >={OverFrameAutoArtComposer.SideOverframeMinPx}px, subjectRight={subjectRight}, art.Right={art.Right}");
+    }
+
+    [Fact]
+    public void Compose_MissingBothSideOverframes_ScalesToFillLeftAndRight()
+    {
+        // Spell-like repro: rembg spans most of the source width so Cover placement leaves
+        // subject ≈ art-hole wide (only T/B overflow). Legacy 1.08× left teal L/R gutters;
+        // dynamic scale must punch both sides. Keep <92% opaque so the full-mask guard passes.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 40, 80, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 15; x < 85; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var midY = art.Top + art.Height / 2;
+        var subjectLeft = FindSubjectLeftAtY(result, midY);
+        var subjectRight = FindSubjectRightExclusiveAtY(result, midY);
+        Assert.True(subjectLeft >= 0 && subjectRight > subjectLeft, "expected rembg subject");
+        Assert.True(
+            subjectLeft <= art.Left - OverFrameAutoArtComposer.SideOverframeMinPx,
+            $"expected left overframe, subjectLeft={subjectLeft}, art.Left={art.Left}");
+        Assert.True(
+            subjectRight >= art.Right + OverFrameAutoArtComposer.SideOverframeMinPx,
+            $"expected right overframe, subjectRight={subjectRight}, art.Right={art.Right}");
+        // Smear coverage lives in Compose_FarLeftSubject_DoesNotHorizontalEdgeSmear
+        // (uniform red subjects false-trigger the leftmost-column run check).
     }
 
     [Fact]
@@ -558,9 +588,15 @@ public class OverFrameAutoArtComposerTests
             Assert.True(p.G > 100, $"hole edge ({x},{y}) should be filled art, got {p}");
         }
 
-        // Outside shared ArtWindow but inside the oversized template hole → frame chrome, not art.
+        // Outside shared ArtWindow but inside the oversized template hole.
+        // Side-bias may rembg-punch this ring (foil A≈4); unpatched hole would be black matte.
         var ring = result[largeHole.Left + 2, largeHole.Top + 2];
-        Assert.True(ring.A >= 200, $"expected patched chrome outside ArtWindow, got {ring}");
+        Assert.False(
+            ring.A == OverFrameAutoArtComposer.FoilMaskAlpha && ring.R < 20 && ring.G < 20 && ring.B < 20,
+            $"expected patched chrome or rembg overframe outside ArtWindow, got {ring}");
+        Assert.True(
+            ring.A >= 200 || ring.A == OverFrameAutoArtComposer.FoilMaskAlpha,
+            $"expected patched chrome outside ArtWindow, got {ring}");
     }
 
     [Fact]
