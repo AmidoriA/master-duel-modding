@@ -537,7 +537,7 @@ public partial class MainWindow : Window
 
         try
         {
-            // Export: normal 512×512; Pendulum top 3:4 band as canonical 512×683 (not live 512×1024).
+            // Export: normal 512x512; Pendulum full canvas resized to canonical 512x683.
             _modService.ExtractCardArt(GamePathBox.Text, _selected, dlg.FileName);
             var info = _modService.GetTextureInfo(GamePathBox.Text, _selected);
             var (exportW, exportH) = CardArtTextureSizes.GetCardArtExportSize(info.Width, info.Height);
