@@ -6,7 +6,7 @@ namespace Floowan.Core.Data;
 /// <summary>
 /// Card catalog + user state facade over two SQLite files:
 /// <list type="bullet">
-/// <item><description><c>database.db</c> (master) — identity/catalog: id, name, description, bundle, data_index</description></item>
+/// <item><description><c>database.db</c> (master) — identity/catalog: id, name, description, bundle, data_index, card_type, created_at</description></item>
 /// <item><description><c>user.db</c> — app_config and per-card mutable state</description></item>
 /// </list>
 /// Opens master and ATTACHes user. On first open, migrates legacy user columns/rows from a
@@ -54,6 +54,7 @@ public sealed class CardDatabase : IDisposable
         _connection.Open();
 
         AttachUserDatabase();
+        EnsureMasterSchema();
         EnsureUserSchema();
         MigrateLegacyUserDataIfNeeded();
 
@@ -61,6 +62,36 @@ public sealed class CardDatabase : IDisposable
         HasCardTypeColumn = masterCols.Any(c => string.Equals(c, "card_type", StringComparison.OrdinalIgnoreCase));
         HasCreatedAtColumn = masterCols.Any(c => string.Equals(c, "created_at", StringComparison.OrdinalIgnoreCase));
         _cardSelectList = BuildCardSelectList(HasCardTypeColumn, HasCreatedAtColumn);
+    }
+
+    /// <summary>
+    /// Adds optional master catalog columns when missing.
+    /// <list type="bullet">
+    /// <item><description><c>card_type</c> — type label inferred from CARD_Desc type lines</description></item>
+    /// <item><description><c>created_at</c> — ISO-8601 UTC creation time of the illustration AssetBundle file</description></item>
+    /// </list>
+    /// </summary>
+    private void EnsureMasterSchema()
+    {
+        EnsureMasterCardColumn("card_type", "TEXT");
+        EnsureMasterCardColumn("created_at", "TEXT");
+    }
+
+    private void EnsureMasterCardColumn(string column, string typeSql)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "PRAGMA main.table_info(card);";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                return;
+        }
+
+        reader.Close();
+        using var alter = _connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE main.card ADD COLUMN {column} {typeSql};";
+        alter.ExecuteNonQuery();
     }
 
     /// <summary>
@@ -344,6 +375,134 @@ IFNULL(u.is_overframe, 0), u.overframe_base_id, u.art_id,
     private const string CardFromJoin = @"
 FROM card c
 LEFT JOIN user.card_state u ON u.id = c.id";
+
+    /// <summary>
+    /// Replaces all master <c>card</c> catalog rows with <paramref name="rows"/>.
+    /// Preserves legacy NOT NULL defaults for favorite/has_backup/is_overframe on master.
+    /// Does not modify <c>user.card_state</c>.
+    /// </summary>
+    public int ReplaceMasterCatalog(IEnumerable<CatalogCardRow> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        EnsureMasterSchema();
+
+        var list = rows as IList<CatalogCardRow> ?? rows.ToList();
+        using var tx = _connection.BeginTransaction();
+        using (var delete = _connection.CreateCommand())
+        {
+            delete.Transaction = tx;
+            delete.CommandText = "DELETE FROM main.card;";
+            delete.ExecuteNonQuery();
+        }
+
+        using var insert = _connection.CreateCommand();
+        insert.Transaction = tx;
+        insert.CommandText = @"
+INSERT INTO main.card (
+  id, name, description, bundle, data_index, card_type, created_at,
+  favorite, has_backup, is_overframe
+) VALUES (
+  $id, $name, $description, $bundle, $data_index, $card_type, $created_at,
+  0, 0, 0
+);";
+        var pId = insert.Parameters.Add("$id", SqliteType.Integer);
+        var pName = insert.Parameters.Add("$name", SqliteType.Text);
+        var pDesc = insert.Parameters.Add("$description", SqliteType.Text);
+        var pBundle = insert.Parameters.Add("$bundle", SqliteType.Text);
+        var pIndex = insert.Parameters.Add("$data_index", SqliteType.Integer);
+        var pType = insert.Parameters.Add("$card_type", SqliteType.Text);
+        var pCreated = insert.Parameters.Add("$created_at", SqliteType.Text);
+
+        var written = 0;
+        foreach (var row in list)
+        {
+            pId.Value = row.Id;
+            pName.Value = row.Name;
+            pDesc.Value = row.Description;
+            pBundle.Value = row.Bundle;
+            pIndex.Value = row.DataIndex;
+            pType.Value = string.IsNullOrWhiteSpace(row.CardType) ? DBNull.Value : row.CardType;
+            pCreated.Value = string.IsNullOrWhiteSpace(row.CreatedAt) ? DBNull.Value : row.CreatedAt;
+            insert.ExecuteNonQuery();
+            written++;
+        }
+
+        tx.Commit();
+        return written;
+    }
+
+    /// <summary>
+    /// Inserts or updates master <c>card</c> rows by primary key <c>id</c>.
+    /// Does not delete existing rows or modify <c>user.card_state</c>.
+    /// </summary>
+    public int UpsertMasterCatalog(IEnumerable<CatalogCardRow> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        EnsureMasterSchema();
+
+        var list = rows as IList<CatalogCardRow> ?? rows.ToList();
+        using var tx = _connection.BeginTransaction();
+        using var upsert = _connection.CreateCommand();
+        upsert.Transaction = tx;
+        upsert.CommandText = @"
+INSERT INTO main.card (
+  id, name, description, bundle, data_index, card_type, created_at,
+  favorite, has_backup, is_overframe
+) VALUES (
+  $id, $name, $description, $bundle, $data_index, $card_type, $created_at,
+  0, 0, 0
+)
+ON CONFLICT(id) DO UPDATE SET
+  name = excluded.name,
+  description = excluded.description,
+  bundle = excluded.bundle,
+  data_index = excluded.data_index,
+  card_type = excluded.card_type,
+  created_at = excluded.created_at;";
+        var pId = upsert.Parameters.Add("$id", SqliteType.Integer);
+        var pName = upsert.Parameters.Add("$name", SqliteType.Text);
+        var pDesc = upsert.Parameters.Add("$description", SqliteType.Text);
+        var pBundle = upsert.Parameters.Add("$bundle", SqliteType.Text);
+        var pIndex = upsert.Parameters.Add("$data_index", SqliteType.Integer);
+        var pType = upsert.Parameters.Add("$card_type", SqliteType.Text);
+        var pCreated = upsert.Parameters.Add("$created_at", SqliteType.Text);
+
+        var written = 0;
+        foreach (var row in list)
+        {
+            pId.Value = row.Id;
+            pName.Value = row.Name;
+            pDesc.Value = row.Description;
+            pBundle.Value = row.Bundle;
+            pIndex.Value = row.DataIndex;
+            pType.Value = string.IsNullOrWhiteSpace(row.CardType) ? DBNull.Value : row.CardType;
+            pCreated.Value = string.IsNullOrWhiteSpace(row.CreatedAt) ? DBNull.Value : row.CreatedAt;
+            upsert.ExecuteNonQuery();
+            written++;
+        }
+
+        tx.Commit();
+        return written;
+    }
+
+    /// <summary>
+    /// Latest non-null <c>created_at</c> in the master catalog (ISO-8601 UTC), or null if none.
+    /// </summary>
+    public DateTimeOffset? GetLatestCreatedAtUtc()
+    {
+        EnsureMasterSchema();
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT MAX(created_at) FROM main.card WHERE created_at IS NOT NULL AND TRIM(created_at) != '';";
+        var scalar = cmd.ExecuteScalar();
+        if (scalar is null or DBNull)
+            return null;
+        var text = Convert.ToString(scalar);
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+        return DateTimeOffset.TryParse(text, null, System.Globalization.DateTimeStyles.RoundtripKind, out var dto)
+            ? dto.ToUniversalTime()
+            : null;
+    }
 
     public bool HasMasterColumn(string columnName)
     {

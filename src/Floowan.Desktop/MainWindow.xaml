@@ -1,7 +1,7 @@
-ï»¿<Window x:Class="Floowan.Desktop.MainWindow"
+<Window x:Class="Floowan.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Floowan â€” Master Duel Card Art"
+        Title="Floowan — Master Duel Card Art"
         Height="800" Width="1400"
         MinHeight="620" MinWidth="1100"
         Background="{StaticResource BgBrush}"
@@ -73,8 +73,8 @@
           </StackPanel>
           <StackPanel Grid.Column="1" Orientation="Vertical" Margin="12,0,0,0">
             <Button Content="Discover Steam" Click="DiscoverSteam_Click" Margin="0,0,0,6"/>
-            <Button Content="Browse LocalDataâ€¦" Click="BrowseGamePath_Click" Margin="0,0,0,6"/>
-            <Button Content="Browse databaseâ€¦" Click="BrowseDatabase_Click"/>
+            <Button Content="Browse LocalData…" Click="BrowseGamePath_Click" Margin="0,0,0,6"/>
+            <Button Content="Browse database…" Click="BrowseDatabase_Click"/>
           </StackPanel>
         </Grid>
       </Expander>
@@ -122,7 +122,7 @@
             <DockPanel>
               <TextBlock DockPanel.Dock="Top" Text="Selected card" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
               <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,12,0,0">
-                <Button Content="Select imageâ€¦" Click="SelectImage_Click"/>
+                <Button Content="Select image…" Click="SelectImage_Click"/>
                 <Button Content="Replace art" Click="Replace_Click" Background="{StaticResource AccentBrush}"/>
                 <Button Content="Extract PNG" Click="Extract_Click"/>
                 <Button Content="Restore backup" Click="Restore_Click"/>
@@ -184,7 +184,7 @@
                 <RadioButton x:Name="OfViewThumbRadio" Content="Thumbnails" GroupName="OfResultsView"
                              Checked="OfResultsViewMode_Changed"/>
               </StackPanel>
-              <Button DockPanel.Dock="Top" Content="Scan / locate of_card_assetâ€¦" Click="OfScanGate_Click" Margin="0,0,0,8" HorizontalAlignment="Left"/>
+              <Button DockPanel.Dock="Top" Content="Scan / locate of_card_asset…" Click="OfScanGate_Click" Margin="0,0,0,8" HorizontalAlignment="Left"/>
               <ListBox x:Name="OfCardList"
                        ItemTemplate="{StaticResource OfCardListItemTemplate}"
                        ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -208,7 +208,7 @@
                         Margin="0,8,0,0"
                         ToolTip="Collapse to hide manual image select, Apply, and gate tools.">
                 <WrapPanel Margin="0,8,0,0">
-                  <Button Content="Select 704Ã—1024 imageâ€¦" Click="OfSelectImage_Click"/>
+                  <Button Content="Select 704?1024 image…" Click="OfSelectImage_Click"/>
                   <Button Content="Auto-create from current art" Click="OfAutoCreate_Click"/>
                   <Button Content="Apply over-frame" Click="OfApply_Click"/>
                   <Button Content="Enable gate only" Click="OfEnableGate_Click"/>
@@ -455,7 +455,32 @@
 
       <TabItem x:Name="ToolsTab" Header="Tools">
         <Grid Margin="0,8,0,0">
-          <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+          </Grid.RowDefinitions>
+
+          <Border Grid.Row="0" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Text="Card database" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <TextBlock DockPanel.Dock="Top"
+                         Text="Rebuild or incrementally refresh the master card catalog (database.db) from the Home LocalData path plus install StreamingAssets/AssetBundle (names, descriptions, bundles, card_type, created_at). Prefer LocalData downloads when both exist. Incremental mode skips any AssetBundle whose File.GetCreationTimeUtc is not after MAX(created_at) already stored in the database — those files are never opened."
+                         Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <Button x:Name="ToolsUpdateEntireDbButton" Content="Update entire DB"
+                        Click="ToolsUpdateEntireDatabase_Click" Background="{StaticResource AccentBrush}"
+                        Padding="12,4" Margin="0,0,8,0"/>
+                <Button x:Name="ToolsUpdateNewFilesDbButton" Content="Update new files only"
+                        Click="ToolsUpdateNewFilesDatabase_Click"
+                        Padding="12,4" Margin="0,0,8,0"
+                        ToolTip="Only open AssetBundles whose File.GetCreationTimeUtc is after the latest created_at in database.db; older files are skipped entirely."/>
+              </StackPanel>
+              <TextBlock x:Name="ToolsUpdateDbStatusText"
+                         Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+            </DockPanel>
+          </Border>
+
+          <Border Grid.Row="1" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
             <DockPanel>
               <TextBlock DockPanel.Dock="Top" Text="Backups" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
               <TextBlock DockPanel.Dock="Top"
@@ -492,7 +517,7 @@
           Visibility="Collapsed"
           Cursor="Wait"
           Panel.ZIndex="100">
-    <TextBlock Text="Workingâ€¦"
+    <TextBlock Text="Working…"
                HorizontalAlignment="Center"
                VerticalAlignment="Center"
                FontSize="16"

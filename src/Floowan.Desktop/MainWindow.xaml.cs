@@ -618,6 +618,121 @@ public partial class MainWindow : Window
 
     // --- Tools tab (backup browser) ---
 
+    private async void ToolsUpdateEntireDatabase_Click(object sender, RoutedEventArgs e) =>
+        await RunToolsDatabaseUpdateAsync(incremental: false);
+
+    private async void ToolsUpdateNewFilesDatabase_Click(object sender, RoutedEventArgs e) =>
+        await RunToolsDatabaseUpdateAsync(incremental: true);
+
+    private async Task RunToolsDatabaseUpdateAsync(bool incremental)
+    {
+        if (_database is null)
+        {
+            MessageBox.Show("Open database.db first.", "Floowan");
+            return;
+        }
+
+        var gamePath = GamePathBox.Text?.Trim() ?? "";
+        string? pathError = null;
+        if (string.IsNullOrWhiteSpace(gamePath) || !GamePathLocator.IsValidGamePath(gamePath, out pathError))
+        {
+            MessageBox.Show(
+                pathError ?? "Set a valid Master Duel LocalData path first (Home tab).",
+                "Floowan",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        string confirmBody;
+        string confirmTitle;
+        if (incremental)
+        {
+            var latest = _database.GetLatestCreatedAtUtc();
+            var latestText = latest is DateTimeOffset dto
+                ? dto.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " UTC"
+                : "(none — run Update entire DB first)";
+            confirmBody =
+                "Upsert only cards from AssetBundles whose File.GetCreationTimeUtc is after the latest created_at in:\n" +
+                _database.MasterDatabasePath +
+                "\n\nLatest DB created_at: " + latestText +
+                "\nOlder files are skipped entirely (not opened).\nGame path:\n" + gamePath +
+                "\n\nExisting catalog rows are kept. User favorites/mods in user.db are kept. Continue?";
+            confirmTitle = "Update new files only";
+        }
+        else
+        {
+            confirmBody =
+                "Replace the entire master card catalog in:\n" + _database.MasterDatabasePath +
+                "\n\nwith data extracted from:\n" + gamePath +
+                "\n\nUser favorites/mods in user.db are kept. Continue?";
+            confirmTitle = "Update entire DB";
+        }
+
+        var confirm = MessageBox.Show(
+            confirmBody,
+            confirmTitle,
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes)
+            return;
+
+        ToolsUpdateEntireDbButton.IsEnabled = false;
+        ToolsUpdateNewFilesDbButton.IsEnabled = false;
+        SetUiBusy(true);
+        ToolsUpdateDbStatusText.Text = "Starting…";
+        Status(incremental ? "Updating new catalog files from game…" : "Updating entire card database from game…");
+
+        var database = _database;
+        var progress = new Progress<string>(msg =>
+        {
+            ToolsUpdateDbStatusText.Text = msg;
+            Status(msg);
+        });
+
+        try
+        {
+            var result = await Task.Run(() =>
+            {
+                var updater = new CardCatalogUpdater();
+                return incremental
+                    ? updater.UpdateNewFilesOnly(database, gamePath, progress)
+                    : updater.UpdateFromGame(database, gamePath, progress);
+            });
+
+            RunSearch();
+            RunOfSearch();
+            RunDatabaseQuery(resetOffset: true);
+
+            if (!result.Success)
+            {
+                ToolsUpdateDbStatusText.Text = result.Message;
+                Status("Database update failed: " + result.Message);
+                MessageBox.Show(result.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var detail =
+                $"{result.Message} Scanned {result.BundlesScanned} bundles, " +
+                $"{result.IllustCount} illustrations" +
+                (result.CryptoKey is int key ? $", crypto key 0x{key:X}." : ".");
+            ToolsUpdateDbStatusText.Text = detail;
+            Status(detail);
+        }
+        catch (Exception ex)
+        {
+            ToolsUpdateDbStatusText.Text = "Error: " + ex.Message;
+            Status("Database update failed: " + ex.Message);
+            MessageBox.Show(ex.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            ToolsUpdateEntireDbButton.IsEnabled = true;
+            ToolsUpdateNewFilesDbButton.IsEnabled = true;
+            SetUiBusy(false);
+        }
+    }
+
     private void ToolsRefreshBackups_Click(object sender, RoutedEventArgs e) =>
         EnsureAndRefreshBackupBrowser();
 
@@ -1956,6 +2071,15 @@ public partial class MainWindow : Window
             try { File.Delete(_dbPreviewTempPath); } catch { /* ignore */ }
         }
         _dbPreviewTempPath = null;
+    }
+
+    private static string FormatCreatedAtDisplay(string? createdAt)
+    {
+        if (string.IsNullOrWhiteSpace(createdAt))
+            return "";
+        if (!DateTimeOffset.TryParse(createdAt, null, System.Globalization.DateTimeStyles.RoundtripKind, out var dto))
+            return createdAt;
+        return dto.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") + " (local)";
     }
 
     private void DbDiscard_Click(object sender, RoutedEventArgs e)
