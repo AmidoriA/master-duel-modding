@@ -26,6 +26,7 @@ public class FrameLoreLayoutTests
     [InlineData(CardFrameStyle.PendulumFusion)]
     [InlineData(CardFrameStyle.PendulumSynchro)]
     [InlineData(CardFrameStyle.PendulumXyz)]
+    [InlineData(CardFrameStyle.PendulumRitual)]
     [InlineData(CardFrameStyle.PendulumToken)]
     public void PendulumTemplates_HaveWiderShorterArtHole(CardFrameStyle style)
     {
@@ -179,6 +180,35 @@ public class FrameLoreLayoutTests
 
         Assert.Equal(CardFrameStyle.Ritual, CardFrameTemplates.InferStyle("Relinquished", "[Spellcaster/Ritual/Effect]"));
         Assert.Equal(CardFrameStyle.Link, CardFrameTemplates.InferStyle("Accesscode", "[Cyberse/Link/Effect]"));
+    }
+
+    [Fact]
+    public void PendulumRitualTemplate_IsCardFrame19RitualBlueWithPendulumHole()
+    {
+        // card_frame19 is Ritual-blue chrome + pendulum scales (not Token grey).
+        using var pendRitual = CardFrameTemplates.Load(CardFrameStyle.PendulumRitual);
+        using var ritual = CardFrameTemplates.Load(CardFrameStyle.Ritual);
+        using var token = CardFrameTemplates.Load(CardFrameStyle.Token);
+        using var pendTokenAlias = CardFrameTemplates.Load(CardFrameStyle.PendulumToken);
+
+        var name = pendRitual[352, 80];
+        Assert.True(name.A > 200 && name.B > name.R + 40,
+            $"Pendulum Ritual namebar should be Ritual blue, got {name}");
+
+        var ritualName = ritual[352, 80];
+        Assert.InRange(name.R, ritualName.R - 8, ritualName.R + 8);
+        Assert.InRange(name.G, ritualName.G - 8, ritualName.G + 8);
+        Assert.InRange(name.B, ritualName.B - 8, ritualName.B + 8);
+
+        var tokenName = token[352, 80];
+        Assert.True(Math.Abs(name.R - tokenName.R) + Math.Abs(name.G - tokenName.G) + Math.Abs(name.B - tokenName.B) > 60,
+            "Pendulum Ritual must not use Token grey namebar");
+
+        var hole = OverFrameAutoArtComposer.DetectArtWindow(pendRitual);
+        Assert.Equal(OverFrameAutoArtComposer.PendulumArtWindow.Width, hole.Width);
+        Assert.Equal(OverFrameAutoArtComposer.PendulumArtWindow.Height, hole.Height);
+        Assert.True(ImagesEqual(pendRitual, pendTokenAlias),
+            "PendulumToken is a legacy alias of the same card_frame19 asset");
     }
 
     private static bool ImagesEqual(Image<Rgba32> a, Image<Rgba32> b)

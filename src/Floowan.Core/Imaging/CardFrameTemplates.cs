@@ -27,6 +27,8 @@ public static class CardFrameTemplates
             [CardFrameStyle.PendulumFusion] = "PendulumFusion.png",
             [CardFrameStyle.PendulumSynchro] = "PendulumSynchro.png",
             [CardFrameStyle.PendulumXyz] = "PendulumXyz.png",
+            [CardFrameStyle.PendulumRitual] = "PendulumRitual.png",
+            // Same MD asset as PendulumRitual (card_frame19); legacy filename retained.
             [CardFrameStyle.PendulumToken] = "PendulumToken.png",
         };
 
@@ -39,6 +41,7 @@ public static class CardFrameTemplates
             or CardFrameStyle.PendulumFusion
             or CardFrameStyle.PendulumSynchro
             or CardFrameStyle.PendulumXyz
+            or CardFrameStyle.PendulumRitual
             or CardFrameStyle.PendulumToken;
 
     public static string ResolveTemplatePath(CardFrameStyle style, string? overrideDirectory = null)
@@ -169,6 +172,10 @@ public static class CardFrameTemplates
                 return CardFrameStyle.PendulumSynchro;
             if (typeLine.Contains("/fusion", StringComparison.Ordinal))
                 return CardFrameStyle.PendulumFusion;
+            if (typeLine.Contains("/ritual", StringComparison.Ordinal) ||
+                typeLine.Contains("pendulum ritual", StringComparison.Ordinal) ||
+                typeLine.Contains("ritual]", StringComparison.Ordinal))
+                return CardFrameStyle.PendulumRitual;
             if (typeLine.Contains("/token", StringComparison.Ordinal) || typeLine.Contains("token]", StringComparison.Ordinal))
                 return CardFrameStyle.PendulumToken;
             if (typeLine.Contains("/normal", StringComparison.Ordinal) ||
