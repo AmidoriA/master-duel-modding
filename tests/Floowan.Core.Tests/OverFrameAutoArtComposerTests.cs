@@ -918,7 +918,7 @@ public class OverFrameAutoArtComposerTests
     {
         // Cover×overflow for square sources ends ~y 819; cream runs through 962.
         // Saturated cyan underlay must Mirrorjade-blend near lore top, while uncovered
-        // lore past the footprint stays exact solid cream (no dimming over empty foil).
+        // lore well past the footprint feather stays exact solid cream (no dimming).
         using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 255, 255));
         using var mask = new Image<L8>(512, 512, new L8(0));
         for (var y = 20; y < 492; y++)
@@ -950,9 +950,8 @@ public class OverFrameAutoArtComposerTests
     [Fact]
     public void Compose_Effect_LoreCream_VerticalSoftToSolidFromLoreTop()
     {
-        // Soft→solid must fall off from the lore box top over LoreArtUnderlayBlendHeight,
-        // not a tiny footprint-edge feather. Near top stays softest; lower covered lore
-        // is closer to cream; past the scaled footprint is exact solid cream.
+        // Soft→solid falls from the lore box top over LoreArtUnderlayBlendHeight, with
+        // footprint exit feathered over LoreArtUnderlayBlendRadius (no 1px solid cliff).
         using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 255, 255));
         using var mask = new Image<L8>(512, 512, new L8(0));
         for (var y = 20; y < 492; y++)
@@ -974,6 +973,7 @@ public class OverFrameAutoArtComposerTests
         var bgY = (int)MathF.Round(art.Top + art.Height / 2f - scaledH / 2f);
         var edgeY = bgY + scaledH - 1;
         var blendH = OverFrameAutoArtComposer.LoreArtUnderlayBlendHeight;
+        var radius = OverFrameAutoArtComposer.LoreArtUnderlayBlendRadius;
         var creamR = OverFrameAutoArtComposer.EffectLoreCream;
         var midX = creamR.Left + creamR.Width / 2;
 
@@ -985,15 +985,70 @@ public class OverFrameAutoArtComposerTests
 
         var nearTop = result[midX, creamR.Top + 4];
         var nearFootprint = result[midX, edgeY];
-        var pastFootprint = result[midX, edgeY + 8];
+        var midFeather = result[midX, edgeY + radius / 2];
+        var pastFeather = result[midX, Math.Min(creamR.Bottom - 1, edgeY + radius + 2)];
         var lowerLore = result[midX, creamR.Bottom - 10];
 
         Assert.True(nearTop.B > cream.B, $"near lore top should soft-tint cyan, got {nearTop}");
         Assert.True(nearFootprint.B > cream.B, $"covered lower lore should still tint cyan, got {nearFootprint}");
         Assert.True(nearFootprint.B < nearTop.B,
             $"lower covered lore should be closer to cream than top ({nearTop} vs {nearFootprint})");
-        Assert.Equal(cream, pastFootprint);
+        Assert.True(midFeather.B > cream.B && midFeather.B < nearFootprint.B,
+            $"mid footprint feather should sit between soft and solid ({nearFootprint} vs {midFeather})");
+        Assert.Equal(cream, pastFeather);
         Assert.Equal(cream, lowerLore);
+    }
+
+    [Fact]
+    public void Compose_Effect_LoreCream_NoHardOpacityCliffAcrossFootprint()
+    {
+        // Soft→solid must be continuous across the scaled footprint exit: no single-row
+        // RGB cliff where underlay presence flips (the hard horizontal seam in lore).
+        using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 255, 255));
+        using var mask = new Image<L8>(512, 512, new L8(0));
+        for (var y = 20; y < 492; y++)
+        for (var x = 40; x < 472; x++)
+            mask[x, y] = new L8(255);
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        const int size = 512;
+        var scale = Math.Max(art.Width / (float)size, art.Height / (float)size)
+            * OverFrameAutoArtComposer.OverflowScale;
+        var scaledH = Math.Max(1, (int)MathF.Round(size * scale));
+        var bgY = (int)MathF.Round(art.Top + art.Height / 2f - scaledH / 2f);
+        var edgeY = bgY + scaledH - 1;
+        var radius = OverFrameAutoArtComposer.LoreArtUnderlayBlendRadius;
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var midX = creamR.Left + creamR.Width / 2;
+
+        Assert.True(edgeY >= creamR.Top && edgeY + radius < creamR.Bottom,
+            $"footprint edge y={edgeY} + feather {radius} must fit in lore cream");
+
+        // Band spanning the last covered row through the feather exit.
+        var y0 = edgeY - 4;
+        var y1 = edgeY + radius;
+        var maxStep = 0;
+        var cliffStep = ColorDistance(result[midX, edgeY], result[midX, edgeY + 1]);
+        for (var y = y0 + 1; y <= y1; y++)
+        {
+            var step = ColorDistance(result[midX, y - 1], result[midX, y]);
+            if (step > maxStep)
+                maxStep = step;
+        }
+
+        // A 1px soft→solid cliff at the footprint was ~5+ RGB L1 for cyan underlay;
+        // continuous feather keeps consecutive mid-band steps tiny.
+        Assert.True(cliffStep <= 2,
+            $"footprint exit must not be a 1px opacity cliff (edgeY={edgeY} step={cliffStep})");
+        Assert.True(maxStep <= 2,
+            $"lore mid-band soft→solid steps must stay continuous (maxStep={maxStep} over y={y0}..{y1})");
     }
 
     [Fact]
@@ -1002,7 +1057,7 @@ public class OverFrameAutoArtComposerTests
         // Square sources cover-scale short of lore bottom (~y 819 vs cream through 962).
         // Clamp-to-edge on sy used to repeat the last source row down the cream as
         // vertical ghost streaks under subject "feet" (Mirrorjade claws).
-        // Uncovered lore past the footprint must stay solid cream (no foot-column tint).
+        // Uncovered lore past the footprint feather must stay solid cream (no foot-column tint).
         const int size = 512;
         using var source = new Image<Rgba32>(size, size, new Rgba32(20, 30, 50, 255));
         using var mask = new Image<L8>(size, size, new L8(0));
@@ -1027,7 +1082,7 @@ public class OverFrameAutoArtComposerTests
         using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
 
         var creamR = OverFrameAutoArtComposer.EffectLoreCream;
-        // Well below typical scaled-source bottom for 512² Effect cover×overflow.
+        // Well below typical scaled-source bottom + footprint feather for 512² Effect.
         var loreY = creamR.Bottom - 20;
         Assert.True(loreY > 820, $"regression lore sample y={loreY} should be past scaled footprint");
 
@@ -1036,7 +1091,13 @@ public class OverFrameAutoArtComposerTests
             art.Width / (float)size,
             art.Height / (float)size) * OverFrameAutoArtComposer.OverflowScale;
         var scaledW = Math.Max(1, (int)MathF.Round(size * scale));
+        var scaledH = Math.Max(1, (int)MathF.Round(size * scale));
         var bgX = (int)MathF.Round(art.Left + art.Width / 2f - scaledW / 2f);
+        var bgY = (int)MathF.Round(art.Top + art.Height / 2f - scaledH / 2f);
+        var edgeY = bgY + scaledH - 1;
+        Assert.True(
+            loreY > edgeY + OverFrameAutoArtComposer.LoreArtUnderlayBlendRadius,
+            $"lore sample y={loreY} must be past footprint feather (edge={edgeY})");
         // Source feet columns mapped onto the canvas.
         var footCanvasX = bgX + (int)MathF.Round(200 * scale);
         Assert.True(footCanvasX >= creamR.Left && footCanvasX < creamR.Right,
