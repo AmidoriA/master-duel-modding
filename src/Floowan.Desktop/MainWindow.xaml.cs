@@ -542,7 +542,7 @@ public partial class MainWindow : Window
         var card = _selected;
         var image = _replacementImagePath;
         SetUiBusy(true);
-        Status("Replacing card art…");
+        Status("Replacing card artโ€ฆ");
         try
         {
             // Always backup (same as Over-frame) so Replace stays reversible via Restore.
@@ -651,7 +651,7 @@ public partial class MainWindow : Window
             var latest = _database.GetLatestCreatedAtUtc();
             var latestText = latest is DateTimeOffset dto
                 ? dto.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " UTC"
-                : "(none — run Update entire DB first)";
+                : "(none โ€” run Update entire DB first)";
             confirmBody =
                 "Upsert only cards from AssetBundles whose File.GetCreationTimeUtc is after the latest created_at in:\n" +
                 _database.MasterDatabasePath +
@@ -680,8 +680,8 @@ public partial class MainWindow : Window
         ToolsUpdateEntireDbButton.IsEnabled = false;
         ToolsUpdateNewFilesDbButton.IsEnabled = false;
         SetUiBusy(true);
-        ToolsUpdateDbStatusText.Text = "Starting…";
-        Status(incremental ? "Updating new catalog files from game…" : "Updating entire card database from game…");
+        ToolsUpdateDbStatusText.Text = "Startingโ€ฆ";
+        Status(incremental ? "Updating new catalog files from gameโ€ฆ" : "Updating entire card database from gameโ€ฆ");
 
         var database = _database;
         var progress = new Progress<string>(msg =>
@@ -1030,8 +1030,8 @@ public partial class MainWindow : Window
 
         OfCardTitleText.Text = _ofSelected.DisplayName;
         OfCardMetaText.Text =
-            $"Bundle {_ofSelected.Bundle}  ·  id {_ofSelected.Id}  ·  overframe={_ofSelected.IsOverframe}" +
-            (_ofSelected.OverframeBaseId is int baseId ? $"  ·  base={baseId}" : "");
+            $"Bundle {_ofSelected.Bundle}  ยท  id {_ofSelected.Id}  ยท  overframe={_ofSelected.IsOverframe}" +
+            (_ofSelected.OverframeBaseId is int baseId ? $"  ยท  base={baseId}" : "");
         SuggestOfFrameStyle(_ofSelected);
         RefreshOfGateEntryStatus();
         LoadOfCurrentPreview();
@@ -1742,7 +1742,7 @@ public partial class MainWindow : Window
         {
             OfCardTitleText.Text = _ofSelected.DisplayName;
             OfCardMetaText.Text =
-                $"Bundle {_ofSelected.Bundle}  ·  id {_ofSelected.Id}  ·  overframe={_ofSelected.IsOverframe}";
+                $"Bundle {_ofSelected.Bundle}  ยท  id {_ofSelected.Id}  ยท  overframe={_ofSelected.IsOverframe}";
             RefreshOfGateEntryStatus();
             LoadOfCurrentPreview();
         }
@@ -2014,7 +2014,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Loads live bundle art for the Database tab. Over-frame (DB flag and/or 704×1024)
+    /// Loads live bundle art for the Database tab. Over-frame (DB flag and/or 704ร—1024)
     /// uses foil-flattened full-canvas preview (same as Over-frame tab); normal illusts
     /// load as-is with Uniform stretch so aspect is preserved.
     /// </summary>
@@ -2047,7 +2047,7 @@ public partial class MainWindow : Window
                 : LoadBitmap(_dbPreviewTempPath);
 
             DbArtMetaText.Text = isOverframe
-                ? $"Over-frame '{info.Name}' {info.Width}×{info.Height} ({info.Format})"
+                ? $"Over-frame '{info.Name}' {info.Width}ร—{info.Height} ({info.Format})"
                 : $"Texture '{info.Name}' {CardArtTextureSizes.Describe(info.Width, info.Height)} ({info.Format})";
         }
         catch (Exception ex)
