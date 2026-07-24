@@ -701,106 +701,12 @@ public static class OverFrameAutoArtComposer
     }
 
     /// <summary>
-    /// True when <paramref name="image"/> still looks like a full card face / over-frame
-    /// (foil-mask OF hole, 704×1024, or a desaturated cream lore panel). Bright illustration
-    /// highlights alone must not trip this — MD art is often 512² or 1024² with pale clothing.
+    /// Returns a 512-oriented illustration clone (crops OF / Pendulum canvases as needed).
+    /// Does not reject art that merely "looks framed" — that heuristic false-triggered on
+    /// legitimate illustrations (cream clothing, pale panels, etc.).
     /// </summary>
-    public static bool LooksLikeFramedCardArt(Image<Rgba32> image)
-    {
-        ArgumentNullException.ThrowIfNull(image);
-
-        if (IsOverFrameTextureSize(image.Width, image.Height))
-            return true;
-
-        if (image.Width < 64 || image.Height < 64)
-            return false;
-
-        var foil = 0;
-        var sampled = 0;
-        var stepX = Math.Max(1, image.Width / 64);
-        var stepY = Math.Max(1, image.Height / 64);
-        for (var y = 0; y < image.Height; y += stepY)
-        {
-            var row = image.DangerousGetPixelRowMemory(y).Span;
-            for (var x = 0; x < row.Length; x += stepX)
-            {
-                sampled++;
-                var a = row[x].A;
-                if (a > 0 && a <= VisibleAlphaThreshold)
-                    foil++;
-            }
-        }
-
-        // Official OF arts use A≈4 across the illustration; raw MD illusts are opaque.
-        if (sampled > 0 && foil / (float)sampled >= 0.12f)
-            return true;
-
-        // Nested OF crops include a desaturated cream lore panel — not vivid pink/white art.
-        var y0 = (int)(image.Height * 0.58f);
-        var creamRows = 0;
-        var rowsChecked = 0;
-        for (var y = y0; y < image.Height; y++)
-        {
-            var row = image.DangerousGetPixelRowMemory(y).Span;
-            var cream = 0;
-            var counted = 0;
-            for (var x = 0; x < row.Length; x++)
-            {
-                var p = row[x];
-                if (p.A <= 200)
-                    continue;
-                counted++;
-                if (IsFramedLoreFillPixel(p))
-                    cream++;
-            }
-
-            rowsChecked++;
-            if (counted > 0 && cream / (float)counted >= 0.55f)
-                creamRows++;
-        }
-
-        // Require a solid lore block, not a few bright clothing rows.
-        return rowsChecked > 0 && creamRows / (float)rowsChecked >= 0.20f;
-    }
-
-    /// <summary>
-    /// Cream / lavender lore fill only (low chroma, warm). Rejects saturated illustration
-    /// colors and near-white highlights that previously false-triggered framed detection.
-    /// </summary>
-    private static bool IsFramedLoreFillPixel(Rgba32 p)
-    {
-        var lum = (p.R + p.G + p.B) / 3;
-        if (lum is < 160 or > 235)
-            return false;
-
-        // Cool outer margin / blue-gray.
-        if (p.B > p.R + 15 && p.B >= p.G)
-            return false;
-
-        // Must be warm (cream), not neutral white clothing highlights.
-        if (p.R < p.B + 8)
-            return false;
-
-        var max = Math.Max(p.R, Math.Max(p.G, p.B));
-        var min = Math.Min(p.R, Math.Min(p.G, p.B));
-        return max - min <= 55;
-    }
-
-    /// <summary>
-    /// Returns a 512-oriented illustration clone, or throws if the pixels still look framed.
-    /// </summary>
-    public static Image<Rgba32> RequireCleanIllustrationSource(Image<Rgba32> source)
-    {
-        var extracted = ExtractIllustrationSource(source);
-        if (!LooksLikeFramedCardArt(extracted))
-            return extracted;
-
-        extracted.Dispose();
-        throw new InvalidOperationException(
-            "Source art still looks like a framed / over-frame card (lore panel or foil mask). " +
-            "Restore the original card backup first, then Auto-create again. " +
-            "Compositing framed art produces nested frames.");
-    }
+    public static Image<Rgba32> RequireCleanIllustrationSource(Image<Rgba32> source) =>
+        ExtractIllustrationSource(source);
 
     public static bool IsOverFrameTextureSize(int width, int height) =>
         width == Assets.OverFrameConstants.Width && height == Assets.OverFrameConstants.Height;

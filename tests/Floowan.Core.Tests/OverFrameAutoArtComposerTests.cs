@@ -345,7 +345,6 @@ public class OverFrameAutoArtComposerTests
         Assert.Equal(512, extracted.Width);
         Assert.Equal(512, extracted.Height);
         Assert.True(extracted[256, 256].G > 100, $"expected green art hole content, got {extracted[256, 256]}");
-        Assert.False(OverFrameAutoArtComposer.LooksLikeFramedCardArt(extracted));
     }
 
     [Fact]
@@ -676,46 +675,19 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
-    public void LooksLikeFramedCardArt_DetectsLorePanelAndFoilMask()
+    public void RequireCleanIllustrationSource_ExtractsWithoutFramedHeuristic()
     {
-        using var clean = new Image<Rgba32>(512, 512, new Rgba32(40, 80, 120, 255));
-        Assert.False(OverFrameAutoArtComposer.LooksLikeFramedCardArt(clean));
-
-        using var vividArt = new Image<Rgba32>(1024, 1024, new Rgba32(30, 40, 80, 255));
-        for (var y = 600; y < 1000; y++)
-        for (var x = 0; x < 1024; x++)
-            vividArt[x, y] = (x + y) % 3 == 0
-                ? new Rgba32(255, 180, 200, 255)
-                : new Rgba32(250, 250, 250, 255);
-        Assert.False(OverFrameAutoArtComposer.LooksLikeFramedCardArt(vividArt));
-
+        // Cream lore-like panel previously false-triggered LooksLikeFramedCardArt.
         using var withLore = new Image<Rgba32>(512, 512, new Rgba32(40, 80, 120, 255));
         var cream = new Rgba32(233, 207, 183, 255);
         for (var y = 320; y < 500; y++)
         for (var x = 40; x < 470; x++)
             withLore[x, y] = cream;
-        Assert.True(OverFrameAutoArtComposer.LooksLikeFramedCardArt(withLore));
 
-        using var foil = new Image<Rgba32>(512, 512, new Rgba32(40, 80, 120, OverFrameAutoArtComposer.FoilMaskAlpha));
-        Assert.True(OverFrameAutoArtComposer.LooksLikeFramedCardArt(foil));
-
-        using var ofSize = new Image<Rgba32>(704, 1024, new Rgba32(40, 80, 120, 255));
-        Assert.True(OverFrameAutoArtComposer.LooksLikeFramedCardArt(ofSize));
-    }
-
-    [Fact]
-    public void RequireCleanIllustrationSource_ThrowsOnFramedArt()
-    {
-        using var framed = new Image<Rgba32>(512, 512, new Rgba32(40, 80, 120, 255));
-        var cream = new Rgba32(233, 207, 183, 255);
-        for (var y = 320; y < 500; y++)
-        for (var x = 40; x < 470; x++)
-            framed[x, y] = cream;
-
-        Assert.Throws<InvalidOperationException>(() =>
-        {
-            using var _ = OverFrameAutoArtComposer.RequireCleanIllustrationSource(framed);
-        });
+        using var cleaned = OverFrameAutoArtComposer.RequireCleanIllustrationSource(withLore);
+        Assert.Equal(512, cleaned.Width);
+        Assert.Equal(512, cleaned.Height);
+        Assert.Equal(cream, cleaned[100, 400]);
     }
 
     [Fact]
