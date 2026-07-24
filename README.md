@@ -11,6 +11,7 @@
 - Back up the original bundle file before writing
 - Replace card art in the Unity AssetBundle via **AssetsTools.NET** (UABEA family)
 - Restore from backup
+- **Pendulum card art**: art aspect is **3:4** (canonical export **512×683**). Live MD Texture2D is often a taller **512×1024** canvas — extract **resizes** the full canvas to **512×683** (no crop). Import accepts **512×512**, **512×683**, **512×1024**, and other **3:4** images — **512×683** stretches back onto the tall canvas (round-trip); other aspect mismatches are letterboxed
 - **Over-frame tab**: apply **704×1024** art, register the card in `of_card_asset`, enable/remove gate entries, restore backups
 - **Auto-create over-frame art**: remove the current art background with rembg’s `isnet-anime` model, trim/resize the subject, and preview it on a transparent 704×1024 canvas
 

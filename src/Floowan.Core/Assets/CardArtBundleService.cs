@@ -33,7 +33,9 @@ public sealed class CardArtBundleService : IDisposable
         session.Texture.FillPictureData(session.Assets);
         var decoded = session.Texture.DecodeTextureRaw(session.Texture.pictureData)
                       ?? throw new InvalidOperationException("Failed to decode Texture2D pixels.");
-        ImagePreparation.SavePng(decoded, session.Texture.m_Width, session.Texture.m_Height, outputPngPath, inputIsBgra: true);
+        // Pendulum live canvas is often 512×1024; Card Art export resizes full canvas to 512×683.
+        ImagePreparation.SaveCardArtExportPng(
+            decoded, session.Texture.m_Width, session.Texture.m_Height, outputPngPath, inputIsBgra: true);
     }
 
     public void ReplaceTexture(
@@ -80,12 +82,20 @@ public sealed class CardArtBundleService : IDisposable
             var baseField = am.GetBaseField(assetsInst, texInfo);
             var texture = TextureFile.ReadTextureFile(baseField);
 
+            // Prefer live Texture2D dimensions so Pendulum (native canvas often
+            // 512×1024; art aspect 3:4) and normal (512×512) keep their canvas.
+            // Override only for OF.
             var targetWidth = options.Width
-                ?? (texture.m_Width > 0 ? texture.m_Width : 512);
+                ?? (texture.m_Width > 0 ? texture.m_Width : CardArtTextureSizes.NormalWidth);
             var targetHeight = options.Height
-                ?? (texture.m_Height > 0 ? texture.m_Height : 512);
+                ?? (texture.m_Height > 0 ? texture.m_Height : CardArtTextureSizes.NormalHeight);
 
-            var rgba = ImagePreparation.PrepareRgba32TextureBytes(replacementImagePath, targetWidth, targetHeight);
+            // Card-art path (no size override): letterbox on aspect mismatch, except
+            // 3:4 Pendulum art onto the tall canvas which stretches (reverse of extract).
+            // OF overrides keep Stretch.
+            var preserveAspect = options.Width is null && options.Height is null;
+            var rgba = ImagePreparation.PrepareRgba32TextureBytes(
+                replacementImagePath, targetWidth, targetHeight, preserveAspect);
 
             texture.m_TextureFormat = (int)TextureFormat.RGBA32;
             texture.m_Width = targetWidth;

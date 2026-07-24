@@ -246,7 +246,7 @@ public partial class MainWindow : Window
             RunDatabaseQuery(resetOffset: true);
             Status(
                 "Opened master: " + dlg.FileName +
-                " Â· user: " + (_database?.UserDatabasePath ?? UserDatabasePaths.ResolveDefaultPath()));
+                " ? user: " + (_database?.UserDatabasePath ?? UserDatabasePaths.ResolveDefaultPath()));
         }
     }
 
@@ -439,7 +439,9 @@ public partial class MainWindow : Window
             _modService.ExtractCardArt(GamePathBox.Text, _selected, _previewTempPath);
             CurrentArtImage.Source = LoadBitmap(_previewTempPath);
             var info = _modService.GetTextureInfo(GamePathBox.Text, _selected);
-            DetailText.Text = $"Texture '{info.Name}' {info.Width}x{info.Height} format={info.Format} mips={info.MipCount}";
+            DetailText.Text =
+                $"Texture '{info.Name}' {CardArtTextureSizes.Describe(info.Width, info.Height)} " +
+                $"format={info.Format} mips={info.MipCount}";
         }
         catch (Exception ex)
         {
@@ -459,7 +461,15 @@ public partial class MainWindow : Window
             return;
 
         _replacementImagePath = dlg.FileName;
-        ImagePathText.Text = "Replacement: " + dlg.FileName;
+        var validation = ImagePreparation.Validate(dlg.FileName);
+        var sizeLabel = validation.IsValid
+            ? CardArtTextureSizes.Describe(validation.Width, validation.Height)
+            : "unreadable";
+        ImagePathText.Text = validation.IsValid && !string.IsNullOrEmpty(validation.Info)
+            ? $"Replacement ({sizeLabel}): {dlg.FileName} ? {validation.Info}"
+            : $"Replacement ({sizeLabel}): {dlg.FileName}";
+        if (validation.IsValid && CardArtTextureSizes.Classify(validation.Width, validation.Height) == CardArtSizeKind.Pendulum)
+            Status($"Pendulum-sized art selected ({sizeLabel}). Target texture size is used on replace.");
         ReplacementImage.Source = LoadBitmap(dlg.FileName);
         ReplacementImage.Opacity = 1.0;
         CurrentArtImage.Opacity = 0.35;
@@ -488,7 +498,7 @@ public partial class MainWindow : Window
         var card = _selected;
         var image = _replacementImagePath;
         SetUiBusy(true);
-        Status("Replacing card art…");
+        Status("Replacing card art?");
         try
         {
             var result = await Task.Run(() =>
@@ -527,8 +537,12 @@ public partial class MainWindow : Window
 
         try
         {
+            // Export: normal 512x512; Pendulum full canvas resized to canonical 512x683.
             _modService.ExtractCardArt(GamePathBox.Text, _selected, dlg.FileName);
-            Status("Extracted to " + dlg.FileName);
+            var info = _modService.GetTextureInfo(GamePathBox.Text, _selected);
+            var (exportW, exportH) = CardArtTextureSizes.GetCardArtExportSize(info.Width, info.Height);
+            var sizeLabel = CardArtTextureSizes.Describe(exportW, exportH);
+            Status($"Extracted {sizeLabel} PNG to {dlg.FileName}");
         }
         catch (Exception ex)
         {
@@ -660,7 +674,7 @@ public partial class MainWindow : Window
         if (isDirectory)
         {
             // Placeholder so the expand arrow appears; children load on expand.
-            item.Items.Add(new TreeViewItem { Header = "…" });
+            item.Items.Add(new TreeViewItem { Header = "?" });
             item.Expanded += BackupTreeItem_Expanded;
         }
 
@@ -914,8 +928,8 @@ public partial class MainWindow : Window
 
         MessageBox.Show(
             "Select a frame style before continuing.\n\n" +
-            "The Frame dropdown is empty — choose Effect, Normal, Fusion, etc.",
-            "Floowan — Frame required",
+            "The Frame dropdown is empty ? choose Effect, Normal, Fusion, etc.",
+            "Floowan ? Frame required",
             MessageBoxButton.OK,
             MessageBoxImage.Warning);
         return true;
@@ -923,7 +937,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Blocks Over-frame mutating actions when the Frame dropdown is Link.
-    /// Link punch/layout is unreliable — warn and abort rather than proceed.
+    /// Link punch/layout is unreliable ? warn and abort rather than proceed.
     /// </summary>
     /// <returns><c>true</c> if the caller should abort.</returns>
     private bool WarnIfLinkFrameSelected()
@@ -934,7 +948,7 @@ public partial class MainWindow : Window
         MessageBox.Show(
             "Link frames are not reliably supported for over-frame punch/layout.\n\n" +
             "This action has been cancelled. Choose a different frame style (for example Effect) if you still want to continue.",
-            "Floowan — Link frame unsupported",
+            "Floowan ? Link frame unsupported",
             MessageBoxButton.OK,
             MessageBoxImage.Warning);
         return true;
@@ -952,7 +966,7 @@ public partial class MainWindow : Window
     {
         if (_ofSelected is null || _overFrameService is null || string.IsNullOrWhiteSpace(GamePathBox.Text) || !_ofGateReady)
         {
-            OfGateEntryText.Text = _ofGateReady ? "" : "Gate not located yet — open this tab or click Scan.";
+            OfGateEntryText.Text = _ofGateReady ? "" : "Gate not located yet ? open this tab or click Scan.";
             return;
         }
 
@@ -1006,8 +1020,8 @@ public partial class MainWindow : Window
         }
 
         SetUiBusy(true);
-        OfGateStatusText.Text = "Scanning for of_card_asset…";
-        Status("Scanning for of_card_asset…");
+        OfGateStatusText.Text = "Scanning for of_card_asset?";
+        Status("Scanning for of_card_asset?");
         var gamePath = GamePathBox.Text;
         var progress = new Progress<string>(msg =>
         {
@@ -1078,7 +1092,7 @@ public partial class MainWindow : Window
             _ofLiveTextureIsOverframe = _ofSelected.IsOverframe
                 || OverFrameAutoArtComposer.IsOverFrameTextureSize(info.Width, info.Height);
 
-            // Already-OF textures use ??4 foil mask — flatten for on-screen visibility.
+            // Already-OF textures use ??4 foil mask ? flatten for on-screen visibility.
             // Normal 512?512 illusts load as-is.
             OfCurrentArtImage.Source = _ofLiveTextureIsOverframe
                 ? LoadOfComposePreview(_ofPreviewTempPath)
@@ -1087,7 +1101,7 @@ public partial class MainWindow : Window
 
             OfDetailText.Text = _ofLiveTextureIsOverframe
                 ? $"Live over-frame '{info.Name}' {info.Width}x{info.Height} format={info.Format}. Showing full {OverFrameConstants.Width}x{OverFrameConstants.Height} canvas (foil-mask flattened for preview)."
-                : $"Texture '{info.Name}' {info.Width}x{info.Height} format={info.Format}. Normal art — Auto-create builds {OverFrameConstants.Width}x{OverFrameConstants.Height} RGBA32.";
+                : $"Texture '{info.Name}' {info.Width}x{info.Height} format={info.Format}. Normal art ? Auto-create builds {OverFrameConstants.Width}x{OverFrameConstants.Height} RGBA32.";
         }
         catch (Exception ex)
         {
@@ -1131,7 +1145,7 @@ public partial class MainWindow : Window
 
     private async void OfPreview_Click(object sender, RoutedEventArgs e)
     {
-        // Prefer queued replacement / Auto-create result — show in the existing OF preview pane.
+        // Prefer queued replacement / Auto-create result ? show in the existing OF preview pane.
         if (!string.IsNullOrWhiteSpace(_ofReplacementImagePath) && File.Exists(_ofReplacementImagePath))
         {
             OfReplacementImage.Source = LoadOfComposePreview(_ofReplacementImagePath);
@@ -1397,7 +1411,7 @@ public partial class MainWindow : Window
         var card = _ofSelected;
         var image = _ofReplacementImagePath;
         SetUiBusy(true);
-        Status("Applying over-frame…");
+        Status("Applying over-frame?");
         try
         {
             var result = await Task.Run(() =>
@@ -1445,7 +1459,7 @@ public partial class MainWindow : Window
                 var gamePath = GamePathBox.Text;
         var card = _ofSelected;
         SetUiBusy(true);
-        Status("Updating of_card_asset gate…");
+        Status("Updating of_card_asset gate?");
         try
         {
             var result = await Task.Run(() =>
@@ -1489,7 +1503,7 @@ public partial class MainWindow : Window
                 var gamePath = GamePathBox.Text;
         var card = _ofSelected;
         SetUiBusy(true);
-        Status("Removing from of_card_asset…");
+        Status("Removing from of_card_asset?");
         try
         {
             var result = await Task.Run(() =>
@@ -1523,7 +1537,7 @@ public partial class MainWindow : Window
         var gamePath = GamePathBox.Text;
         var card = _ofSelected;
         SetUiBusy(true);
-        Status("Restoring over-frame backups…");
+        Status("Restoring over-frame backups?");
         try
         {
             var result = await Task.Run(() =>
@@ -1713,7 +1727,7 @@ public partial class MainWindow : Window
 
             var pageStart = _dbTotalMatching == 0 ? 0 : _dbOffset + 1;
             var pageEnd = Math.Min(_dbOffset + page.Count, _dbTotalMatching);
-            DbPageInfoText.Text = $"Showing {pageStart}–{pageEnd} of {_dbTotalMatching}";
+            DbPageInfoText.Text = $"Showing {pageStart}?{pageEnd} of {_dbTotalMatching}";
             DbPrevPageButton.IsEnabled = _dbOffset > 0;
             DbNextPageButton.IsEnabled = _dbOffset + DbPageSize < _dbTotalMatching;
             Status($"Database: {page.Count} row(s) on page ({_dbTotalMatching} match filter).");

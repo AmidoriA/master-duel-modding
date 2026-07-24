@@ -67,8 +67,12 @@ public sealed class CardArtModService : IDisposable
                 database?.SetHasBackup(card.Id, true);
             }
 
+            // Keeps live Texture2D width/height (Pendulum canvas or normal 512×512).
             _bundleService.ReplaceTexture(bundlePath, replacementImagePath, packer);
-            var msg = $"Replaced art for '{card.DisplayName}' ({info.Width}x{info.Height}, format→RGBA32).";
+            var targetDesc = CardArtTextureSizes.Describe(info.Width, info.Height);
+            var msg = $"Replaced art for '{card.DisplayName}' ({targetDesc}, format→RGBA32).";
+            if (!string.IsNullOrEmpty(validation.Info))
+                msg += " " + validation.Info;
             if (!string.IsNullOrEmpty(validation.Warning))
                 msg += " " + validation.Warning;
             return CardArtReplacementResult.Ok(msg, bundlePath, backupPath);
@@ -97,6 +101,7 @@ public sealed class CardArtModService : IDisposable
     public void ExtractCardArt(string playerDataPath, CardRecord card, string outputPngPath)
     {
         var bundlePath = BundlePathResolver.ResolveExistingBundlePath(playerDataPath, card.Bundle);
+        // Pendulum: full live canvas resized to 512×683 (not top-cropped).
         _bundleService.ExtractTexturePng(bundlePath, outputPngPath);
     }
 

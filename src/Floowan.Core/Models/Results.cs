@@ -7,9 +7,14 @@ public sealed class ImageValidationResult
     public int Width { get; init; }
     public int Height { get; init; }
     public string? Warning { get; init; }
+    public string? Info { get; init; }
 
-    public static ImageValidationResult Ok(int width, int height, string? warning = null) =>
-        new() { IsValid = true, Width = width, Height = height, Warning = warning };
+    public static ImageValidationResult Ok(
+        int width,
+        int height,
+        string? warning = null,
+        string? info = null) =>
+        new() { IsValid = true, Width = width, Height = height, Warning = warning, Info = info };
 
     public static ImageValidationResult Fail(string error) =>
         new() { IsValid = false, Error = error };
