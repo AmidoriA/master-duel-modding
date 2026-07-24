@@ -199,10 +199,10 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
-    public void Compose_RejectsSubjectWithNoOverframableOverflow()
+    public void Compose_RejectsSubjectWithNoOverframableOverflow_AfterRescueZoom()
     {
-        // Tiny centered rembg blob — after Cover×OverflowScale it still sits entirely
-        // inside the art hole (no L/R/T/B overframe).
+        // Tiny centered rembg blob — Cover×OverflowScale and modest rescue zoom still
+        // leave it inside the art hole (no L/R/T/B overframe).
         using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 40, 80, 255));
         using var mask = new Image<L8>(100, 100, new L8(0));
         for (var y = 45; y < 55; y++)
@@ -217,6 +217,46 @@ public class OverFrameAutoArtComposerTests
             () => OverFrameAutoArtComposer.Compose(source, mask, frame));
 
         Assert.Equal(OverFrameAutoArtComposer.CannotDetectSubjectMessage, error.Message);
+    }
+
+    [Fact]
+    public void Compose_RescueZoomsWhenSubjectHasNoOverframableOverflowAtBaseScale()
+    {
+        // Medium centered subject: Cover×OverflowScale keeps the AABB inside the art
+        // hole, but one modest rescue zoom step creates top/bottom overflow.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 40, 80, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 15; y < 85; y++)
+        for (var x = 30; x < 70; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var cover = Math.Max(art.Width / 100f, art.Height / 100f);
+        var baseScale = cover * OverFrameAutoArtComposer.OverflowScale;
+        Assert.False(
+            SubjectOverflowsAtScale(art, sourceWidth: 100, sourceHeight: 100,
+                subjectLeft: 30, subjectTop: 15, subjectRight: 70, subjectBottom: 85, baseScale),
+            "fixture must sit inside the art hole at Cover×OverflowScale");
+        Assert.True(
+            SubjectOverflowsAtScale(art, sourceWidth: 100, sourceHeight: 100,
+                subjectLeft: 30, subjectTop: 15, subjectRight: 70, subjectBottom: 85,
+                baseScale * OverFrameAutoArtComposer.OverflowRescueZoomStep),
+            "fixture must overframe after one rescue zoom step");
+
+        using var frame = CreateSolidFrame();
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+
+        Assert.Equal(OverFrameConstants.Width, result.Width);
+        Assert.Equal(OverFrameConstants.Height, result.Height);
+
+        var overflowY = FindSubjectAboveArtWindow(result);
+        Assert.True(overflowY >= 0, "expected rescue zoom to create subject overflow above art window");
+        var overflow = result[result.Width / 2, overflowY];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, overflow.A);
+        Assert.True(overflow.R > 100, $"overflow={overflow}");
     }
 
     [Fact]
@@ -1140,6 +1180,30 @@ public class OverFrameAutoArtComposerTests
         for (var y = rect.Top; y < rect.Bottom; y++)
         for (var x = rect.Left; x < rect.Right; x++)
             image[x, y] = new Rgba32(0, 0, 0, 0);
+    }
+
+    private static bool SubjectOverflowsAtScale(
+        Rectangle artWindow,
+        int sourceWidth,
+        int sourceHeight,
+        int subjectLeft,
+        int subjectTop,
+        int subjectRight,
+        int subjectBottom,
+        float scale)
+    {
+        var scaledSourceW = Math.Max(1, (int)MathF.Round(sourceWidth * scale));
+        var scaledSourceH = Math.Max(1, (int)MathF.Round(sourceHeight * scale));
+        var artCenterX = artWindow.Left + artWindow.Width / 2f;
+        var artCenterY = artWindow.Top + artWindow.Height / 2f;
+        var bgX = (int)MathF.Round(artCenterX - scaledSourceW / 2f);
+        var bgY = (int)MathF.Round(artCenterY - scaledSourceH / 2f);
+        var subjectW = Math.Max(1, (int)MathF.Round((subjectRight - subjectLeft) * scale));
+        var subjectH = Math.Max(1, (int)MathF.Round((subjectBottom - subjectTop) * scale));
+        var xOffset = bgX + (int)MathF.Round(subjectLeft * scale);
+        var yOffset = bgY + (int)MathF.Round(subjectTop * scale);
+        return OverFrameAutoArtComposer.HasOverframableOverflow(
+            artWindow, xOffset, yOffset, xOffset + subjectW, yOffset + subjectH);
     }
 
     private static int FindSubjectAboveArtWindow(Image<Rgba32> image)

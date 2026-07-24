@@ -15,7 +15,9 @@ namespace Floowan.Core.Imaging;
 /// frame chrome unless the rembg subject actually occupies those pixels.
 /// Pendulum faces additionally allow subject punch on the outer green side borders
 /// and bottom green strip (subject-gated only).
-/// If the rembg silhouette does not overframe the art hole on any side, compose
+/// If the rembg silhouette does not overframe the art hole on any side after
+/// Cover×OverflowScale, compose applies a modest uniform rescue zoom (foil base
+/// and subject together). If rescue still cannot overframe any side, compose
 /// fails with <see cref="CannotDetectSubjectMessage"/> (no flat in-frame OF).
 /// Lore cream / outer / cut geometry is always taken from Effect.png so Normal,
 /// Synchro, Link, and other styles share the same punch layout.
@@ -157,8 +159,22 @@ public static class OverFrameAutoArtComposer
     public const float OverflowScale = 1.38f;
 
     /// <summary>
+    /// Per-attempt multiplier applied to Cover×OverflowScale when the rembg AABB
+    /// still sits entirely inside the art hole. Foil background and subject share
+    /// the same extra scale (locked together). Modest — not a heavy bilateral zoom.
+    /// </summary>
+    public const float OverflowRescueZoomStep = 1.08f;
+
+    /// <summary>
+    /// Max rescue zoom steps after the base Cover×OverflowScale placement.
+    /// Final scale ≤ cover × OverflowScale × OverflowRescueZoomStep^MaxAttempts.
+    /// </summary>
+    public const int OverflowRescueMaxAttempts = 3;
+
+    /// <summary>
     /// Thrown when rembg finds pixels but the placed silhouette never leaves the
-    /// art hole on any side — treated as a failed subject (flat in-frame OF).
+    /// art hole on any side — even after rescue zoom — treated as a failed subject
+    /// (flat in-frame OF).
     /// </summary>
     public const string CannotDetectSubjectMessage = "Cannot detect subject.";
 
@@ -279,40 +295,58 @@ public static class OverFrameAutoArtComposer
             artWindow.Width / (float)source.Width,
             artWindow.Height / (float)source.Height);
         var scale = cover * OverflowScale;
-        var scaledSourceW = Math.Max(1, (int)MathF.Round(source.Width * scale));
-        var scaledSourceH = Math.Max(1, (int)MathF.Round(source.Height * scale));
 
         var artCenterX = artWindow.Left + artWindow.Width / 2f;
         var artCenterY = artWindow.Top + artWindow.Height / 2f;
         // Pendulum-only: nudge the centered 3:4 cover down so the silhouette sits
         // more naturally in the short art hole (see PendulumVerticalOffset).
         var verticalOffset = useSharedEffectLayout ? 0 : PendulumVerticalOffset;
-        var bgX = (int)MathF.Round(artCenterX - scaledSourceW / 2f);
-        var bgY = (int)MathF.Round(artCenterY - scaledSourceH / 2f) + verticalOffset;
 
-        var targetWidth = Math.Max(1, (int)MathF.Round(subject.Width * scale));
-        var targetHeight = Math.Max(1, (int)MathF.Round(subject.Height * scale));
+        // Place at Cover×OverflowScale; if the rembg AABB never leaves the art hole,
+        // modestly zoom foil + subject together until some side overflows (or give up).
+        int scaledSourceW;
+        int scaledSourceH;
+        int bgX;
+        int bgY;
+        int xOffset;
+        int yOffset;
+        int subjectW;
+        int subjectH;
+        for (var attempt = 0; ; attempt++)
+        {
+            scaledSourceW = Math.Max(1, (int)MathF.Round(source.Width * scale));
+            scaledSourceH = Math.Max(1, (int)MathF.Round(source.Height * scale));
+            bgX = (int)MathF.Round(artCenterX - scaledSourceW / 2f);
+            bgY = (int)MathF.Round(artCenterY - scaledSourceH / 2f) + verticalOffset;
+            subjectW = Math.Max(1, (int)MathF.Round(subject.Width * scale));
+            subjectH = Math.Max(1, (int)MathF.Round(subject.Height * scale));
+            xOffset = bgX + (int)MathF.Round(bounds.Left * scale);
+            yOffset = bgY + (int)MathF.Round(bounds.Top * scale);
+
+            if (HasOverframableOverflow(
+                    artWindow,
+                    xOffset,
+                    yOffset,
+                    xOffset + subjectW,
+                    yOffset + subjectH))
+            {
+                break;
+            }
+
+            if (attempt >= OverflowRescueMaxAttempts)
+            {
+                throw new InvalidOperationException(CannotDetectSubjectMessage);
+            }
+
+            scale *= OverflowRescueZoomStep;
+        }
+
         using var resized = subject.Clone(ctx => ctx.Resize(new ResizeOptions
         {
-            Size = new Size(targetWidth, targetHeight),
+            Size = new Size(subjectW, subjectH),
             Mode = ResizeMode.Stretch,
             Sampler = KnownResamplers.Lanczos3
         }));
-
-        var xOffset = bgX + (int)MathF.Round(bounds.Left * scale);
-        var yOffset = bgY + (int)MathF.Round(bounds.Top * scale);
-
-        // Fail closed: rembg must overframe the art hole on at least one side.
-        // No L/R/T/B overflow → abort (do not emit a flat in-frame OF canvas).
-        if (!HasOverframableOverflow(
-                artWindow,
-                xOffset,
-                yOffset,
-                xOffset + resized.Width,
-                yOffset + resized.Height))
-        {
-            throw new InvalidOperationException(CannotDetectSubjectMessage);
-        }
 
         // 1) Art window + type-line strip + soft lore underlay (not lore side wings).
         var textBox = ResolveTextBox(frame, artWindow, useSharedEffectLayout, layout);
@@ -355,9 +389,8 @@ public static class OverFrameAutoArtComposer
 
     /// <summary>
     /// True when the placed rembg subject AABB extends past the art hole on any side
-    /// (left / right / top / bottom). Used to reject cutouts that would only fill the
-    /// hole with no over-frame overflow. Complementary to side-bias placement: that
-    /// path shifts when <em>some</em> sides are missing; this fails when <em>all</em> are.
+    /// (left / right / top / bottom). Used to decide whether Cover×OverflowScale is
+    /// enough, or a modest uniform rescue zoom is needed before failing closed.
     /// </summary>
     /// <param name="artWindow">Art hole on the 704×1024 canvas.</param>
     /// <param name="subjectLeft">Inclusive left of placed rembg subject (canvas X).</param>
