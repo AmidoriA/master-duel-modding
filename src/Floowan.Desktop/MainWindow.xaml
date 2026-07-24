@@ -226,6 +226,7 @@
                   <ComboBoxItem Content="Pendulum Fusion" Tag="PendulumFusion"/>
                   <ComboBoxItem Content="Pendulum Synchro" Tag="PendulumSynchro"/>
                   <ComboBoxItem Content="Pendulum Xyz" Tag="PendulumXyz"/>
+                  <ComboBoxItem Content="Pendulum Ritual" Tag="PendulumRitual"/>
                   <ComboBoxItem Content="Pendulum Token" Tag="PendulumToken"/>
                 </ComboBox>
               </StackPanel>
