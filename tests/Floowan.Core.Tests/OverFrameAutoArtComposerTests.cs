@@ -410,12 +410,13 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
-    public void Compose_Pendulum_AppliesModestDownwardVerticalOffset()
+    public void Compose_Pendulum_AppliesSubstantialDownwardVerticalOffset()
     {
-        Assert.Equal(56, OverFrameAutoArtComposer.PendulumVerticalOffset);
-        Assert.True(OverFrameAutoArtComposer.PendulumVerticalOffset > 0);
-        Assert.True(OverFrameAutoArtComposer.PendulumVerticalOffset < 120,
-            "Pendulum vertical nudge should stay modest (\"a bit\"), not a full hole shift.");
+        Assert.Equal(140, OverFrameAutoArtComposer.PendulumVerticalOffset);
+        Assert.True(OverFrameAutoArtComposer.PendulumVerticalOffset >= 120,
+            "Pendulum subject must sit a lot lower so the fixed mint/scale bar crosses lower on the figure.");
+        Assert.True(OverFrameAutoArtComposer.PendulumVerticalOffset <= 180,
+            "Pendulum vertical nudge should not exceed roughly a third of the art-hole height.");
 
         // Thin horizontal subject bar at a known source Y — placement must include the
         // Pendulum-only downward bias (foil + rembg stay locked via bgY).
@@ -614,15 +615,25 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
-    public void Compose_LoreDarkMargins_ShowArtUnderlay()
+    public void Compose_LoreDarkMargins_KeepChrome_WithoutSubject()
     {
         using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 180, 40, 255));
         using var mask = new Image<L8>(100, 100, new L8(0));
+        // Centered subject only — does not reach dark lore margins (x 0–25 / 678–703).
         for (var y = 0; y < 100; y++)
         for (var x = 40; x < 60; x++)
             mask[x, y] = new L8(255);
 
-        using var result = OverFrameAutoArtComposer.Compose(source, mask, CardFrameStyle.Effect);
+        using var frame = CreateSolidFrame();
+        var chrome = new Rgba32(40, 30, 90, 255);
+        for (var y = 0; y < frame.Height; y++)
+        for (var x = 0; x < frame.Width; x++)
+            frame[x, y] = chrome;
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
         var outer = OverFrameAutoArtComposer.EffectLoreOuter;
         var (left, right) = OverFrameAutoArtComposer.ResolveLoreDarkMargins(
             outer, OverFrameConstants.Width);
@@ -633,14 +644,57 @@ public class OverFrameAutoArtComposerTests
         var loreY = outer.Top + 40;
         var leftPix = result[left.Left + left.Width / 2, loreY];
         var rightPix = result[right.Left + right.Width / 2, loreY];
-        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, leftPix.A);
-        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, rightPix.A);
-        Assert.True(leftPix.G > 80, $"left dark margin must show art, got {leftPix}");
-        Assert.True(rightPix.G > 80, $"right dark margin must show art, got {rightPix}");
+        Assert.True(leftPix.A >= 200, $"left dark margin must stay chrome without subject, got {leftPix}");
+        Assert.True(rightPix.A >= 200, $"right dark margin must stay chrome without subject, got {rightPix}");
+        Assert.True(Math.Abs(leftPix.R - chrome.R) < 40, $"expected frame chrome in left margin, got {leftPix}");
+        Assert.True(Math.Abs(rightPix.R - chrome.R) < 40, $"expected frame chrome in right margin, got {rightPix}");
 
         // Cream interior still Mirrorjade-opaque (not foil).
-        var cream = OverFrameAutoArtComposer.EffectLoreCream;
-        var lore = result[cream.Left + cream.Width / 2, loreY];
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var lore = result[creamR.Left + creamR.Width / 2, loreY];
+        Assert.True(lore.A >= 200, $"lore cream must stay blended chrome, got {lore}");
+    }
+
+    [Fact]
+    public void Compose_LoreDarkMargins_PunchOnlyWhereSubjectPresent()
+    {
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 180, 40, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        // Wide subject that reaches into the dark lore margins.
+        for (var y = 0; y < 100; y++)
+        for (var x = 0; x < 100; x++)
+        {
+            if (x is >= 0 and < 20 or >= 80 and < 100)
+            {
+                source[x, y] = new Rgba32(20, 200, 50, 255);
+                mask[x, y] = new L8(255);
+            }
+        }
+
+        using var frame = CreateSolidFrame();
+        var chrome = new Rgba32(40, 30, 90, 255);
+        for (var y = 0; y < frame.Height; y++)
+        for (var x = 0; x < frame.Width; x++)
+            frame[x, y] = chrome;
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+        var outer = OverFrameAutoArtComposer.EffectLoreOuter;
+        var (left, right) = OverFrameAutoArtComposer.ResolveLoreDarkMargins(
+            outer, OverFrameConstants.Width);
+        var loreY = outer.Top + 40;
+
+        var leftPix = result[left.Left + left.Width / 2, loreY];
+        var rightPix = result[right.Left + right.Width / 2, loreY];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, leftPix.A);
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, rightPix.A);
+        Assert.True(leftPix.G > 80, $"left dark margin must punch subject art, got {leftPix}");
+        Assert.True(rightPix.G > 80, $"right dark margin must punch subject art, got {rightPix}");
+
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var lore = result[creamR.Left + creamR.Width / 2, loreY];
         Assert.True(lore.A >= 200, $"lore cream must stay blended chrome, got {lore}");
     }
 
@@ -721,10 +775,11 @@ public class OverFrameAutoArtComposerTests
     {
         using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 80, 200, 255));
         using var mask = new Image<L8>(100, 100, new L8(0));
+        // Reach the canvas edge so rembg lands in dark lore margins (0–25 / 678–703).
         for (var y = 0; y < 100; y++)
         for (var x = 0; x < 100; x++)
         {
-            if (x is >= 5 and < 25 or >= 75 and < 95)
+            if (x is >= 0 and < 15 or >= 85 and < 100)
             {
                 source[x, y] = new Rgba32(240, 20, 20, 255);
                 mask[x, y] = new L8(255);
@@ -744,10 +799,11 @@ public class OverFrameAutoArtComposerTests
         using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
 
         var creamR = OverFrameAutoArtComposer.EffectLoreCream;
-        // Dark margins keep foil art underlay (and may include rembg punch) — not opaque chrome.
-        var side = result[20, creamR.Top + 30];
+        var (left, _) = OverFrameAutoArtComposer.ResolveLoreDarkMargins(
+            OverFrameAutoArtComposer.EffectLoreOuter, OverFrameConstants.Width);
+        var side = result[left.Left + left.Width / 2, creamR.Top + 30];
         Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, side.A);
-        Assert.True(side.R + side.G + side.B > 40, $"expected art in dark lore margin, got {side}");
+        Assert.True(side.R > 150, $"expected rembg subject punch in dark lore margin, got {side}");
 
         var lore = result[creamR.Left + creamR.Width / 2, creamR.Top + 30];
         Assert.True(lore.A >= 200, $"lore interior must stay opaque, got {lore}");
