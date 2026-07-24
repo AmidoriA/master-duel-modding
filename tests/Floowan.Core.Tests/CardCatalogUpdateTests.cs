@@ -181,6 +181,144 @@ VALUES (1, 'Old', 'old', 'aaaaaaaa', 0, 0, 0, 0);";
             Assert.Equal("Link", card.CardType);
             Assert.Equal(created, card.CreatedAt);
             Assert.Equal("abcd1234", card.Bundle);
+
+            var latest = db.GetLatestCreatedAtUtc();
+            Assert.NotNull(latest);
+            Assert.Equal(DateTimeOffset.Parse(created).ToUniversalTime(), latest!.Value.ToUniversalTime());
+        }
+        finally
+        {
+            TryDelete(master, user);
+        }
+    }
+
+    [Fact]
+    public void CardDatabase_UpsertMasterCatalog_PreservesExistingAndUpdatesById()
+    {
+        var master = TempPath("floowan-catalog-upsert-");
+        var user = TempPath("floowan-catalog-upsert-user-");
+        try
+        {
+            using (var conn = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = master,
+                Mode = SqliteOpenMode.ReadWriteCreate
+            }.ToString()))
+            {
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+CREATE TABLE card (
+  name VARCHAR(255) NOT NULL,
+  description VARCHAR(255) NOT NULL,
+  bundle VARCHAR(8) NOT NULL,
+  data_index INTEGER NOT NULL,
+  id INTEGER NOT NULL PRIMARY KEY,
+  favorite BOOLEAN NOT NULL DEFAULT 0,
+  has_backup BOOLEAN NOT NULL DEFAULT 0,
+  is_overframe INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (bundle)
+);";
+                cmd.ExecuteNonQuery();
+            }
+
+            using var db = new CardDatabase(master, user);
+            var older = new DateTimeOffset(2025, 1, 1, 12, 0, 0, TimeSpan.Zero).ToString("o");
+            var newer = new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero).ToString("o");
+
+            db.ReplaceMasterCatalog(new[]
+            {
+                new CatalogCardRow
+                {
+                    Id = 1,
+                    Name = "Keep Me",
+                    Description = "[Spell]",
+                    Bundle = "keep0001",
+                    DataIndex = 0,
+                    CardType = "Spell",
+                    CreatedAt = older
+                }
+            });
+
+            var written = db.UpsertMasterCatalog(new[]
+            {
+                new CatalogCardRow
+                {
+                    Id = 1,
+                    Name = "Keep Me Updated",
+                    Description = "[Spell]",
+                    Bundle = "keep0001",
+                    DataIndex = 0,
+                    CardType = "Spell",
+                    CreatedAt = newer
+                },
+                new CatalogCardRow
+                {
+                    Id = 2,
+                    Name = "Brand New",
+                    Description = "[Trap]",
+                    Bundle = "new00002",
+                    DataIndex = 1,
+                    CardType = "Trap",
+                    CreatedAt = newer
+                }
+            });
+            Assert.Equal(2, written);
+            Assert.Equal(2, db.CountCards());
+
+            var updated = db.GetById(1);
+            Assert.Equal("Keep Me Updated", updated!.Name);
+            Assert.Equal(newer, updated.CreatedAt);
+
+            var added = db.GetById(2);
+            Assert.Equal("Brand New", added!.Name);
+            Assert.Equal("Trap", added.CardType);
+
+            Assert.Equal(
+                DateTimeOffset.Parse(newer).ToUniversalTime(),
+                db.GetLatestCreatedAtUtc()!.Value.ToUniversalTime());
+        }
+        finally
+        {
+            TryDelete(master, user);
+        }
+    }
+
+    [Fact]
+    public void CardCatalogUpdater_UpdateNewFilesOnly_RequiresExistingCreatedAt()
+    {
+        var master = TempPath("floowan-catalog-inc-");
+        var user = TempPath("floowan-catalog-inc-user-");
+        try
+        {
+            using (var conn = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = master,
+                Mode = SqliteOpenMode.ReadWriteCreate
+            }.ToString()))
+            {
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+CREATE TABLE card (
+  name VARCHAR(255) NOT NULL,
+  description VARCHAR(255) NOT NULL,
+  bundle VARCHAR(8) NOT NULL,
+  data_index INTEGER NOT NULL,
+  id INTEGER NOT NULL PRIMARY KEY,
+  favorite BOOLEAN NOT NULL DEFAULT 0,
+  has_backup BOOLEAN NOT NULL DEFAULT 0,
+  is_overframe INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (bundle)
+);";
+                cmd.ExecuteNonQuery();
+            }
+
+            using var db = new CardDatabase(master, user);
+            Assert.Null(db.GetLatestCreatedAtUtc());
+            var result = new CardCatalogUpdater().UpdateNewFilesOnly(db, @"C:\does\not\exist");
+            Assert.False(result.Success);
+            Assert.Contains("Update entire DB", result.Message, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

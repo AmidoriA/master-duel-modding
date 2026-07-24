@@ -410,6 +410,79 @@ INSERT INTO main.card (
         return written;
     }
 
+    /// <summary>
+    /// Inserts or updates master <c>card</c> rows by primary key <c>id</c>.
+    /// Does not delete existing rows or modify <c>user.card_state</c>.
+    /// </summary>
+    public int UpsertMasterCatalog(IEnumerable<CatalogCardRow> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        EnsureMasterSchema();
+
+        var list = rows as IList<CatalogCardRow> ?? rows.ToList();
+        using var tx = _connection.BeginTransaction();
+        using var upsert = _connection.CreateCommand();
+        upsert.Transaction = tx;
+        upsert.CommandText = @"
+INSERT INTO main.card (
+  id, name, description, bundle, data_index, card_type, created_at,
+  favorite, has_backup, is_overframe
+) VALUES (
+  $id, $name, $description, $bundle, $data_index, $card_type, $created_at,
+  0, 0, 0
+)
+ON CONFLICT(id) DO UPDATE SET
+  name = excluded.name,
+  description = excluded.description,
+  bundle = excluded.bundle,
+  data_index = excluded.data_index,
+  card_type = excluded.card_type,
+  created_at = excluded.created_at;";
+        var pId = upsert.Parameters.Add("$id", SqliteType.Integer);
+        var pName = upsert.Parameters.Add("$name", SqliteType.Text);
+        var pDesc = upsert.Parameters.Add("$description", SqliteType.Text);
+        var pBundle = upsert.Parameters.Add("$bundle", SqliteType.Text);
+        var pIndex = upsert.Parameters.Add("$data_index", SqliteType.Integer);
+        var pType = upsert.Parameters.Add("$card_type", SqliteType.Text);
+        var pCreated = upsert.Parameters.Add("$created_at", SqliteType.Text);
+
+        var written = 0;
+        foreach (var row in list)
+        {
+            pId.Value = row.Id;
+            pName.Value = row.Name;
+            pDesc.Value = row.Description;
+            pBundle.Value = row.Bundle;
+            pIndex.Value = row.DataIndex;
+            pType.Value = string.IsNullOrWhiteSpace(row.CardType) ? DBNull.Value : row.CardType;
+            pCreated.Value = string.IsNullOrWhiteSpace(row.CreatedAt) ? DBNull.Value : row.CreatedAt;
+            upsert.ExecuteNonQuery();
+            written++;
+        }
+
+        tx.Commit();
+        return written;
+    }
+
+    /// <summary>
+    /// Latest non-null <c>created_at</c> in the master catalog (ISO-8601 UTC), or null if none.
+    /// </summary>
+    public DateTimeOffset? GetLatestCreatedAtUtc()
+    {
+        EnsureMasterSchema();
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT MAX(created_at) FROM main.card WHERE created_at IS NOT NULL AND TRIM(created_at) != '';";
+        var scalar = cmd.ExecuteScalar();
+        if (scalar is null or DBNull)
+            return null;
+        var text = Convert.ToString(scalar);
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+        return DateTimeOffset.TryParse(text, null, System.Globalization.DateTimeStyles.RoundtripKind, out var dto)
+            ? dto.ToUniversalTime()
+            : null;
+    }
+
     public bool HasMasterColumn(string columnName)
     {
         foreach (var name in GetColumnNames("main", "card"))
