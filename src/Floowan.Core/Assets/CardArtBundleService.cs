@@ -33,7 +33,7 @@ public sealed class CardArtBundleService : IDisposable
         session.Texture.FillPictureData(session.Assets);
         var decoded = session.Texture.DecodeTextureRaw(session.Texture.pictureData)
                       ?? throw new InvalidOperationException("Failed to decode Texture2D pixels.");
-        // Pendulum live canvas is often 512×1024; Card Art export is the top 3:4 band (512×683).
+        // Pendulum live canvas is often 512×1024; Card Art export resizes full canvas to 512×683.
         ImagePreparation.SaveCardArtExportPng(
             decoded, session.Texture.m_Width, session.Texture.m_Height, outputPngPath, inputIsBgra: true);
     }
@@ -90,8 +90,9 @@ public sealed class CardArtBundleService : IDisposable
             var targetHeight = options.Height
                 ?? (texture.m_Height > 0 ? texture.m_Height : CardArtTextureSizes.NormalHeight);
 
-            // Card-art path (no size override): letterbox on aspect mismatch so
-            // Pendulum art is never squashed into a square. OF overrides keep Stretch.
+            // Card-art path (no size override): letterbox on aspect mismatch, except
+            // 3:4 Pendulum art onto the tall canvas which stretches (reverse of extract).
+            // OF overrides keep Stretch.
             var preserveAspect = options.Width is null && options.Height is null;
             var rgba = ImagePreparation.PrepareRgba32TextureBytes(
                 replacementImagePath, targetWidth, targetHeight, preserveAspect);

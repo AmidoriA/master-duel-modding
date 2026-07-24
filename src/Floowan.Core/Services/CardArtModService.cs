@@ -101,7 +101,7 @@ public sealed class CardArtModService : IDisposable
     public void ExtractCardArt(string playerDataPath, CardRecord card, string outputPngPath)
     {
         var bundlePath = BundlePathResolver.ResolveExistingBundlePath(playerDataPath, card.Bundle);
-        // Pendulum: top 3:4 band as 512×683 (not full live 512×1024 canvas).
+        // Pendulum: full live canvas resized to 512×683 (not top-cropped).
         _bundleService.ExtractTexturePng(bundlePath, outputPngPath);
     }
 

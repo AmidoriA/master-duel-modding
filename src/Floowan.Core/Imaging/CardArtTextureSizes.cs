@@ -4,8 +4,8 @@ namespace Floowan.Core.Imaging;
 /// Master Duel card-illustration Texture2D sizes used by LocalData illust bundles.
 /// Normal monsters / spells / traps use a square canvas (512×512).
 /// Pendulum <em>art</em> is <strong>3:4</strong> (typically 512×683). The live MD
-/// Texture2D canvas is still often 512×1024; Card Art extract crops the top 3:4 band
-/// to 512×683. UV / OF paths use that same top band.
+/// Texture2D canvas is still often 512×1024; Card Art extract resizes the full canvas
+/// to 512×683 (no crop). Import of 512×683 stretches back onto the tall canvas.
 /// </summary>
 public static class CardArtTextureSizes
 {
@@ -42,7 +42,7 @@ public static class CardArtTextureSizes
         width == PendulumNativeWidth && height == PendulumNativeHeight;
 
     /// <summary>
-    /// Tall storage canvas (~1:2) used by live Pendulum Texture2D — art lives in the top 3:4 band.
+    /// Tall storage canvas (~1:2) used by live Pendulum Texture2D (often 512×1024).
     /// </summary>
     public static bool IsTallPendulumStorageCanvas(int width, int height)
     {
@@ -55,9 +55,18 @@ public static class CardArtTextureSizes
         return Math.Abs(aspect - 0.5) <= 0.02 && width >= PendulumWidth / 2;
     }
 
-    /// <summary>Crop height for the top 3:4 art band of a tall Pendulum canvas.</summary>
+    /// <summary>Height of a 3:4 band at the given canvas width (round(w × 4/3)).</summary>
     public static int PendulumArtCropHeight(int canvasWidth) =>
         Math.Max(1, (int)Math.Round(canvasWidth * 4.0 / 3.0));
+
+    /// <summary>
+    /// True when importing canonical/3:4 Pendulum art onto the tall live MD canvas —
+    /// stretch to fill (reverse of extract resize), do not letterbox.
+    /// </summary>
+    public static bool IsPendulumArtOntoTallCanvas(
+        int sourceWidth, int sourceHeight, int targetWidth, int targetHeight) =>
+        IsTallPendulumStorageCanvas(targetWidth, targetHeight) &&
+        (IsPendulum(sourceWidth, sourceHeight) || HasPendulumAspect(sourceWidth, sourceHeight));
 
     /// <summary>
     /// PNG export size for Card Art extract: Pendulum → canonical 512×683; otherwise live size.

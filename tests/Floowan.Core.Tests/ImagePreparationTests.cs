@@ -147,12 +147,12 @@ public class ImagePreparationTests
     }
 
     [Fact]
-    public void Prepare_PendulumArtOntoNativeCanvas_TopAlignsLetterbox()
+    public void Prepare_PendulumArtOntoNativeCanvas_StretchesToFill()
     {
-        var path = Path.Combine(Path.GetTempPath(), "floowan-pend-top-" + Guid.NewGuid().ToString("N") + ".png");
+        var path = Path.Combine(Path.GetTempPath(), "floowan-pend-stretch-" + Guid.NewGuid().ToString("N") + ".png");
         try
         {
-            // Opaque magenta 512×683 → tall 512×1024 canvas: art at top, transparent below.
+            // Opaque magenta 512×683 → tall 512×1024 canvas: stretch to fill (reverse of extract).
             using (var img = new Image<Rgba32>(512, 683, new Rgba32(255, 0, 255, 255)))
                 img.SaveAsPng(path);
 
@@ -166,11 +166,12 @@ public class ImagePreparationTests
                 return new Rgba32(data[i], data[i + 1], data[i + 2], data[i + 3]);
             }
 
-            // After vertical flip: texture y=0 is visual bottom → transparent pad.
-            Assert.Equal(0, At(bytes, 256, 0).A);
-            // Visual top of art → near texture y=1023 after flip → opaque.
+            // Full canvas covered — top and bottom opaque after reverse stretch.
+            Assert.Equal(255, At(bytes, 256, 0).A);
+            Assert.Equal(255, At(bytes, 256, 512).A);
             Assert.Equal(255, At(bytes, 256, 1023).A);
-            Assert.Equal(255, At(bytes, 256, 1023 - 100).A);
+            Assert.Equal(255, At(bytes, 256, 1023).R);
+            Assert.Equal(255, At(bytes, 256, 1023).B);
         }
         finally
         {
@@ -179,7 +180,7 @@ public class ImagePreparationTests
     }
 
     [Fact]
-    public void NormalizeToCardArtExport_CropsNativeCanvasTo512x683()
+    public void NormalizeToCardArtExport_ResizesNativeCanvasTo512x683()
     {
         using var canvas = new Image<Rgba32>(512, 1024);
         canvas.ProcessPixelRows(accessor =>
@@ -187,7 +188,8 @@ public class ImagePreparationTests
             for (var y = 0; y < accessor.Height; y++)
             {
                 var row = accessor.GetRowSpan(y);
-                var color = y < 683
+                // Top half red, bottom half green — both must survive full-canvas resize.
+                var color = y < 512
                     ? new Rgba32(255, 0, 0, 255)
                     : new Rgba32(0, 255, 0, 255);
                 row.Fill(color);
@@ -197,9 +199,12 @@ public class ImagePreparationTests
         ImagePreparation.NormalizeToCardArtExport(canvas);
         Assert.Equal(512, canvas.Width);
         Assert.Equal(683, canvas.Height);
+        // Top of export came from top of canvas (red).
         Assert.Equal(255, canvas[0, 0].R);
         Assert.Equal(0, canvas[0, 0].G);
-        Assert.Equal(255, canvas[511, 682].R);
+        // Bottom of export came from bottom of canvas (green) — not cropped away.
+        Assert.Equal(0, canvas[0, 682].R);
+        Assert.Equal(255, canvas[0, 682].G);
     }
 
     [Fact]
@@ -234,11 +239,32 @@ public class ImagePreparationTests
         Assert.True(CardArtTextureSizes.HasPendulumAspect(512, 683));
         Assert.False(CardArtTextureSizes.HasPendulumAspect(512, 1024)); // canvas, not 3:4
         Assert.True(CardArtTextureSizes.IsTallPendulumStorageCanvas(512, 1024));
+        Assert.True(CardArtTextureSizes.IsPendulumArtOntoTallCanvas(512, 683, 512, 1024));
+        Assert.False(CardArtTextureSizes.IsPendulumArtOntoTallCanvas(512, 512, 512, 1024));
         Assert.Equal(683, CardArtTextureSizes.PendulumArtCropHeight(512));
         Assert.Equal((512, 683), CardArtTextureSizes.GetCardArtExportSize(512, 1024));
         Assert.Equal((512, 512), CardArtTextureSizes.GetCardArtExportSize(512, 512));
         Assert.Contains("3:4", CardArtTextureSizes.Describe(512, 683));
         Assert.Contains("native", CardArtTextureSizes.Describe(512, 1024), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Validate_WarnsStretchWhenPendulumArtTargetsTallCanvas()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "floowan-pend-warn-" + Guid.NewGuid().ToString("N") + ".png");
+        try
+        {
+            using (var img = new Image<Rgba32>(512, 683, Color.Blue))
+                img.SaveAsPng(path);
+
+            var validation = ImagePreparation.Validate(path, expectedWidth: 512, expectedHeight: 1024);
+            Assert.True(validation.IsValid);
+            Assert.Contains("stretched", validation.Warning, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
     }
 
     [Fact]
