@@ -223,6 +223,26 @@ VALUES ('Alpha', 'Summons a unique token', 'aaa11111', 'Mod Alpha', NULL, 0, 1, 
     }
 
     [Fact]
+    public void SearchCards_NumericQuery_MatchesExactCardId()
+    {
+        var path = TempPath("floowan-search-id-");
+        var user = TempPath("floowan-search-id-user-");
+        try
+        {
+            CreateLegacyMonolithicDatabase(path);
+
+            using var db = new CardDatabase(path, user);
+            var byId = db.SearchCards("1");
+            Assert.Contains(byId, c => c.Id == 1);
+            Assert.DoesNotContain(byId, c => c.Id == 2);
+        }
+        finally
+        {
+            TryDelete(path, user);
+        }
+    }
+
+    [Fact]
     public void QueryCards_AppliesCombinedFilters_AndRespectsLimit()
     {
         var dbPath = FindDatabase();

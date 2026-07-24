@@ -577,16 +577,27 @@ ON CONFLICT(id) DO UPDATE SET
 
         if (query.Length >= 1)
         {
+            // Exact card id when the query is an integer (Database → Open in Card Art / Over-frame).
+            var idMatch = int.TryParse(
+                query,
+                System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var exactId)
+                ? "c.id = $exact_id OR "
+                : "";
+
             if (searchDescription)
             {
                 clauses.Add(
-                    "(c.name LIKE $q OR c.description LIKE $q OR IFNULL(u.modded_name,'') LIKE $q OR IFNULL(u.modded_description,'') LIKE $q)");
+                    $"({idMatch}c.name LIKE $q OR c.description LIKE $q OR IFNULL(u.modded_name,'') LIKE $q OR IFNULL(u.modded_description,'') LIKE $q)");
             }
             else
             {
-                clauses.Add("(c.name LIKE $q OR IFNULL(u.modded_name,'') LIKE $q)");
+                clauses.Add($"({idMatch}c.name LIKE $q OR IFNULL(u.modded_name,'') LIKE $q)");
             }
 
+            if (idMatch.Length > 0)
+                cmd.Parameters.AddWithValue("$exact_id", exactId);
             cmd.Parameters.AddWithValue("$q", $"%{query}%");
         }
 

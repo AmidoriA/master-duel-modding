@@ -2073,13 +2073,113 @@ public partial class MainWindow : Window
         _dbPreviewTempPath = null;
     }
 
-    private static string FormatCreatedAtDisplay(string? createdAt)
+    private void DbOpenInCardArt_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(createdAt))
-            return "";
-        if (!DateTimeOffset.TryParse(createdAt, null, System.Globalization.DateTimeStyles.RoundtripKind, out var dto))
-            return createdAt;
-        return dto.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") + " (local)";
+        if (_dbSelected is null)
+        {
+            Status("Select a Database row first.");
+            return;
+        }
+
+        OpenCardInCardArtTab(_dbSelected.Id);
+    }
+
+    private void DbOpenInOverFrame_Click(object sender, RoutedEventArgs e)
+    {
+        if (_dbSelected is null)
+        {
+            Status("Select a Database row first.");
+            return;
+        }
+
+        OpenCardInOverFrameTab(_dbSelected.Id);
+    }
+
+    /// <summary>
+    /// Switches to Card Art, searches by card id, selects the row, and loads the preview.
+    /// </summary>
+    private void OpenCardInCardArtTab(int cardId)
+    {
+        if (_database is null)
+        {
+            Status("Open database.db first.");
+            return;
+        }
+
+        if (_database.GetById(cardId) is null)
+        {
+            Status($"Card id {cardId} not found.");
+            return;
+        }
+
+        FavoritesOnlyBox.IsChecked = false;
+        _cardSearchDebounceTimer.Stop();
+        SearchBox.Text = cardId.ToString();
+        // TextChanged restarts the debounce timer; stop it so short ids are not cleared.
+        _cardSearchDebounceTimer.Stop();
+        RunSearch();
+
+        if (CardArtTab is not null)
+            MainTabs.SelectedItem = CardArtTab;
+
+        if (!TrySelectCardById(CardList, cardId))
+        {
+            Status($"Card id {cardId} not in Card Art results.");
+            return;
+        }
+
+        Status($"Opened card id {cardId} in Card Art.");
+    }
+
+    /// <summary>
+    /// Switches to Over-frame, searches by card id, selects the row, and loads the preview.
+    /// </summary>
+    private void OpenCardInOverFrameTab(int cardId)
+    {
+        if (_database is null)
+        {
+            Status("Open database.db first.");
+            return;
+        }
+
+        if (_database.GetById(cardId) is null)
+        {
+            Status($"Card id {cardId} not found.");
+            return;
+        }
+
+        OfFavoritesOnlyBox.IsChecked = false;
+        OfOverframeOnlyBox.IsChecked = false;
+        _ofSearchDebounceTimer.Stop();
+        OfSearchBox.Text = cardId.ToString();
+        _ofSearchDebounceTimer.Stop();
+        RunOfSearch();
+
+        if (OverFrameTab is not null)
+            MainTabs.SelectedItem = OverFrameTab;
+
+        if (!TrySelectCardById(OfCardList, cardId))
+        {
+            Status($"Card id {cardId} not in Over-frame results.");
+            return;
+        }
+
+        Status($"Opened card id {cardId} in Over-frame.");
+    }
+
+    private static bool TrySelectCardById(ListBox list, int cardId)
+    {
+        foreach (var item in list.Items)
+        {
+            if (item is not CardRecord card || card.Id != cardId)
+                continue;
+
+            list.SelectedItem = card;
+            list.ScrollIntoView(card);
+            return true;
+        }
+
+        return false;
     }
 
     private void DbDiscard_Click(object sender, RoutedEventArgs e)
