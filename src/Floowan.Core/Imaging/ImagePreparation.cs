@@ -72,6 +72,7 @@ public static class ImagePreparation
     /// Matches the Floowandereeze/UnityPy RGBA32 replacement approach.
     /// When <paramref name="preserveAspect"/> is true (card-art default), mismatched
     /// aspect ratios are letterboxed instead of squashed — important for Pendulum 3:4 art.
+    /// 3:4 art into a tall Pendulum canvas (512×1024) is top-aligned so UV maps stay correct.
     /// </summary>
     public static byte[] PrepareRgba32TextureBytes(
         string imagePath,
@@ -82,14 +83,18 @@ public static class ImagePreparation
         using var image = Image.Load<Rgba32>(imagePath);
         if (image.Width != width || image.Height != height)
         {
-            var mode = preserveAspect && !CardArtTextureSizes.SameAspect(image.Width, image.Height, width, height)
-                ? ResizeMode.Pad
-                : ResizeMode.Stretch;
+            var pad = preserveAspect && !CardArtTextureSizes.SameAspect(image.Width, image.Height, width, height);
+            var mode = pad ? ResizeMode.Pad : ResizeMode.Stretch;
+            // MD Pendulum UVs sample the top of the tall canvas — pin letterbox to the top.
+            var position = pad && CardArtTextureSizes.IsTallPendulumStorageCanvas(width, height)
+                ? AnchorPositionMode.Top
+                : AnchorPositionMode.Center;
 
             image.Mutate(ctx => ctx.Resize(new ResizeOptions
             {
                 Size = new Size(width, height),
                 Mode = mode,
+                Position = position,
                 Sampler = KnownResamplers.Lanczos3,
                 PadColor = Color.Transparent
             }));
@@ -116,6 +121,67 @@ public static class ImagePreparation
             image.Mutate(ctx => ctx.Flip(FlipMode.Vertical));
             image.Save(outputPath, new PngEncoder());
         }
+    }
+
+    /// <summary>
+    /// Writes a Card Art extract PNG. Pendulum tall canvases (e.g. 512×1024) are cropped
+    /// to the top 3:4 band and emitted as canonical <c>512×683</c>; other Pendulum 3:4
+    /// sources are scaled/letterboxed to that size. Normal illusts keep their live size.
+    /// </summary>
+    public static void SaveCardArtExportPng(
+        byte[] bgraOrRgbaPixels,
+        int width,
+        int height,
+        string outputPath,
+        bool inputIsBgra = true)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
+        using Image<Rgba32> image = inputIsBgra
+            ? LoadBgraAsRgba32(bgraOrRgbaPixels, width, height)
+            : Image.LoadPixelData<Rgba32>(bgraOrRgbaPixels, width, height);
+        image.Mutate(ctx => ctx.Flip(FlipMode.Vertical));
+        NormalizeToCardArtExport(image);
+        image.Save(outputPath, new PngEncoder());
+    }
+
+    private static Image<Rgba32> LoadBgraAsRgba32(byte[] bgraPixels, int width, int height)
+    {
+        using var bgra = Image.LoadPixelData<Bgra32>(bgraPixels, width, height);
+        return bgra.CloneAs<Rgba32>();
+    }
+
+    /// <summary>
+    /// Mutates <paramref name="image"/> into the Card Art export size (Pendulum → 512×683).
+    /// </summary>
+    public static void NormalizeToCardArtExport(Image<Rgba32> image)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+
+        if (CardArtTextureSizes.IsTallPendulumStorageCanvas(image.Width, image.Height))
+        {
+            var cropHeight = Math.Min(image.Height, CardArtTextureSizes.PendulumArtCropHeight(image.Width));
+            if (cropHeight < image.Height)
+                image.Mutate(ctx => ctx.Crop(new Rectangle(0, 0, image.Width, cropHeight)));
+        }
+
+        if (CardArtTextureSizes.Classify(image.Width, image.Height) != CardArtSizeKind.Pendulum &&
+            !CardArtTextureSizes.IsTallPendulumStorageCanvas(image.Width, image.Height))
+            return;
+
+        if (CardArtTextureSizes.IsPendulum(image.Width, image.Height))
+            return;
+
+        var targetW = CardArtTextureSizes.PendulumWidth;
+        var targetH = CardArtTextureSizes.PendulumHeight;
+        var sameAspect = CardArtTextureSizes.SameAspect(image.Width, image.Height, targetW, targetH);
+        image.Mutate(ctx => ctx.Resize(new ResizeOptions
+        {
+            Size = new Size(targetW, targetH),
+            Mode = sameAspect ? ResizeMode.Stretch : ResizeMode.Pad,
+            Position = AnchorPositionMode.Center,
+            Sampler = KnownResamplers.Lanczos3,
+            PadColor = Color.Transparent
+        }));
     }
 
     public static string Slugify(string value)

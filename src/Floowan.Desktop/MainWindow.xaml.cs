@@ -537,10 +537,11 @@ public partial class MainWindow : Window
 
         try
         {
-            // Export at native Texture2D size (512×512 normal; Pendulum canvas often 512×1024).
+            // Export: normal 512×512; Pendulum top 3:4 band as canonical 512×683 (not live 512×1024).
             _modService.ExtractCardArt(GamePathBox.Text, _selected, dlg.FileName);
             var info = _modService.GetTextureInfo(GamePathBox.Text, _selected);
-            var sizeLabel = CardArtTextureSizes.Describe(info.Width, info.Height);
+            var (exportW, exportH) = CardArtTextureSizes.GetCardArtExportSize(info.Width, info.Height);
+            var sizeLabel = CardArtTextureSizes.Describe(exportW, exportH);
             Status($"Extracted {sizeLabel} PNG to {dlg.FileName}");
         }
         catch (Exception ex)
