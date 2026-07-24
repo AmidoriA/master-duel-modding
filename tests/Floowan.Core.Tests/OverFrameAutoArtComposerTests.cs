@@ -909,7 +909,7 @@ public class OverFrameAutoArtComposerTests
     {
         // Cover×overflow for square sources ends ~y 819; cream runs through 962.
         // Saturated cyan underlay must Mirrorjade-blend covered lore, while uncovered
-        // lore past the footprint stays exact solid cream (no dimming over empty foil).
+        // lore past the footprint (+ feather) stays exact solid cream (no dimming over empty foil).
         using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 255, 255));
         using var mask = new Image<L8>(512, 512, new L8(0));
         for (var y = 20; y < 492; y++)
@@ -939,12 +939,55 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
+    public void Compose_Effect_LoreCream_FeathersSoftToSolidAcrossFootprintEdge()
+    {
+        // Soft lore must not hard-cut to solid cream at the scaled-art footprint;
+        // a short gradient past the edge should still tint toward underlay, then go solid.
+        using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 255, 255));
+        using var mask = new Image<L8>(512, 512, new L8(0));
+        for (var y = 20; y < 492; y++)
+        for (var x = 40; x < 472; x++)
+            mask[x, y] = new L8(255);
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        const int size = 512;
+        var scale = Math.Max(art.Width / (float)size, art.Height / (float)size)
+            * OverFrameAutoArtComposer.OverflowScale;
+        var scaledH = Math.Max(1, (int)MathF.Round(size * scale));
+        var bgY = (int)MathF.Round(art.Top + art.Height / 2f - scaledH / 2f);
+        var edgeY = bgY + scaledH - 1;
+        var radius = OverFrameAutoArtComposer.LoreArtUnderlayBlendRadius;
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var midX = creamR.Left + creamR.Width / 2;
+
+        Assert.True(edgeY >= creamR.Top && edgeY < creamR.Bottom,
+            $"footprint edge y={edgeY} should fall inside lore cream {creamR}");
+
+        var covered = result[midX, edgeY];
+        var midFeather = result[midX, edgeY + radius / 2];
+        var pastFeather = result[midX, edgeY + radius + 2];
+
+        Assert.True(covered.B > cream.B, $"covered edge should soft-tint cyan, got {covered}");
+        Assert.True(midFeather.B > cream.B, $"mid-feather should still tint cyan, got {midFeather}");
+        Assert.True(midFeather.B < covered.B,
+            $"mid-feather should be closer to cream than covered ({covered} vs {midFeather})");
+        Assert.Equal(cream, pastFeather);
+    }
+
+    [Fact]
     public void Compose_LoreUnderlay_DoesNotVerticallySmearSubjectPastFootprint()
     {
         // Square sources cover-scale short of lore bottom (~y 819 vs cream through 962).
         // Clamp-to-edge on sy used to repeat the last source row down the cream as
         // vertical ghost streaks under subject "feet" (Mirrorjade claws).
-        // Uncovered lore past the footprint must stay solid cream (no foot-column tint).
+        // Uncovered lore past the footprint (+ feather) must stay solid cream (no foot-column tint).
         const int size = 512;
         using var source = new Image<Rgba32>(size, size, new Rgba32(20, 30, 50, 255));
         using var mask = new Image<L8>(size, size, new L8(0));
