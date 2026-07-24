@@ -12,11 +12,13 @@ namespace Floowan.Core.Imaging;
 /// overflowed. The type-line strip under the art hole always shows foil art so it
 /// meets the cream lore panel with no chrome gap. Lore cream is Mirrorjade-soft
 /// only where scaled art (foil underlay) reaches the text box; lore pixels past the
-/// scaled footprint stay solid frame cream (no dimming over empty foil), with a short
-/// soft gradient feathering soft→solid across the footprint edge. Out-of-bounds
-/// underlay samples are skipped (no vertical edge-smear). Overflow is hard-cut across
-/// the lore panel width (gold rim + cream stay clear). Left/right lore side wings keep
-/// frame chrome unless the rembg subject actually occupies those pixels.
+/// scaled footprint stay solid frame cream (no dimming over empty foil). Soft→solid
+/// falls off vertically from the lore box top over
+/// <see cref="LoreArtUnderlayBlendHeight"/> (substantial cream height), not a tiny
+/// footprint-edge feather. Out-of-bounds underlay samples are skipped (no vertical
+/// edge-smear). Overflow is hard-cut across the lore panel width (gold rim + cream
+/// stay clear). Left/right lore side wings keep frame chrome unless the rembg subject
+/// actually occupies those pixels.
 /// Pendulum faces additionally allow subject punch on the outer green side borders
 /// and bottom green strip (subject-gated only).
 /// If the rembg silhouette does not overframe the art hole on any side, compose
@@ -37,19 +39,22 @@ public static class OverFrameAutoArtComposer
 
     /// <summary>
     /// Lore panel pixels that have scaled-art underlay: mostly opaque frame chrome with a
-    /// soft Mirrorjade blend. High opacity hides hard cutout edges; a little underlay
-    /// keeps depth. Lore pixels with no art underlay paint exact frame cream (solid),
-    /// except within <see cref="LoreArtUnderlayBlendRadius"/> of the footprint edge.
+    /// soft Mirrorjade blend near the lore top. High opacity hides hard cutout edges; a
+    /// little underlay keeps depth. Frame opacity ramps soft→solid over
+    /// <see cref="LoreArtUnderlayBlendHeight"/> from the lore box top. Lore pixels with
+    /// no art underlay paint exact frame cream (solid).
     /// </summary>
     public const float TextBoxFrameOpacity = 0.92f;
 
     /// <summary>
-    /// Soft→solid lore cream feather width (px) past the scaled-art footprint.
-    /// Outside this band, uncovered lore is exact frame cream; inside the footprint
-    /// stays full Mirrorjade soft. Edge-art tint for the feather comes from a pre-paint
-    /// underlay snapshot (no foil underlay write / no vertical rembg edge-smear).
+    /// Soft→solid lore cream vertical falloff height (px) from the lore box top for
+    /// Effect-style cream (<see cref="EffectLoreCream"/>). Soft art shows near the top
+    /// (where scaled art often overlaps); cream is solid toward the lower lore.
+    /// Paint uses the active lore rect height so Pendulum dual-panel falloff scales with
+    /// <see cref="PendulumLoreCream"/>. Uncovered lore (past the scaled footprint) is
+    /// always exact frame cream — no rembg / clamp edge-smear tint outside the footprint.
     /// </summary>
-    public const int LoreArtUnderlayBlendRadius = 6;
+    public const int LoreArtUnderlayBlendHeight = 196;
 
     /// <summary>
     /// Fallback art window matching Master Duel <c>card_frame</c> Effect (and most)
@@ -339,7 +344,7 @@ public static class OverFrameAutoArtComposer
 
         // Soft continuation under cream lore where scaled art reaches (Mirrorjade). Never rembg.
         // OOB samples are skipped in FillRegionWithScaledArt — uncovered lore stays empty foil
-        // and PaintLorePanel paints solid cream past the footprint (short soft→solid feather).
+        // and PaintLorePanel paints solid cream past the footprint (tall soft→solid from lore top).
         FillRegionWithScaledArt(canvas, textBox, source, scaledSourceW, scaledSourceH, bgX, bgY);
 
         // 2) Overflow silhouette — may punch lore side wings + dark card margins where
@@ -351,7 +356,7 @@ public static class OverFrameAutoArtComposer
         BlitSubjectFoilMask(
             canvas, resized, xOffset, yOffset, occupied, loreCutTop, textBox, pendulumGreenPunch);
 
-        // 3) Frame chrome + lore panel (soft over art; short feather; solid where uncovered).
+        // 3) Frame chrome + lore panel (soft over art; tall lore-top falloff; solid uncovered).
         EnsureArtWindowHole(frame, artWindow);
         DrawFramePunchedByRectangleAndSilhouette(
             canvas, frame, artWindow, textBox, typeLineStrip, occupied);
@@ -1029,10 +1034,10 @@ public static class OverFrameAutoArtComposer
 
     /// <summary>
     /// Paints the lore panel. Soft Mirrorjade blend where the scaled art footprint
-    /// covers the pixel (foil underlay was written); solid exact frame cream farther
-    /// than <see cref="LoreArtUnderlayBlendRadius"/> past that footprint so empty foil
-    /// does not dim the text box. Between those, frame opacity lerps soft→solid using
-    /// a pre-snap of foil underlay for tint only (no foil underlay write / no rembg smear).
+    /// covers the pixel (foil underlay was written), with frame opacity ramping
+    /// soft→solid vertically from the lore box top over
+    /// <see cref="LoreArtUnderlayBlendHeight"/>. Past that falloff (or past the
+    /// footprint) paints exact frame cream so empty foil does not dim the text box.
     /// Never uses the rembg cutout (hard sleeve/panel edges caused vertical-line glitches).
     /// Skips <paramref name="occupied"/> pixels so Pendulum green side chrome that sits
     /// inside the lore cream rect can still be punched by the subject silhouette.
@@ -1050,28 +1055,9 @@ public static class OverFrameAutoArtComposer
         if (textBox.Width <= 0 || textBox.Height <= 0)
             return;
 
-        var radius = LoreArtUnderlayBlendRadius;
-        var artRight = bgX + scaledSourceW;
-        var artBottom = bgY + scaledSourceH;
-
-        // Snapshot foil underlay before overwriting with cream chrome so the soft→solid
-        // feather can still tint from edge art after in-footprint pixels are painted.
-        using var underlaySnap = new Image<Rgba32>(textBox.Width, textBox.Height);
-        for (var y = 0; y < textBox.Height; y++)
-        {
-            var srcY = textBox.Top + y;
-            if ((uint)srcY >= (uint)canvas.Height)
-                continue;
-            var srcRow = canvas.DangerousGetPixelRowMemory(srcY).Span;
-            var snapRow = underlaySnap.DangerousGetPixelRowMemory(y).Span;
-            for (var x = 0; x < textBox.Width; x++)
-            {
-                var srcX = textBox.Left + x;
-                if ((uint)srcX >= (uint)canvas.Width)
-                    continue;
-                snapRow[x] = srcRow[srcX];
-            }
-        }
+        // Soft→solid spans the painted lore rect (Effect 196 / Pendulum dual-panel 317).
+        // Constant documents the Effect cream height used as the reference falloff.
+        var blendHeight = Math.Max(1, textBox.Height);
 
         for (var y = textBox.Top; y < textBox.Bottom && y < canvas.Height; y++)
         {
@@ -1083,6 +1069,12 @@ public static class OverFrameAutoArtComposer
             var x1 = Math.Min(canvas.Width, textBox.Right);
             var sy = y - bgY;
             var rowHasArtUnderlay = (uint)sy < (uint)scaledSourceH;
+            var dyFromLoreTop = y - textBox.Top;
+            // Soft at lore top → solid by blendHeight px down (smoothstep).
+            var t = Math.Clamp(dyFromLoreTop / (float)blendHeight, 0f, 1f);
+            t = t * t * (3f - 2f * t);
+            var frameOpacity = TextBoxFrameOpacity + (1f - TextBoxFrameOpacity) * t;
+            var solidCream = frameOpacity >= 1f - 1e-5f;
             for (var x = x0; x < x1; x++)
             {
                 if (occupied != null && occupied[rowOffset + x])
@@ -1092,42 +1084,13 @@ public static class OverFrameAutoArtComposer
                 if (fp.A <= VisibleAlphaThreshold)
                     continue;
 
-                // Match FillRegionWithScaledArt footprint; feather a few px past it.
+                // Match FillRegionWithScaledArt: in-footprint → lore-top vertical soft→solid;
+                // OOB → solid cream (no edge tint / no rembg smear).
                 var sx = x - bgX;
                 var hasArtUnderlay = rowHasArtUnderlay && (uint)sx < (uint)scaledSourceW;
-                if (hasArtUnderlay)
-                {
-                    dstRow[x] = BlendFrameOverArt(dstRow[x], fp, TextBoxFrameOpacity);
-                    continue;
-                }
-
-                var dx = sx < 0 ? -sx : (sx >= scaledSourceW ? sx - (scaledSourceW - 1) : 0);
-                var dy = sy < 0 ? -sy : (sy >= scaledSourceH ? sy - (scaledSourceH - 1) : 0);
-                var distOutside = Math.Max(dx, dy);
-                if (distOutside >= radius)
-                {
-                    dstRow[x] = fp;
-                    continue;
-                }
-
-                // Cream-tint only: nearest in-footprint underlay from the pre-paint snap.
-                var sampleX = Math.Clamp(x, bgX, artRight - 1);
-                var sampleY = Math.Clamp(y, bgY, artBottom - 1);
-                var snapX = sampleX - textBox.Left;
-                var snapY = sampleY - textBox.Top;
-                if ((uint)snapX >= (uint)underlaySnap.Width || (uint)snapY >= (uint)underlaySnap.Height)
-                {
-                    // Footprint edge outside the lore rect — no underlay to tint with.
-                    dstRow[x] = fp;
-                    continue;
-                }
-
-                var art = underlaySnap.DangerousGetPixelRowMemory(snapY).Span[snapX];
-                var t = distOutside / (float)radius;
-                // Smoothstep so the soft/solid seam isn't a linear band.
-                t = t * t * (3f - 2f * t);
-                var frameOpacity = TextBoxFrameOpacity + (1f - TextBoxFrameOpacity) * t;
-                dstRow[x] = BlendFrameOverArt(art, fp, frameOpacity);
+                dstRow[x] = hasArtUnderlay && !solidCream
+                    ? BlendFrameOverArt(dstRow[x], fp, frameOpacity)
+                    : fp;
             }
         }
     }
