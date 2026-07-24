@@ -6,18 +6,21 @@ using SixLabors.ImageSharp.Processing;
 namespace Floowan.Core.Imaging;
 
 /// <summary>
-/// Converts a source image plus a subject mask into a 704×1024 over-frame canvas.
-/// Official OF arts keep the full illustration as a foil-mask (A≈4) base — never a
-/// solid black matte. Game illusts are Cover-scaled into the real frame hole, then
-/// overflowed. The type-line strip under the art hole always shows foil art so it
-/// meets the cream lore panel with no chrome gap. Overflow is hard-cut across the
-/// lore panel width (gold rim + cream stay clear). Left/right lore side wings keep
-/// frame chrome unless the rembg subject actually occupies those pixels.
-/// Pendulum faces additionally allow subject punch on the outer green side borders
-/// and bottom green strip (subject-gated only).
-/// Lore cream / outer / cut geometry is always taken from Effect.png so Normal,
-/// Synchro, Link, and other styles share the same punch layout.
-/// </summary>
+    /// Converts a source image plus a subject mask into a 704×1024 over-frame canvas.
+    /// Official OF arts keep the full illustration as a foil-mask (A≈4) base — never a
+    /// solid black matte. Game illusts are Cover-scaled into the real frame hole, then
+    /// overflowed. The type-line strip under the art hole always shows foil art so it
+    /// meets the cream lore panel with no chrome gap. Overflow is hard-cut across the
+    /// lore panel width (gold rim + cream stay clear). Left/right lore side wings keep
+    /// frame chrome unless the rembg subject actually occupies those pixels.
+    /// Pendulum faces additionally allow subject punch on the outer green side borders
+    /// and bottom green strip (subject-gated only).
+    /// Lore cream / outer / cut geometry is always taken from Effect.png so Normal,
+    /// Synchro, Link, and other styles share the same punch layout.
+    /// When the rembg subject would not overframe the art-hole chrome on the left and/or
+    /// right, foil+subject are biased: one missing side → horizontal shift toward that
+    /// chrome; both missing (non-Pendulum) → slight bilateral scale boost, still centered.
+    /// </summary>
 public static class OverFrameAutoArtComposer
 {
     public const byte VisibleAlphaThreshold = 12;
@@ -154,6 +157,20 @@ public static class OverFrameAutoArtComposer
     /// </summary>
     public const float OverflowScale = 1.38f;
 
+    /// <summary>
+    /// Minimum horizontal overframe (px past the art-hole edge) the rembg subject
+    /// should achieve on a side that would otherwise sit flush inside the hole.
+    /// Applied by shifting foil+subject together (locked) toward that chrome.
+    /// </summary>
+    public const int SideOverframeMinPx = 24;
+
+    /// <summary>
+    /// When the rembg subject is missing overframe on <em>both</em> left and right,
+    /// multiply scale by this (bilateral expand) and keep horizontal centering.
+    /// Avoids contradictory left+right shifts that would cancel each other.
+    /// </summary>
+    public const float SideOverframeBothMissingScaleBoost = 1.08f;
+
     public static Image<Rgba32> Compose(
         Image<Rgba32> source,
         Image<L8> mask,
@@ -271,15 +288,33 @@ public static class OverFrameAutoArtComposer
             artWindow.Width / (float)source.Width,
             artWindow.Height / (float)source.Height);
         var scale = cover * OverflowScale;
-        var scaledSourceW = Math.Max(1, (int)MathF.Round(source.Width * scale));
-        var scaledSourceH = Math.Max(1, (int)MathF.Round(source.Height * scale));
 
         var artCenterX = artWindow.Left + artWindow.Width / 2f;
         var artCenterY = artWindow.Top + artWindow.Height / 2f;
         // Pendulum-only: nudge the centered 3:4 cover down so the silhouette sits
         // more naturally in the short art hole (see PendulumVerticalOffset).
         var verticalOffset = useSharedEffectLayout ? 0 : PendulumVerticalOffset;
-        var bgX = (int)MathF.Round(artCenterX - scaledSourceW / 2f);
+
+        // Tentative centered placement — used only to detect missing L/R overframe.
+        var (probeScaledW, _) = ScaledSourceSize(source.Width, source.Height, scale);
+        var probeBgX = (int)MathF.Round(artCenterX - probeScaledW / 2f);
+        var probeXOffset = probeBgX + (int)MathF.Round(bounds.Left * scale);
+        var probeSubjectW = Math.Max(1, (int)MathF.Round(bounds.Width * scale));
+        var sideBias = ResolveSideOverframeBias(
+            artWindow, probeXOffset, probeXOffset + probeSubjectW);
+        // Pendulum keeps a fixed vertical nudge; bilateral scale boost would rescale that
+        // geometry. One-sided horizontal shifts still apply.
+        if (!useSharedEffectLayout && sideBias.HorizontalOffset == 0 &&
+            Math.Abs(sideBias.ScaleMultiplier - 1f) > 0.0001f)
+        {
+            sideBias = SideOverframeBias.None;
+        }
+
+        // Both-missing: bilateral scale boost, still centered. One-sided: shift only.
+        scale *= sideBias.ScaleMultiplier;
+        var scaledSourceW = Math.Max(1, (int)MathF.Round(source.Width * scale));
+        var scaledSourceH = Math.Max(1, (int)MathF.Round(source.Height * scale));
+        var bgX = (int)MathF.Round(artCenterX - scaledSourceW / 2f) + sideBias.HorizontalOffset;
         var bgY = (int)MathF.Round(artCenterY - scaledSourceH / 2f) + verticalOffset;
 
         var targetWidth = Math.Max(1, (int)MathF.Round(subject.Width * scale));
@@ -332,6 +367,67 @@ public static class OverFrameAutoArtComposer
         PendulumGreenLeft.Contains(x, y) ||
         PendulumGreenRight.Contains(x, y) ||
         PendulumGreenBottom.Contains(x, y);
+
+    /// <summary>
+    /// Decides how to bias foil+subject placement when the rembg silhouette would not
+    /// overframe the art-hole chrome on one or both sides.
+    /// <list type="bullet">
+    /// <item>Already overframes both sides (≥ <see cref="SideOverframeMinPx"/>) → no change.</item>
+    /// <item>Missing left only → negative <see cref="SideOverframeBias.HorizontalOffset"/> (shift left).</item>
+    /// <item>Missing right only → positive offset (shift right).</item>
+    /// <item>Missing both → <see cref="SideOverframeBothMissingScaleBoost"/> (centered bilateral expand);
+    /// no horizontal shift (would cancel).</item>
+    /// </list>
+    /// </summary>
+    /// <param name="artWindow">Art hole rectangle on the 704×1024 canvas.</param>
+    /// <param name="subjectLeft">Inclusive left of placed rembg subject (canvas X).</param>
+    /// <param name="subjectRightExclusive">Exclusive right of placed rembg subject (canvas X).</param>
+    public static SideOverframeBias ResolveSideOverframeBias(
+        Rectangle artWindow,
+        int subjectLeft,
+        int subjectRightExclusive)
+    {
+        if (artWindow.IsEmpty || subjectRightExclusive <= subjectLeft)
+            return SideOverframeBias.None;
+
+        var leftOverflow = artWindow.Left - subjectLeft;
+        var rightOverflow = subjectRightExclusive - artWindow.Right;
+        var leftOk = leftOverflow >= SideOverframeMinPx;
+        var rightOk = rightOverflow >= SideOverframeMinPx;
+
+        if (leftOk && rightOk)
+            return SideOverframeBias.None;
+
+        if (!leftOk && rightOk)
+        {
+            // Target: subjectLeft == artWindow.Left - SideOverframeMinPx
+            var shift = (artWindow.Left - SideOverframeMinPx) - subjectLeft;
+            return new SideOverframeBias(shift, 1f);
+        }
+
+        if (leftOk && !rightOk)
+        {
+            // Target: subjectRightExclusive == artWindow.Right + SideOverframeMinPx
+            var shift = (artWindow.Right + SideOverframeMinPx) - subjectRightExclusive;
+            return new SideOverframeBias(shift, 1f);
+        }
+
+        // Both sides short of min overframe — expand scale, keep centered.
+        return new SideOverframeBias(0, SideOverframeBothMissingScaleBoost);
+    }
+
+    /// <summary>
+    /// Horizontal offset (canvas px, positive = right) and optional scale multiplier from
+    /// <see cref="ResolveSideOverframeBias"/>.
+    /// </summary>
+    public readonly record struct SideOverframeBias(int HorizontalOffset, float ScaleMultiplier)
+    {
+        public static SideOverframeBias None { get; } = new(0, 1f);
+    }
+
+    private static (int Width, int Height) ScaledSourceSize(int sourceWidth, int sourceHeight, float scale) =>
+        (Math.Max(1, (int)MathF.Round(sourceWidth * scale)),
+         Math.Max(1, (int)MathF.Round(sourceHeight * scale)));
 
     /// <summary>
     /// Reads the transparent art hole from a 704×1024 frame template.

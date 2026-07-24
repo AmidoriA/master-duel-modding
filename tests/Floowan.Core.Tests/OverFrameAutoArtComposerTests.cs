@@ -142,12 +142,187 @@ public class OverFrameAutoArtComposerTests
         }
     }
 
+    [Fact]
+    public void ResolveSideOverframeBias_MissingLeft_ShiftsLeft()
+    {
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        // Subject sits inside the hole, flush of left chrome but past the right edge.
+        var subjectLeft = art.Left + 40;
+        var subjectRight = art.Right + 80;
+        var bias = OverFrameAutoArtComposer.ResolveSideOverframeBias(art, subjectLeft, subjectRight);
+
+        Assert.Equal(1f, bias.ScaleMultiplier);
+        Assert.True(bias.HorizontalOffset < 0, $"expected left shift, got {bias.HorizontalOffset}");
+        Assert.Equal((art.Left - OverFrameAutoArtComposer.SideOverframeMinPx) - subjectLeft,
+            bias.HorizontalOffset);
+    }
+
+    [Fact]
+    public void ResolveSideOverframeBias_MissingRight_ShiftsRight()
+    {
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var subjectLeft = art.Left - 80;
+        var subjectRight = art.Right - 40;
+        var bias = OverFrameAutoArtComposer.ResolveSideOverframeBias(art, subjectLeft, subjectRight);
+
+        Assert.Equal(1f, bias.ScaleMultiplier);
+        Assert.True(bias.HorizontalOffset > 0, $"expected right shift, got {bias.HorizontalOffset}");
+        Assert.Equal((art.Right + OverFrameAutoArtComposer.SideOverframeMinPx) - subjectRight,
+            bias.HorizontalOffset);
+    }
+
+    [Fact]
+    public void ResolveSideOverframeBias_AlreadyOverflowsBoth_NoChange()
+    {
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var min = OverFrameAutoArtComposer.SideOverframeMinPx;
+        var bias = OverFrameAutoArtComposer.ResolveSideOverframeBias(
+            art, art.Left - min - 10, art.Right + min + 10);
+
+        Assert.Equal(0, bias.HorizontalOffset);
+        Assert.Equal(1f, bias.ScaleMultiplier);
+    }
+
+    [Fact]
+    public void ResolveSideOverframeBias_MissingBoth_BilateralScaleBoost_NoShift()
+    {
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        // Narrow subject entirely inside the hole.
+        var bias = OverFrameAutoArtComposer.ResolveSideOverframeBias(
+            art, art.Left + 100, art.Right - 100);
+
+        Assert.Equal(0, bias.HorizontalOffset);
+        Assert.Equal(OverFrameAutoArtComposer.SideOverframeBothMissingScaleBoost, bias.ScaleMultiplier);
+    }
+
+    [Fact]
+    public void Compose_MissingLeftOverframe_ShiftsCompositionLeft()
+    {
+        // Tall thin subject on the right half — centered placement overframes right, not left.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 40, 80, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 72; x < 92; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var midY = art.Top + art.Height / 2;
+        var subjectLeft = FindSubjectLeftAtY(result, midY);
+        Assert.True(subjectLeft >= 0, "expected rembg subject in art band");
+        Assert.True(
+            subjectLeft <= art.Left - OverFrameAutoArtComposer.SideOverframeMinPx,
+            $"expected left overframe ≥{OverFrameAutoArtComposer.SideOverframeMinPx}px, subjectLeft={subjectLeft}, art.Left={art.Left}");
+    }
+
+    [Fact]
+    public void Compose_MissingRightOverframe_ShiftsCompositionRight()
+    {
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 40, 80, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 8; x < 28; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var midY = art.Top + art.Height / 2;
+        var subjectRight = FindSubjectRightExclusiveAtY(result, midY);
+        Assert.True(subjectRight > 0, "expected rembg subject in art band");
+        Assert.True(
+            subjectRight >= art.Right + OverFrameAutoArtComposer.SideOverframeMinPx,
+            $"expected right overframe ≥{OverFrameAutoArtComposer.SideOverframeMinPx}px, subjectRight={subjectRight}, art.Right={art.Right}");
+    }
+
+    [Fact]
+    public void Compose_AlreadyOverflowsBothSides_DoesNotApplyUnnecessaryShift()
+    {
+        // Wide subject that already punches past both art-hole edges when centered.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 40, 80, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 10; y < 90; y++)
+        for (var x = 5; x < 95; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var cover = Math.Max(art.Width / 100f, art.Height / 100f);
+        var scale = cover * OverFrameAutoArtComposer.OverflowScale;
+        var scaledW = Math.Max(1, (int)MathF.Round(100 * scale));
+        var artCenterX = art.Left + art.Width / 2f;
+        var bgX = (int)MathF.Round(artCenterX - scaledW / 2f);
+        var expectedLeft = bgX + (int)MathF.Round(5 * scale);
+        var expectedRight = expectedLeft + Math.Max(1, (int)MathF.Round(90 * scale));
+
+        // Confirm the unshifted placement already overframes both sides.
+        var probe = OverFrameAutoArtComposer.ResolveSideOverframeBias(art, expectedLeft, expectedRight);
+        Assert.Equal(0, probe.HorizontalOffset);
+        Assert.Equal(1f, probe.ScaleMultiplier);
+
+        using var frame = CreateSolidFrame();
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+
+        var midY = art.Top + art.Height / 2;
+        var subjectLeft = FindSubjectLeftAtY(result, midY);
+        var subjectRight = FindSubjectRightExclusiveAtY(result, midY);
+        Assert.True(subjectLeft >= 0 && subjectRight > subjectLeft);
+        // Placement must stay at the centered (no-bias) X — allow 2px resize rounding.
+        Assert.InRange(subjectLeft, expectedLeft - 2, expectedLeft + 2);
+        Assert.InRange(subjectRight, expectedRight - 2, expectedRight + 2);
+    }
+
+    private static int FindSubjectLeftAtY(Image<Rgba32> image, int y)
+    {
+        for (var x = 0; x < image.Width; x++)
+        {
+            var p = image[x, y];
+            if (p.A == OverFrameAutoArtComposer.FoilMaskAlpha && p.R > 180 && p.G < 80)
+                return x;
+        }
+
+        return -1;
+    }
+
+    private static int FindSubjectRightExclusiveAtY(Image<Rgba32> image, int y)
+    {
+        for (var x = image.Width - 1; x >= 0; x--)
+        {
+            var p = image[x, y];
+            if (p.A == OverFrameAutoArtComposer.FoilMaskAlpha && p.R > 180 && p.G < 80)
+                return x + 1;
+        }
+
+        return -1;
+    }
+
     private static float ComputeExpectedScale(int sourceWidth, int sourceHeight)
     {
         var cover = Math.Max(
             OverFrameAutoArtComposer.ArtWindow.Width / (float)sourceWidth,
             OverFrameAutoArtComposer.ArtWindow.Height / (float)sourceHeight);
-        return cover * OverFrameAutoArtComposer.OverflowScale;
+        var scale = cover * OverFrameAutoArtComposer.OverflowScale;
+        // Narrow centered subjects trigger bilateral both-missing boost.
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var scaledW = Math.Max(1, (int)MathF.Round(sourceWidth * scale));
+        var artCenterX = art.Left + art.Width / 2f;
+        var bgX = (int)MathF.Round(artCenterX - scaledW / 2f);
+        // Compose_ScalesBackgroundWithSubject uses subject x=40..60 on a square source.
+        var subjectLeft = bgX + (int)MathF.Round(40 * scale);
+        var subjectRight = subjectLeft + Math.Max(1, (int)MathF.Round(20 * scale));
+        var bias = OverFrameAutoArtComposer.ResolveSideOverframeBias(art, subjectLeft, subjectRight);
+        return scale * bias.ScaleMultiplier;
     }
 
     [Fact]
