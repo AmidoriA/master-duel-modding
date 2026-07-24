@@ -23,7 +23,13 @@ dotnet test  tests/Floowan.Core.Tests/Floowan.Core.Tests.csproj -c Release -p:En
 3 tests fail on Linux and this is expected (not an environment problem): `GamePathLocatorTests.ResolveInstallRoot_WalksUpFromLocalData`, `GamePathLocatorTests.ResolveUnity3dPath_PointsAtMasterduelData`, and `BundlePathResolverTests.StreamingAssetsPath_UsesInstallRoot`. They assert against hardcoded Windows paths (`C:\...`, `D:\...`) with backslash separators, which `Path`/`Directory.GetParent` only interpret correctly on Windows. The other 10 tests pass. Run these tests on Windows for a full green suite.
 
 ### Data / resources
-- `database.db` (repo root, ~5.6 MB, ~14k cards) is the **master** SQLite card catalog (identity fields: `id`, `name`, `description`, `bundle`, `data_index`). Shipped with the app; treat as read-mostly.
+- `database.db` (repo root, ~5.6 MB, ~14k cards) is the **master** SQLite card catalog (identity fields: `id`, `name`, `description`, `bundle`, `data_index`, plus optional `card_type` / `created_at` added on open or by Tools DB update). Shipped with the app; treat as read-mostly. The Tools tab can rebuild or incrementally refresh this catalog from a local Master Duel install via `CardCatalogUpdater` / `CardCatalogExtractor`:
+  - **CARD_* TextAssets** (names/descriptions/ids/types): primarily under `LocalData/<playerId>/0000` (also scanned under StreamingAssets).
+  - **Illustration bundles**: both `LocalData/<playerId>/0000` and `{install}/masterduel_Data/StreamingAssets/AssetBundle` (via `BundlePathResolver.GetStreamingAssetsRoot` / `GamePathLocator.ResolveInstallRoot`; LocalData wins when the same art id exists in both). Example StreamingAssets root: `D:\Games\Steam\steamapps\common\Yu-Gi-Oh!  Master Duel\masterduel_Data\StreamingAssets\AssetBundle`.
+  - **`card_type`**: from `CARD_Prop` type bytes (`CardPropTypeDecoder`), with description/type-line fallback (`CardTypeLabels`).
+  - **`created_at`**: filesystem creation time (UTC, ISO-8601) of the chosen illustration AssetBundle file (`File.GetCreationTimeUtc`).
+  - **Update entire DB**: full scan + replace all master `card` rows.
+  - **Update new files only**: skips illustration AssetBundles whose `File.GetCreationTimeUtc` is ≤ DB `MAX(created_at)`; upserts only newer cards (requires at least one existing `created_at`).
 - `user.db` holds writable state (`app_config`, per-card `favorite` / `has_backup` / modded text / over-frame / `art_id`). Default path is beside the exe (`AppContext.BaseDirectory/user.db`), same root as `backups/`. Do not commit `user.db`.
 - `CardDatabase` opens master and `ATTACH`es `user.db`. On first open it migrates legacy user columns from a monolithic `database.db` into `user.db` (does not strip the shipped master file).
 - `src/Floowan.Core/Resources/classdata.tpk` is required by AssetsTools.NET and is copied next to build output.

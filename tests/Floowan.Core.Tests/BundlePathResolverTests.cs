@@ -12,6 +12,16 @@ public class BundlePathResolverTests
     }
 
     [Fact]
+    public void StreamingAssetsRoot_UsesInstallRoot()
+    {
+        var player = @"D:\Games\Steam\steamapps\common\Yu-Gi-Oh!  Master Duel\LocalData\playerid";
+        var root = BundlePathResolver.GetStreamingAssetsRoot(player);
+        Assert.Equal(
+            Path.Combine(@"D:\Games\Steam\steamapps\common\Yu-Gi-Oh!  Master Duel", "masterduel_Data", "StreamingAssets", "AssetBundle"),
+            root);
+    }
+
+    [Fact]
     public void StreamingAssetsPath_UsesInstallRoot()
     {
         var player = @"D:\Steam\steamapps\common\Yu-Gi-Oh!  Master Duel\LocalData\playerid";
