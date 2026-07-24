@@ -384,6 +384,7 @@ public class OverFrameAutoArtComposerTests
     [InlineData(CardFrameStyle.PendulumFusion)]
     [InlineData(CardFrameStyle.PendulumSynchro)]
     [InlineData(CardFrameStyle.PendulumXyz)]
+    [InlineData(CardFrameStyle.PendulumRitual)]
     [InlineData(CardFrameStyle.PendulumToken)]
     public void Compose_PendulumStyles_KeepNativeWiderArtWindow(CardFrameStyle style)
     {
@@ -1042,6 +1043,12 @@ public class OverFrameAutoArtComposerTests
         Assert.Equal(
             CardFrameStyle.PendulumFusion,
             CardFrameTemplates.InferStyle("Odd-Eyes Vortex", "[Dragon/Fusion/Pendulum/Effect]"));
+        Assert.Equal(
+            CardFrameStyle.PendulumRitual,
+            CardFrameTemplates.InferStyle("Odd-Eyes Pendulumgraph", "[Dragon/Ritual/Pendulum/Effect]"));
+        Assert.Equal(
+            CardFrameStyle.PendulumRitual,
+            CardFrameTemplates.InferStyle("Nekroz of Metaltron", "[Wyrm/Pendulum/Ritual/Effect]"));
         Assert.Equal(
             CardFrameStyle.PendulumEffect,
             CardFrameTemplates.InferStyle("Amorphage", "[Pendulum Effect]"));

@@ -30,6 +30,11 @@ public enum CardFrameStyle
     PendulumSynchro,
     /// <summary>Master Duel <c>card_frame15</c> — Xyz Pendulum.</summary>
     PendulumXyz,
-    /// <summary>Master Duel <c>card_frame19</c> — Token Pendulum.</summary>
+    /// <summary>Master Duel <c>card_frame19</c> — Ritual Pendulum (Ritual-blue chrome + pendulum scales).</summary>
+    PendulumRitual,
+    /// <summary>
+    /// Legacy alias for <see cref="PendulumRitual"/> (same <c>card_frame19</c> asset).
+    /// MD has no separate Token Pendulum face; kept so existing Tag/tests keep working.
+    /// </summary>
     PendulumToken
 }
