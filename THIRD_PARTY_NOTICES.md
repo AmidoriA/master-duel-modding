@@ -13,13 +13,19 @@
 - https://github.com/Perfare/AssetStudio
 - Used as a research reference for Unity asset layouts; not linked into this build.
 
-## Floowandereeze and Modding (Qt)
+## Floowandereeze and Modding (inspiration)
 
-- https://github.com/Nauder/floowandereeze-and-modding-qt
+- Qt app: https://github.com/Nauder/floowandereeze-and-modding-qt
+- Catalog ETL: https://github.com/Nauder/floowandereeze-and-modding-etl
 - License: GPL-3.0
-- Reference for Master Duel path layout (`LocalData/<id>/0000/...`), card `database.db` schema,
+- Inspiration / reference for Master Duel path layout (`LocalData/<id>/0000/...`)
   and the practical card-art replacement strategy (Texture2D → RGBA32, LZ4 pack, backups).
-- This C# project reimplements those behaviors independently with AssetsTools.NET.
+- Floowan’s shipped `database.db` is **not** a verbatim copy of upstream ETL output.
+  Schema and contents are maintained in this project (Tools → DB update from a local
+  Master Duel install), including Floowan-specific columns such as `card_type` and
+  `created_at`. Early catalog ideas were inspired by Floowandereeze; treat the DB as
+  Floowan’s own artifact going forward.
+- This C# project reimplements related behaviors independently with AssetsTools.NET.
   It does not copy Floowandereeze Python source. If you distribute a combined work that
   incorporates Floowandereeze GPL code, comply with GPL-3.0 for that combined work.
 
@@ -32,7 +38,7 @@
 ## Microsoft.Data.Sqlite
 
 - License: MIT
-- Reads Floowandereeze-compatible `database.db`.
+- Reads Floowan’s master `database.db` (and attached `user.db`).
 
 ## rembg / IS-Net anime (`isnet-anime`)
 
