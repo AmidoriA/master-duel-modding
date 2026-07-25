@@ -26,19 +26,19 @@ public enum OverFrameComposeMode
 /// Converts a source image plus a subject mask into a 704×1024 over-frame canvas.
 /// Official OF arts keep the full illustration as a foil-mask (A≈4) base — never a
 /// solid black matte. Game illusts are Cover-scaled into the real frame hole, then
-/// overflowed. The type-line strip under the art hole always shows foil art so it
-/// meets the cream lore panel with no chrome gap. Non-Pendulum (Effect-style) lore
-/// cream is Mirrorjade-soft only where scaled art reaches the text box; lore past
-/// the footprint stays solid frame cream. Soft→solid falls off vertically from the
-/// lore box top over <see cref="LoreArtUnderlayBlendHeight"/>, and footprint exit is
-/// feathered over <see cref="LoreArtUnderlayBlendRadius"/>. Pendulum dual-lore keeps
-/// constant Mirrorjade soft transparency (no Effect lore-top gradient / falloff).
-/// Out-of-bounds underlay samples are skipped (no vertical edge-smear); Effect
-/// past-footprint tint uses a pre-paint snap. Overflow is hard-cut across the lore
-/// panel width (gold rim + cream stay clear). Left/right lore side wings keep frame
-/// chrome unless the rembg subject actually occupies those pixels.
-/// Pendulum faces additionally allow subject punch on the outer green side borders
-/// and bottom green strip (subject-gated only).
+/// overflowed. Auto-create always fills the type-line strip under the art hole with
+/// foil art so it meets the cream lore panel with no chrome gap. Non-Pendulum
+/// (Effect-style) lore cream is Mirrorjade-soft only where scaled art reaches the
+/// text box; lore past the footprint stays solid frame cream. Soft→solid falls off
+/// vertically from the lore box top over <see cref="LoreArtUnderlayBlendHeight"/>,
+/// and footprint exit is feathered over <see cref="LoreArtUnderlayBlendRadius"/>.
+/// Pendulum dual-lore keeps constant Mirrorjade soft transparency (no Effect
+/// lore-top gradient / falloff). Out-of-bounds underlay samples are skipped (no
+/// vertical edge-smear); Effect past-footprint tint uses a pre-paint snap. Overflow
+/// is hard-cut across the lore panel width (gold rim + cream stay clear). Left/right
+/// lore side wings keep frame chrome unless the rembg subject actually occupies
+/// those pixels. Pendulum faces additionally allow subject punch on the outer green
+/// side borders and bottom green strip (subject-gated only).
 /// Auto-create (<see cref="OverFrameComposeMode.AutoFoilAndSubject"/>): if the rembg
 /// silhouette does not overframe the art hole on any side, compose fails with
 /// <see cref="CannotDetectSubjectMessage"/> (no flat in-frame OF). Custom OF
@@ -46,11 +46,13 @@ public enum OverFrameComposeMode
 /// Lore cream / outer / cut geometry is always taken from Effect.png so Normal,
 /// Synchro, Link, and other styles share the same punch layout.
 /// <see cref="OverFrameComposeMode.CustomArtOnly"/> skips the Auto foil underlay from
-/// the subject source. Optional <c>background</c> Cover-fills the art hole only (fixed,
-/// no overflow outside the frame interior). Stack: Background → Card Frame → Card Art
-/// (subject) → Lore (soft where subject covers). Custom OF also allows subject punch on
-/// the dark bottom frame margin below the lore cream (Effect etc.); Auto-create keeps
-/// that strip as opaque chrome.
+/// the subject source and does <em>not</em> auto-punch or soft-fill the art–lore gap
+/// (type-line strip, side wings, dark margins) — frame chrome stays there unless the
+/// subject silhouette occupies those pixels. Optional <c>background</c> Cover-fills
+/// the art hole only (fixed, no overflow outside the frame interior). Stack:
+/// Background → Card Frame → Card Art (subject) → Lore (soft where subject covers).
+/// Custom OF also allows subject punch on the dark bottom frame margin below the lore
+/// cream (Effect etc.); Auto-create keeps that strip as opaque chrome.
 /// </summary>
 public static class OverFrameAutoArtComposer
 {
@@ -559,17 +561,22 @@ public static class OverFrameAutoArtComposer
             return layer;
         }
 
-        // 1) Art window + type-line strip + soft lore underlay (not lore side wings).
+        // 1) Art window + (Auto) type-line strip + soft lore underlay (not lore side wings).
         var textBox = ResolveTextBox(frame, artWindow, useSharedEffectLayout, layout);
         var loreCutTop = ResolveLoreCutTop(frame, textBox, artWindow, useSharedEffectLayout, layout);
         // Type-line fill stays art-hole-wide (avoids horizontal corner stubs).
-        var typeLineStrip = ResolveTypeLineStrip(artWindow, loreCutTop);
+        // CustomArtOnly: do not soft-fill / always-punch this gap — keep frame chrome
+        // unless the subject silhouette occupies those pixels (intentional overframe).
+        var typeLineStrip = customArtOnly
+            ? Rectangle.Empty
+            : ResolveTypeLineStrip(artWindow, loreCutTop);
 
         Image<Rgba32> canvas;
         if (customArtOnly)
         {
             // Custom OF: optional Cover background in the art hole only (lowest layer).
             // No Auto rectangular foil from the subject source. Card Art is subject-only.
+            // No Auto type-line / lore-gap soft-fill — chrome stays until subject punches.
             canvas = new Image<Rgba32>(
                 Assets.OverFrameConstants.Width,
                 Assets.OverFrameConstants.Height,
@@ -600,6 +607,7 @@ public static class OverFrameAutoArtComposer
         //    Pendulum also allows subject punch on outer green side/bottom chrome.
         //    CustomArtOnly also writes subject into cream as lore underlay (no occupied)
         //    and punches the Effect-style bottom chrome below lore when subject reaches it.
+        //    CustomArtOnly does not auto-punch the art–lore type-line gap / side margins.
         var occupied = new bool[canvas.Width * canvas.Height];
         var pendulumGreenPunch = !useSharedEffectLayout;
         if (mode == SubjectComposeMode.Full)
@@ -625,6 +633,8 @@ public static class OverFrameAutoArtComposer
 
         // 3) Frame chrome + lore panel. Effect: tall lore-top falloff + footprint feather.
         //    Pendulum: constant Mirrorjade soft where art underlays (no Effect gradient).
+        //    Auto: typeLineStrip skips chrome (foil already filled). Custom: Empty strip
+        //    so art–lore gap chrome is kept unless occupied.
         EnsureArtWindowHole(frame, artWindow);
         DrawFramePunchedByRectangleAndSilhouette(
             canvas, frame, artWindow, textBox, typeLineStrip, occupied);
