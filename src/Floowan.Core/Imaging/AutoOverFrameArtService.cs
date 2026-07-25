@@ -121,6 +121,8 @@ public sealed class AutoOverFrameArtService : IDisposable
     /// <summary>
     /// Composes a previously prepared subject onto a frame (no model inference).
     /// Defaults to <see cref="OverFrameComposeMode.CustomArtOnly"/> for the Custom OF dialog.
+    /// Optional <paramref name="background"/> Cover-fills the art hole under the frame
+    /// (CustomArtOnly only; ignored for Auto-create).
     /// </summary>
     public static void ComposePreparedSubject(
         Image<Rgba32> source,
@@ -130,7 +132,8 @@ public sealed class AutoOverFrameArtService : IDisposable
         int subjectOffsetX = 0,
         int subjectOffsetY = 0,
         float subjectScale = 1f,
-        OverFrameComposeMode composeMode = OverFrameComposeMode.CustomArtOnly)
+        OverFrameComposeMode composeMode = OverFrameComposeMode.CustomArtOnly,
+        Image<Rgba32>? background = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(mask);
@@ -141,7 +144,8 @@ public sealed class AutoOverFrameArtService : IDisposable
             subjectOffsetX: subjectOffsetX,
             subjectOffsetY: subjectOffsetY,
             subjectScale: subjectScale,
-            composeMode: composeMode);
+            composeMode: composeMode,
+            background: background);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPngPath))!);
         result.Save(outputPngPath, new PngEncoder());
     }

@@ -1758,6 +1758,140 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
+    public void Compose_CustomArtOnly_Background_CoverFillsArtHoleOnly()
+    {
+        // Narrow subject strip; wide background Cover-fills the hole corners.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 45; x < 55; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        // Wide 4:1 image — Cover must crop sides and fill the full art hole height/width.
+        using var background = new Image<Rgba32>(400, 100, new Rgba32(10, 180, 240, 255));
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+
+        using var result = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame,
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly,
+            background);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var corner = result[art.Left + 8, art.Top + 8];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, corner.A);
+        Assert.True(corner.B > 200, $"art-hole corner must show Cover background, got {corner}");
+        Assert.True(corner.R < 40, $"background should be cyan, not subject red, got {corner}");
+
+        var mid = result[art.Left + art.Width / 2, art.Top + art.Height / 2];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, mid.A);
+        Assert.True(mid.R > 100, $"subject must still paint over background, got {mid}");
+
+        // Immediately outside the art hole (away from the center subject strip): frame
+        // chrome only — Cover background must not spill past the hole clip.
+        var aboveNearLeft = result[art.Left + 8, art.Top - 4];
+        Assert.True(aboveNearLeft.A >= 200,
+            $"chrome above hole must stay opaque, got {aboveNearLeft}");
+        Assert.True(aboveNearLeft.B < 100,
+            $"background must not punch outside art window, got {aboveNearLeft}");
+
+        var leftOfHole = result[art.Left - 4, art.Top + art.Height / 2];
+        Assert.True(leftOfHole.A >= 200, $"chrome left of hole must stay opaque, got {leftOfHole}");
+        Assert.True(leftOfHole.B < 100,
+            $"background must not overflow left of art window, got {leftOfHole}");
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_Background_IgnoresSubjectOffsetAndScale()
+    {
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var background = new Image<Rgba32>(80, 80, new Rgba32(15, 200, 90, 255));
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+
+        using var baseline = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly,
+            background);
+        using var moved = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 80,
+            subjectOffsetY: -40,
+            subjectScale: 2f,
+            OverFrameComposeMode.CustomArtOnly,
+            background);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        // Corner stays background-only (narrow subject does not cover it even at ×2 offset).
+        var cornerX = art.Left + 6;
+        var cornerY = art.Top + 6;
+        Assert.Equal(baseline[cornerX, cornerY], moved[cornerX, cornerY]);
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, baseline[cornerX, cornerY].A);
+        Assert.True(baseline[cornerX, cornerY].G > 150);
+    }
+
+    [Fact]
+    public void ComposeBaseWithoutSubject_CustomArtOnly_IncludesFixedBackground()
+    {
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var background = new Image<Rgba32>(64, 64, new Rgba32(30, 40, 220, 255));
+        using var baseLayer = OverFrameAutoArtComposer.ComposeBaseWithoutSubject(
+            source,
+            mask,
+            CardFrameStyle.Effect,
+            subjectScale: 1f,
+            composeMode: OverFrameComposeMode.CustomArtOnly,
+            background: background);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var hole = baseLayer[art.Left + 20, art.Top + 20];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, hole.A);
+        Assert.True(hole.B > 180, $"drag base must keep Cover background, got {hole}");
+
+        // No subject on the base layer.
+        var mid = baseLayer[art.Left + art.Width / 2, art.Top + art.Height / 2];
+        Assert.True(mid.R < 80, $"base must not include Card Art subject, got {mid}");
+    }
+
+    [Fact]
     public void RenderSubjectDragLayer_CustomArtOnly_IncludesBottomChromePunch()
     {
         using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));

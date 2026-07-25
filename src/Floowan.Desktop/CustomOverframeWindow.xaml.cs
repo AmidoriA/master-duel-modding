@@ -26,6 +26,7 @@ public partial class CustomOverframeWindow : Window
 
     private Image<Rgba32>? _subjectSource;
     private Image<L8>? _subjectMask;
+    private Image<Rgba32>? _backgroundSource;
     private string? _composedTempPath;
     private int _offsetX;
     private int _offsetY;
@@ -154,6 +155,83 @@ public partial class CustomOverframeWindow : Window
             MessageBox.Show(
                 this,
                 "Could not recompose overframe:\n\n" + ex.Message,
+                "Custom overframe art",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private async void PickBackground_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy)
+            return;
+
+        var dlg = new OpenFileDialog
+        {
+            Title = "Select Cover background for custom overframe (art hole only)",
+            Filter = "Images|*.png;*.jpg;*.jpeg;*.webp;*.bmp|PNG|*.png|JPEG|*.jpg;*.jpeg|All files|*.*"
+        };
+        if (dlg.ShowDialog(this) != true)
+            return;
+
+        var validation = ImagePreparation.Validate(
+            dlg.FileName, OverFrameConstants.Width, OverFrameConstants.Height);
+        if (!validation.IsValid)
+        {
+            MessageBox.Show(
+                this,
+                validation.Error ?? "Invalid image.",
+                "Custom overframe art",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var sizeNote = CardArtTextureSizes.Describe(validation.Width, validation.Height);
+        if (validation.Width != OverFrameConstants.Width
+            || validation.Height != OverFrameConstants.Height)
+        {
+            var proceed = MessageBox.Show(
+                this,
+                $"Background is {sizeNote}; it will Cover-fill the art hole " +
+                $"(object-fit: cover) and stay clipped inside the frame.\n\nContinue?",
+                "Custom overframe art",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+            if (proceed != MessageBoxResult.Yes)
+                return;
+        }
+
+        SetBusy(true);
+        StatusText.Text = $"Loading background {Path.GetFileName(dlg.FileName)} ({sizeNote})…";
+        try
+        {
+            DisposeBackground();
+            _backgroundSource = await Task.Run(() => ImageSharpImage.Load<Rgba32>(dlg.FileName));
+
+            if (_subjectSource is not null && _subjectMask is not null)
+            {
+                await RecomposePreviewAsync();
+                StatusText.Text =
+                    $"Background set ({sizeNote}). Preview updated — drag Card Art or Apply.";
+            }
+            else
+            {
+                StatusText.Text =
+                    $"Background ready ({sizeNote}). Art hole stays empty until subject is picked.";
+            }
+        }
+        catch (Exception ex)
+        {
+            DisposeBackground();
+            StatusText.Text = "Background failed: " + ex.Message;
+            MessageBox.Show(
+                this,
+                "Could not load background:\n\n" + ex.Message,
                 "Custom overframe art",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
@@ -295,6 +373,7 @@ public partial class CustomOverframeWindow : Window
         var subjectScale = _subjectScale;
         var source = _subjectSource;
         var mask = _subjectMask;
+        var background = _backgroundSource;
 
         CleanupComposedTemp();
         _composedTempPath = Path.Combine(
@@ -311,7 +390,8 @@ public partial class CustomOverframeWindow : Window
                 offsetX,
                 offsetY,
                 subjectScale,
-                OverFrameComposeMode.CustomArtOnly));
+                OverFrameComposeMode.CustomArtOnly,
+                background));
 
         PreviewImage.Source = LoadOfComposePreview(outputPath);
         ClearSubjectOverlay();
@@ -328,6 +408,7 @@ public partial class CustomOverframeWindow : Window
         var subjectScale = _subjectScale;
         var source = _subjectSource;
         var mask = _subjectMask;
+        var background = _backgroundSource;
 
         var (baseBmp, subjectBmp) = await Task.Run(() =>
         {
@@ -336,7 +417,8 @@ public partial class CustomOverframeWindow : Window
                 mask,
                 frameStyle,
                 subjectScale: subjectScale,
-                composeMode: OverFrameComposeMode.CustomArtOnly);
+                composeMode: OverFrameComposeMode.CustomArtOnly,
+                background: background);
             using var subjectLayer = OverFrameAutoArtComposer.RenderSubjectDragLayer(
                 source,
                 mask,
@@ -550,6 +632,7 @@ public partial class CustomOverframeWindow : Window
     private void SetBusy(bool busy)
     {
         _busy = busy;
+        PickBackgroundButton.IsEnabled = !busy;
         PickImageButton.IsEnabled = !busy;
         FrameStyleBox.IsEnabled = !busy;
         ArtScaleSlider.IsEnabled = !busy;
@@ -578,6 +661,12 @@ public partial class CustomOverframeWindow : Window
         _subjectMask = null;
     }
 
+    private void DisposeBackground()
+    {
+        _backgroundSource?.Dispose();
+        _backgroundSource = null;
+    }
+
     private void CleanupComposedTemp()
     {
         if (_composedTempPath is not null && File.Exists(_composedTempPath))
@@ -591,6 +680,7 @@ public partial class CustomOverframeWindow : Window
     private void Cleanup()
     {
         DisposeSubject();
+        DisposeBackground();
         CleanupComposedTemp();
     }
 

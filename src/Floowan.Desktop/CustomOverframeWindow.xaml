@@ -9,13 +9,14 @@
         ShowInTaskbar="False">
   <DockPanel Margin="14">
     <TextBlock DockPanel.Dock="Top"
-               Text="Pick a subject PNG with alpha, scale/drag the card art, then Apply to the selected card. Layers: Frame → Card Art → Lore."
+               Text="Pick a Cover background (art hole only) and a subject PNG with alpha. Scale/drag Card Art only, then Apply. Layers: Background → Frame → Card Art → Lore."
                Foreground="{StaticResource MutedBrush}"
                TextWrapping="Wrap"
                Margin="0,0,0,10"/>
 
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-      <Button x:Name="PickImageButton" Content="Select 704×1024 image…" Click="PickImage_Click"/>
+      <Button x:Name="PickBackgroundButton" Content="Pick background…" Click="PickBackground_Click" Margin="0,0,8,0"/>
+      <Button x:Name="PickImageButton" Content="Select subject…" Click="PickImage_Click" Margin="0,0,8,0"/>
       <TextBlock Text="Frame" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,8,0"/>
       <ComboBox x:Name="FrameStyleBox" Width="170" Margin="0,0,8,0" SelectionChanged="FrameStyleBox_SelectionChanged">
         <ComboBoxItem Content="Effect" Tag="Effect" IsSelected="True"/>
