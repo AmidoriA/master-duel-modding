@@ -96,25 +96,6 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
-    public void LoadSubjectFromAlpha_RejectsFullyOpaqueImage()
-    {
-        var path = Path.Combine(Path.GetTempPath(), $"floowan-opaque-{Guid.NewGuid():N}.png");
-        try
-        {
-            using (var image = new Image<Rgba32>(32, 32, new Rgba32(12, 34, 56, 255)))
-                image.SaveAsPng(path);
-
-            var ex = Assert.Throws<InvalidOperationException>(
-                () => AutoOverFrameArtService.LoadSubjectFromAlpha(path));
-            Assert.Contains("almost fully opaque", ex.Message, StringComparison.OrdinalIgnoreCase);
-        }
-        finally
-        {
-            try { File.Delete(path); } catch { /* ignore */ }
-        }
-    }
-
-    [Fact]
     public void ComposeBaseWithoutSubject_OmitsOverflowSilhouette()
     {
         using var source = new Image<Rgba32>(100, 100, new Rgba32(220, 30, 20, 255));

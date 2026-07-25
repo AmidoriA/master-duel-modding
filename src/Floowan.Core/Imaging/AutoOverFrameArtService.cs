@@ -105,7 +105,6 @@ public sealed class AutoOverFrameArtService : IDisposable
             }
         }
 
-        var total = source.Width * source.Height;
         if (keep == 0)
         {
             source.Dispose();
@@ -113,15 +112,6 @@ public sealed class AutoOverFrameArtService : IDisposable
             throw new InvalidOperationException(
                 "No opaque subject found in the image alpha channel. " +
                 "Provide a PNG (or other image) with an alpha layer around the subject.");
-        }
-
-        if (total > 0 && keep / (float)total > 0.92f)
-        {
-            source.Dispose();
-            mask.Dispose();
-            throw new InvalidOperationException(
-                "Image alpha is almost fully opaque. " +
-                "Provide a PNG (or other image) with a transparent background around the subject.");
         }
 
         progress?.Report("Subject alpha mask ready.");
