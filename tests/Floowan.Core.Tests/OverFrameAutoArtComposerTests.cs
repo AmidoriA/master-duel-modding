@@ -1728,6 +1728,111 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
+    public void Compose_CustomArtOnly_KeepsArtLoreGapChrome_WithoutSubjectThere()
+    {
+        // Subject only in the upper art hole — must not auto-punch / soft-fill the
+        // type-line strip or side margins between art bottom and lore top.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 0; y < 25; y++)
+        for (var x = 40; x < 60; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        var hole = OverFrameAutoArtComposer.ArtWindow;
+        ClearRect(frame, hole);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        var gapChrome = new Rgba32(60, 40, 30, 255);
+        var cut = OverFrameAutoArtComposer.EffectLoreCutTop;
+        for (var y = hole.Bottom; y < cut; y++)
+        {
+            for (var x = hole.Left; x < hole.Right; x++)
+                frame[x, y] = gapChrome;
+            for (var x = hole.Left - 30; x < hole.Left; x++)
+                if (x >= 0) frame[x, y] = gapChrome;
+            for (var x = hole.Right; x < hole.Right + 30; x++)
+                if (x < frame.Width) frame[x, y] = gapChrome;
+        }
+
+        using var result = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame,
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly);
+
+        var gapY = (hole.Bottom + cut) / 2;
+        var mid = result[hole.Left + hole.Width / 2, gapY];
+        Assert.True(mid.A >= 200, $"Custom OF must keep type-line chrome, got {mid}");
+        Assert.True(
+            Math.Abs(mid.R - gapChrome.R) < 40 && Math.Abs(mid.G - gapChrome.G) < 40,
+            $"type-line strip must stay frame chrome (no auto punch), got {mid}");
+
+        var leftWing = result[hole.Left - 20, gapY];
+        Assert.True(leftWing.A >= 200, $"side margin must stay chrome, got {leftWing}");
+        Assert.True(
+            Math.Abs(leftWing.R - gapChrome.R) < 40,
+            $"side margin must not soft-fill without subject, got {leftWing}");
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_PunchesArtLoreGap_WhereSubjectPresent()
+    {
+        // Tall subject that reaches the art–lore type-line strip — intentional overframe.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+        {
+            source[x, y] = new Rgba32(40, 200, 255, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        var hole = OverFrameAutoArtComposer.ArtWindow;
+        ClearRect(frame, hole);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        var gapChrome = new Rgba32(60, 40, 30, 255);
+        var cut = OverFrameAutoArtComposer.EffectLoreCutTop;
+        for (var y = hole.Bottom; y < cut; y++)
+        for (var x = hole.Left; x < hole.Right; x++)
+            frame[x, y] = gapChrome;
+
+        using var result = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame,
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 2f,
+            OverFrameComposeMode.CustomArtOnly);
+
+        var midX = hole.Left + hole.Width / 2;
+        var gapY = (hole.Bottom + cut) / 2;
+        var punched = result[midX, gapY];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, punched.A);
+        Assert.True(punched.B > 100,
+            $"subject must punch type-line strip where present, got {punched}");
+
+        // Empty wing beside the strip stays chrome.
+        var wing = result[hole.Left - 20, gapY];
+        Assert.True(wing.A >= 200, $"empty side wing must stay chrome, got {wing}");
+    }
+
+    [Fact]
     public void Compose_CustomArtOnly_PunchesBottomChromeBelowLore_WhereSubjectPresent()
     {
         // Tall ×2 subject so Card Art reaches the dark strip under Effect lore cream.
