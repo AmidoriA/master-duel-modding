@@ -123,7 +123,8 @@
               <TextBlock DockPanel.Dock="Top" Text="Selected card" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
               <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,12,0,0">
                 <Button Content="Select image…" Click="SelectImage_Click"/>
-                <Button Content="Replace art" Click="Replace_Click" Background="{StaticResource AccentBrush}"/>
+                <Button Content="Replace art" Click="Replace_Click" Background="{StaticResource AccentBrush}"
+                        ToolTip="Opens a before/after comparison. Confirm writes to the game (with backup); Cancel aborts."/>
                 <Button Content="Extract PNG" Click="Extract_Click"/>
                 <Button Content="Restore backup" Click="Restore_Click"/>
               </StackPanel>
