@@ -59,3 +59,42 @@ public sealed class OverFrameResult
     public static OverFrameResult Fail(string message) =>
         new() { Success = false, Message = message };
 }
+
+public sealed class OverFrameRestoreBatchResult
+{
+    public bool Success { get; init; }
+    public string Message { get; init; } = "";
+    public int Total { get; init; }
+    public int Restored { get; init; }
+    public int Skipped { get; init; }
+    public int Failed { get; init; }
+    public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
+
+    public static OverFrameRestoreBatchResult Create(
+        int total,
+        int restored,
+        int skipped,
+        int failed,
+        IReadOnlyList<string> warnings,
+        string? gateBundlePath = null)
+    {
+        var parts = new List<string>
+        {
+            $"Restore overframes after patch: {restored} restored, {skipped} skipped, {failed} failed (of {total})."
+        };
+        if (!string.IsNullOrWhiteSpace(gateBundlePath))
+            parts.Add("Gate: " + gateBundlePath);
+        parts.Add("Official of_card_asset entries were preserved (additive merge). Quit Master Duel fully so LocalData reloads.");
+
+        return new OverFrameRestoreBatchResult
+        {
+            Success = failed == 0,
+            Message = string.Join(" ", parts),
+            Total = total,
+            Restored = restored,
+            Skipped = skipped,
+            Failed = failed,
+            Warnings = warnings
+        };
+    }
+}

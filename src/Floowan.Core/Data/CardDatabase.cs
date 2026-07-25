@@ -151,7 +151,10 @@ CREATE TABLE IF NOT EXISTS user.card_state (
   has_backup BOOLEAN NOT NULL DEFAULT 0,
   is_overframe INTEGER NOT NULL DEFAULT 0,
   overframe_base_id INTEGER,
-  art_id INTEGER
+  art_id INTEGER,
+  floowan_overframe INTEGER NOT NULL DEFAULT 0,
+  overframe_applied_at TEXT,
+  overframe_bundle VARCHAR(8)
 );
 
 CREATE INDEX IF NOT EXISTS user.idx_card_state_art_id ON card_state(art_id);
@@ -159,8 +162,63 @@ CREATE INDEX IF NOT EXISTS user.idx_card_state_art_id ON card_state(art_id);
             cmd.ExecuteNonQuery();
         }
 
+        EnsureUserCardStateColumn("floowan_overframe", "INTEGER NOT NULL DEFAULT 0");
+        EnsureUserCardStateColumn("overframe_applied_at", "TEXT");
+        EnsureUserCardStateColumn("overframe_bundle", "VARCHAR(8)");
+        BackfillFloowanOverframeFromLegacyFlags();
         EnsureUserAppConfigColumn("of_card_asset_bundle", "VARCHAR(8)");
         EnsureUserAppConfigRow();
+    }
+
+    private void EnsureUserCardStateColumn(string column, string typeSql)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "PRAGMA user.table_info(card_state);";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                return;
+        }
+
+        reader.Close();
+        using var alter = _connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE user.card_state ADD COLUMN {column} {typeSql};";
+        alter.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// One-time: treat legacy <c>is_overframe</c> rows as Floowan-applied so patch restore
+    /// still finds them after <see cref="SyncOverframeFromGate"/> clears live gate flags.
+    /// </summary>
+    private void BackfillFloowanOverframeFromLegacyFlags()
+    {
+        if (GetSchemaMeta("floowan_overframe_backfilled") == "1")
+            return;
+
+        using var tx = _connection.BeginTransaction();
+        try
+        {
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = @"
+UPDATE user.card_state
+SET floowan_overframe = 1,
+    overframe_applied_at = COALESCE(overframe_applied_at, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+WHERE IFNULL(is_overframe, 0) = 1
+  AND IFNULL(floowan_overframe, 0) = 0;";
+                cmd.ExecuteNonQuery();
+            }
+
+            SetSchemaMeta(tx, "floowan_overframe_backfilled", "1");
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
     }
 
     private void EnsureUserAppConfigColumn(string column, string typeSql)
@@ -814,15 +872,103 @@ WHERE id = $id;";
     }
 
     /// <summary>
-    /// Clears all over-frame flags, then marks cards whose Master Duel art id
-    /// appears as a gate <paramref name="entries"/> trigger (Texture2D m_Name).
-    /// Returns how many card rows were marked.
+    /// Records that Floowan successfully applied (or removed) an over-frame for this card.
+    /// Survives <see cref="SyncOverframeFromGate"/> so Tools can re-apply after an MD patch.
+    /// </summary>
+    public void SetFloowanOverframe(
+        int cardId,
+        bool applied,
+        int? overframeBaseId = null,
+        string? bundleId = null)
+    {
+        EnsureCardStateRow(cardId);
+        using var cmd = _connection.CreateCommand();
+        if (applied)
+        {
+            cmd.CommandText = @"
+UPDATE user.card_state
+SET is_overframe = 1,
+    floowan_overframe = 1,
+    overframe_base_id = $base,
+    overframe_applied_at = $at,
+    overframe_bundle = $bundle
+WHERE id = $id;";
+            cmd.Parameters.AddWithValue("$base", (object?)overframeBaseId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$at", DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"));
+            cmd.Parameters.AddWithValue(
+                "$bundle",
+                string.IsNullOrWhiteSpace(bundleId) ? DBNull.Value : bundleId);
+        }
+        else
+        {
+            cmd.CommandText = @"
+UPDATE user.card_state
+SET is_overframe = 0,
+    floowan_overframe = 0,
+    overframe_base_id = NULL,
+    overframe_applied_at = NULL,
+    overframe_bundle = NULL
+WHERE id = $id;";
+        }
+
+        cmd.Parameters.AddWithValue("$id", cardId);
+        cmd.ExecuteNonQuery();
+    }
+
+    public bool IsFloowanOverframe(int cardId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText =
+            "SELECT IFNULL(floowan_overframe, 0) FROM user.card_state WHERE id = $id;";
+        cmd.Parameters.AddWithValue("$id", cardId);
+        var value = cmd.ExecuteScalar();
+        return value is not null and not DBNull && Convert.ToInt64(value) != 0;
+    }
+
+    /// <summary>
+    /// Cards Floowan previously applied OF to (for post-patch restore), newest first.
+    /// </summary>
+    public IReadOnlyList<CardRecord> ListFloowanOverframeCards()
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = $@"
+SELECT {_cardSelectList}
+{CardFromJoin}
+WHERE IFNULL(u.floowan_overframe, 0) = 1
+ORDER BY IFNULL(u.overframe_applied_at, '') DESC, c.id DESC;";
+        var results = new List<CardRecord>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            results.Add(ReadCard(reader));
+        return results;
+    }
+
+    /// <summary>
+    /// Updates live <c>is_overframe</c> from the gate without wiping Floowan apply memory
+    /// (<c>floowan_overframe</c> / applied timestamps / stored base ids for Floowan cards).
+    /// Returns how many card rows were marked from gate triggers.
     /// </summary>
     public int SyncOverframeFromGate(IEnumerable<(ushort TriggerId, ushort BaseArtId)> entries)
     {
-        using var clear = _connection.CreateCommand();
-        clear.CommandText = "UPDATE user.card_state SET is_overframe = 0, overframe_base_id = NULL;";
-        clear.ExecuteNonQuery();
+        // Non-Floowan rows: full clear (live gate is source of truth).
+        using (var clearOthers = _connection.CreateCommand())
+        {
+            clearOthers.CommandText = @"
+UPDATE user.card_state
+SET is_overframe = 0, overframe_base_id = NULL
+WHERE IFNULL(floowan_overframe, 0) = 0;";
+            clearOthers.ExecuteNonQuery();
+        }
+
+        // Floowan-tracked: clear live flag only; keep base_id for restore-after-patch.
+        using (var clearFloowanLive = _connection.CreateCommand())
+        {
+            clearFloowanLive.CommandText = @"
+UPDATE user.card_state
+SET is_overframe = 0
+WHERE floowan_overframe = 1;";
+            clearFloowanLive.ExecuteNonQuery();
+        }
 
         var marked = 0;
         foreach (var (triggerId, baseArtId) in entries)
