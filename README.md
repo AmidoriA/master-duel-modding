@@ -17,7 +17,7 @@
 - **Over-frame tab**: apply **704×1024** art, register the card in `of_card_asset`, enable/remove gate entries, restore backups
 - **Pendulum over-frame**: Frame dropdown lists all MD Pendulum variants (Normal / Effect / Fusion / Synchro / Xyz / Token). Auto-create crops native 512×1024 sources to the top **3:4** band and composites into each style’s wider/shorter art hole (~603×450)
 - **Auto-create over-frame art**: remove the current art background with rembg’s `isnet-anime` model, trim/resize the subject, and preview it on a transparent 704×1024 canvas
-- **Link over-frame**: Link frames are supported for Auto-create and Custom OF; active `CARD_Prop` markers get a soft dark drop halo + bright silver/white rim + black inset + orange/red glow as a topmost overlay after compose (`Link.png` only has inactive flat triangles; inactive stay dark)
+- **Link over-frame**: Link frames are supported for Auto-create and Custom OF; active `CARD_Prop` markers fit a geometric triangle to the jagged `Link.png` glyph and paint an AA SDF stack (drop halo + bright silver/white rim + black inset + orange/red glow) as a topmost overlay after compose; inactive stay dark
 
 ## Projects
 
