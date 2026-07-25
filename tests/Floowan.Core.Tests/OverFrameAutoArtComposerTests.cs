@@ -2425,16 +2425,17 @@ public class OverFrameAutoArtComposerTests
         Math.Abs(a.R - b.R) + Math.Abs(a.G - b.G) + Math.Abs(a.B - b.B);
 
     /// <summary>
-    /// Covered lore is soft-blended (≈92% cream), so RGB may drift slightly from exact
-    /// frame cream while staying chrome-opaque and cream-dominant.
+    /// Covered lore is soft-blended (≈80% cream via
+    /// <see cref="OverFrameAutoArtComposer.TextBoxFrameOpacity"/>), so RGB may drift
+    /// from exact frame cream while staying chrome-opaque and cream-dominant.
     /// </summary>
     private static void AssertLoreCreamChrome(Rgba32 lore, Rgba32 cream, string label)
     {
         Assert.True(lore.A >= 200, $"{label} must stay opaque, got {lore}");
         Assert.True(
-            Math.Abs(lore.R - cream.R) < 40 &&
-            Math.Abs(lore.G - cream.G) < 40 &&
-            Math.Abs(lore.B - cream.B) < 40,
+            Math.Abs(lore.R - cream.R) < 55 &&
+            Math.Abs(lore.G - cream.G) < 55 &&
+            Math.Abs(lore.B - cream.B) < 55,
             $"expected cream-dominant {label}, got {lore}");
     }
 
