@@ -337,7 +337,6 @@ public static class OverFrameAutoArtComposer
         }));
         using var cutout = source.Clone();
 
-        var opaque = 0;
         for (var y = 0; y < cutout.Height; y++)
         {
             var pixels = cutout.DangerousGetPixelRowMemory(y).Span;
@@ -348,7 +347,6 @@ public static class OverFrameAutoArtComposer
                 var keep = maskPixels[x].PackedValue >= MaskKeepThreshold;
                 if (keep)
                 {
-                    opaque++;
                     pixel.A = 255;
                 }
                 else
@@ -358,14 +356,6 @@ public static class OverFrameAutoArtComposer
 
                 pixels[x] = pixel;
             }
-        }
-
-        var total = cutout.Width * cutout.Height;
-        if (total > 0 && opaque / (float)total > 0.92f)
-        {
-            throw new InvalidOperationException(
-                "Subject mask left almost the entire image opaque. " +
-                "Provide a PNG (or other image) with a transparent background around the subject.");
         }
 
         var bounds = FindVisibleBounds(cutout);
