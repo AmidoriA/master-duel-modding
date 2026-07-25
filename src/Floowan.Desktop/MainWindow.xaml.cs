@@ -1245,15 +1245,6 @@ public partial class MainWindow : Window
         return true;
     }
 
-    /// <summary>Empty-selection guard. Returns true when the action should abort.</summary>
-    private bool WarnIfFrameActionBlocked(bool requireSelection = true)
-    {
-        if (requireSelection && WarnIfFrameStyleNotSelected())
-            return true;
-        // Link frames are supported: compose redraws CARD_Prop link arrows on top.
-        return false;
-    }
-
     private void RefreshOfGateEntryStatus()
     {
         if (_ofSelected is null || _overFrameService is null || string.IsNullOrWhiteSpace(GamePathBox.Text) || !_ofGateReady)
@@ -1469,9 +1460,7 @@ public partial class MainWindow : Window
             return;
         }
         // Preview may run without a Frame selection (defaults to Effect for compose only).
-        // Auto-create / Apply still require an explicit Frame via WarnIfFrameActionBlocked().
-        if (WarnIfFrameActionBlocked(requireSelection: false))
-            return;
+        // Auto-create still requires an explicit Frame via WarnIfFrameStyleNotSelected().
 
         SetUiBusy(true);
         var card = _ofSelected;
@@ -1702,7 +1691,7 @@ public partial class MainWindow : Window
             MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
             return;
         }
-        if (WarnIfFrameActionBlocked())
+        if (WarnIfFrameStyleNotSelected())
             return;
 
         if (!_ofGateReady)
@@ -1758,8 +1747,6 @@ public partial class MainWindow : Window
             MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
             return;
         }
-        if (WarnIfFrameActionBlocked(requireSelection: false))
-            return;
 
         if (!_ofGateReady)
             await EnsureOfGateAsync(showErrors: true);
@@ -1793,8 +1780,6 @@ public partial class MainWindow : Window
     private async void OfRestore_Click(object sender, RoutedEventArgs e)
     {
         if (_overFrameService is null || _ofSelected is null || string.IsNullOrWhiteSpace(GamePathBox.Text))
-            return;
-        if (WarnIfFrameActionBlocked(requireSelection: false))
             return;
 
         if (!_ofGateReady)
