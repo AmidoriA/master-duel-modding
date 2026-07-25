@@ -9,7 +9,7 @@
         ShowInTaskbar="False">
   <DockPanel Margin="14">
     <TextBlock DockPanel.Dock="Top"
-               Text="Pick a subject image, drag to position, then Apply to the selected card."
+               Text="Pick a subject PNG with alpha, drag the subject to position, then Apply to the selected card."
                Foreground="{StaticResource MutedBrush}"
                TextWrapping="Wrap"
                Margin="0,0,0,10"/>
@@ -63,12 +63,18 @@
             MouseLeftButtonUp="Preview_MouseLeftButtonUp"
             MouseLeave="Preview_MouseLeave"
             LostMouseCapture="Preview_LostMouseCapture">
+        <!-- Full OF card stays fixed; only SubjectOverlay translates while dragging. -->
         <Image x:Name="PreviewImage"
                Stretch="Uniform"
                RenderOptions.BitmapScalingMode="HighQuality"
-               Cursor="SizeAll">
+               Cursor="SizeAll"/>
+        <Image x:Name="SubjectOverlay"
+               Stretch="Uniform"
+               Visibility="Collapsed"
+               IsHitTestVisible="False"
+               RenderOptions.BitmapScalingMode="HighQuality">
           <Image.RenderTransform>
-            <TranslateTransform x:Name="PreviewDragTransform"/>
+            <TranslateTransform x:Name="SubjectDragTransform"/>
           </Image.RenderTransform>
         </Image>
         <TextBlock x:Name="PreviewHintText"

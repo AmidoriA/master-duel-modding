@@ -18,7 +18,6 @@ namespace Floowan.Desktop;
 
 public partial class CustomOverframeWindow : Window
 {
-    private readonly AutoOverFrameArtService _autoArt;
     private readonly OverFrameModService _overFrameService;
     private readonly CardRecord _card;
     private readonly string _gamePath;
@@ -31,6 +30,7 @@ public partial class CustomOverframeWindow : Window
     private int _offsetY;
     private bool _busy;
     private bool _dragging;
+    private int _dragVisualGeneration;
     private System.Windows.Point _dragStart;
     private int _dragStartOffsetX;
     private int _dragStartOffsetY;
@@ -46,7 +46,7 @@ public partial class CustomOverframeWindow : Window
         CardFrameStyle initialFrameStyle)
     {
         InitializeComponent();
-        _autoArt = autoArt;
+        _ = autoArt; // Custom dialog uses alpha mask only; rembg stays on Auto-create.
         _overFrameService = overFrameService;
         _card = card;
         _gamePath = gamePath;
@@ -92,8 +92,8 @@ public partial class CustomOverframeWindow : Window
 
         var dlg = new OpenFileDialog
         {
-            Title = "Select subject image for custom overframe",
-            Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp|All files|*.*"
+            Title = "Select subject image with alpha for custom overframe",
+            Filter = "Images|*.png;*.webp;*.bmp|PNG (alpha)|*.png|All files|*.*"
         };
         if (dlg.ShowDialog(this) != true)
             return;
@@ -118,7 +118,7 @@ public partial class CustomOverframeWindow : Window
             var proceed = MessageBox.Show(
                 this,
                 $"Image is {sizeNote}; preferred source is 704×1024.\n\n" +
-                (validation.Warning ?? "It will be prepared through the Auto-create rembg pipeline.") +
+                (validation.Warning ?? "Existing alpha will be used as the subject mask (no rembg).") +
                 "\n\nContinue?",
                 "Custom overframe art",
                 MessageBoxButton.YesNo,
@@ -133,22 +133,23 @@ public partial class CustomOverframeWindow : Window
     private async Task PrepareFromImageAsync(string imagePath, string sizeNote)
     {
         SetBusy(true);
-        StatusText.Text = $"Preparing {Path.GetFileName(imagePath)} ({sizeNote})…";
+        StatusText.Text = $"Loading {Path.GetFileName(imagePath)} ({sizeNote})…";
         try
         {
             DisposeSubject();
             _offsetX = 0;
             _offsetY = 0;
-            ResetDragTransform();
+            ClearSubjectOverlay();
 
             var progress = new Progress<string>(msg => StatusText.Text = msg);
-            var prepared = await _autoArt.PrepareSubjectAsync(imagePath, progress);
+            var prepared = await Task.Run(
+                () => AutoOverFrameArtService.LoadSubjectFromAlpha(imagePath, progress));
             _subjectSource = prepared.Source;
             _subjectMask = prepared.Mask;
 
             await RecomposePreviewAsync();
             StatusText.Text =
-                $"Subject ready ({sizeNote}). Drag to reposition, then Apply.";
+                $"Subject ready ({sizeNote}). Drag the subject to reposition, then Apply.";
             PreviewHintText.Visibility = Visibility.Collapsed;
             ApplyButton.IsEnabled = true;
         }
@@ -156,6 +157,7 @@ public partial class CustomOverframeWindow : Window
         {
             DisposeSubject();
             PreviewImage.Source = null;
+            ClearSubjectOverlay();
             PreviewHintText.Visibility = Visibility.Visible;
             ApplyButton.IsEnabled = false;
             StatusText.Text = "Failed: " + ex.Message;
@@ -182,7 +184,7 @@ public partial class CustomOverframeWindow : Window
         {
             await RecomposePreviewAsync();
             StatusText.Text =
-                $"Preview updated ({GetSelectedFrameStyle()}). Drag to reposition, then Apply.";
+                $"Preview updated ({GetSelectedFrameStyle()}). Drag the subject to reposition, then Apply.";
         }
         catch (Exception ex)
         {
@@ -227,7 +229,36 @@ public partial class CustomOverframeWindow : Window
                 offsetY));
 
         PreviewImage.Source = LoadOfComposePreview(outputPath);
-        ResetDragTransform();
+        ClearSubjectOverlay();
+    }
+
+    private async Task BeginSubjectDragVisualAsync(int generation)
+    {
+        if (_subjectSource is null || _subjectMask is null)
+            return;
+
+        var frameStyle = GetSelectedFrameStyle();
+        var offsetX = _offsetX;
+        var offsetY = _offsetY;
+        var source = _subjectSource;
+        var mask = _subjectMask;
+
+        var (baseBmp, subjectBmp) = await Task.Run(() =>
+        {
+            using var baseLayer = OverFrameAutoArtComposer.ComposeBaseWithoutSubject(
+                source, mask, frameStyle);
+            using var subjectLayer = OverFrameAutoArtComposer.RenderSubjectDragLayer(
+                source, mask, frameStyle, subjectOffsetX: offsetX, subjectOffsetY: offsetY);
+            return (ToPreviewBitmap(baseLayer), ToPreviewBitmap(subjectLayer));
+        });
+
+        if (generation != _dragVisualGeneration || !_dragging)
+            return;
+
+        PreviewImage.Source = baseBmp;
+        SubjectOverlay.Source = subjectBmp;
+        ResetSubjectDragTransform();
+        SubjectOverlay.Visibility = Visibility.Visible;
     }
 
     private void Preview_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -241,6 +272,10 @@ public partial class CustomOverframeWindow : Window
         _dragStartOffsetY = _offsetY;
         PreviewHost.CaptureMouse();
         e.Handled = true;
+
+        // Swap to base + subject overlay so live drag moves subject only.
+        var generation = ++_dragVisualGeneration;
+        _ = BeginSubjectDragVisualAsync(generation);
     }
 
     private void Preview_MouseMove(object sender, MouseEventArgs e)
@@ -255,8 +290,8 @@ public partial class CustomOverframeWindow : Window
 
         var dx = (pos.X - _dragStart.X) / scale;
         var dy = (pos.Y - _dragStart.Y) / scale;
-        PreviewDragTransform.X = pos.X - _dragStart.X;
-        PreviewDragTransform.Y = pos.Y - _dragStart.Y;
+        SubjectDragTransform.X = pos.X - _dragStart.X;
+        SubjectDragTransform.Y = pos.Y - _dragStart.Y;
         StatusText.Text =
             $"Offset {_dragStartOffsetX + (int)Math.Round(dx)}, {_dragStartOffsetY + (int)Math.Round(dy)} (release to recompose)";
     }
@@ -291,6 +326,7 @@ public partial class CustomOverframeWindow : Window
             return;
 
         _dragging = false;
+        _dragVisualGeneration++;
         PreviewHost.ReleaseMouseCapture();
 
         var scale = GetPreviewCanvasScale();
@@ -304,7 +340,7 @@ public partial class CustomOverframeWindow : Window
 
         if (_busy || _subjectSource is null || _subjectMask is null)
         {
-            ResetDragTransform();
+            ClearSubjectOverlay();
             return;
         }
 
@@ -314,12 +350,12 @@ public partial class CustomOverframeWindow : Window
         {
             await RecomposePreviewAsync();
             StatusText.Text =
-                $"Preview at offset {_offsetX}, {_offsetY}. Drag again or Apply.";
+                $"Preview at offset {_offsetX}, {_offsetY}. Drag the subject again or Apply.";
         }
         catch (Exception ex)
         {
             StatusText.Text = "Compose failed: " + ex.Message;
-            ResetDragTransform();
+            ClearSubjectOverlay();
             MessageBox.Show(
                 this,
                 "Could not recompose overframe:\n\n" + ex.Message,
@@ -338,7 +374,10 @@ public partial class CustomOverframeWindow : Window
     /// </summary>
     private double GetPreviewCanvasScale()
     {
-        if (PreviewImage.Source is not BitmapSource bmp)
+        // Prefer the fixed card preview; fall back to overlay while dragging.
+        BitmapSource? bmp = PreviewImage.Source as BitmapSource
+            ?? SubjectOverlay.Source as BitmapSource;
+        if (bmp is null)
             return 0;
 
         var availableW = PreviewHost.ActualWidth;
@@ -422,10 +461,17 @@ public partial class CustomOverframeWindow : Window
         Cursor = busy ? Cursors.Wait : Cursors.Arrow;
     }
 
-    private void ResetDragTransform()
+    private void ResetSubjectDragTransform()
     {
-        PreviewDragTransform.X = 0;
-        PreviewDragTransform.Y = 0;
+        SubjectDragTransform.X = 0;
+        SubjectDragTransform.Y = 0;
+    }
+
+    private void ClearSubjectOverlay()
+    {
+        SubjectOverlay.Visibility = Visibility.Collapsed;
+        SubjectOverlay.Source = null;
+        ResetSubjectDragTransform();
     }
 
     private void DisposeSubject()
@@ -455,6 +501,11 @@ public partial class CustomOverframeWindow : Window
     private static BitmapImage LoadOfComposePreview(string path)
     {
         using var image = ImageSharpImage.Load<Rgba32>(path);
+        return ToPreviewBitmap(image);
+    }
+
+    private static BitmapImage ToPreviewBitmap(Image<Rgba32> image)
+    {
         using var flat = OverFrameAutoArtComposer.FlattenFoilMaskForPreview(image);
         using var ms = new MemoryStream();
         flat.Save(ms, new SixLabors.ImageSharp.Formats.Png.PngEncoder());
