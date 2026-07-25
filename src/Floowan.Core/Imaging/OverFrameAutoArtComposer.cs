@@ -241,7 +241,89 @@ public static class OverFrameAutoArtComposer
         bool useSharedEffectLayout,
         FrameLayout? pendulumLayout,
         int subjectOffsetX,
-        int subjectOffsetY)
+        int subjectOffsetY) =>
+        Compose(
+            source,
+            mask,
+            frameTemplate,
+            useSharedEffectLayout,
+            pendulumLayout,
+            subjectOffsetX,
+            subjectOffsetY,
+            SubjectComposeMode.Full);
+
+    /// <summary>
+    /// Foil + frame only (no overflow subject). Used as the fixed drag base in the
+    /// Custom OF dialog so live drag can move a subject overlay independently.
+    /// </summary>
+    public static Image<Rgba32> ComposeBaseWithoutSubject(
+        Image<Rgba32> source,
+        Image<L8> mask,
+        CardFrameStyle frameStyle = CardFrameStyle.Effect,
+        string? frameDirectory = null)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(mask);
+
+        using var frame = CardFrameTemplates.Load(frameStyle, frameDirectory);
+        return Compose(
+            source,
+            mask,
+            frame,
+            useSharedEffectLayout: !CardFrameTemplates.IsPendulumStyle(frameStyle),
+            pendulumLayout: CardFrameTemplates.IsPendulumStyle(frameStyle)
+                ? GetPendulumLayout(frameStyle)
+                : null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            mode: SubjectComposeMode.BaseWithoutSubject);
+    }
+
+    /// <summary>
+    /// Subject silhouette alone on a transparent 704×1024 canvas, placed the same way
+    /// <see cref="Compose"/> places overflow art. Used as the draggable overlay layer.
+    /// </summary>
+    public static Image<Rgba32> RenderSubjectDragLayer(
+        Image<Rgba32> source,
+        Image<L8> mask,
+        CardFrameStyle frameStyle = CardFrameStyle.Effect,
+        string? frameDirectory = null,
+        int subjectOffsetX = 0,
+        int subjectOffsetY = 0)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(mask);
+
+        using var frame = CardFrameTemplates.Load(frameStyle, frameDirectory);
+        return Compose(
+            source,
+            mask,
+            frame,
+            useSharedEffectLayout: !CardFrameTemplates.IsPendulumStyle(frameStyle),
+            pendulumLayout: CardFrameTemplates.IsPendulumStyle(frameStyle)
+                ? GetPendulumLayout(frameStyle)
+                : null,
+            subjectOffsetX,
+            subjectOffsetY,
+            SubjectComposeMode.SubjectLayerOnly);
+    }
+
+    private enum SubjectComposeMode
+    {
+        Full,
+        BaseWithoutSubject,
+        SubjectLayerOnly,
+    }
+
+    private static Image<Rgba32> Compose(
+        Image<Rgba32> source,
+        Image<L8> mask,
+        Image<Rgba32> frameTemplate,
+        bool useSharedEffectLayout,
+        FrameLayout? pendulumLayout,
+        int subjectOffsetX,
+        int subjectOffsetY,
+        SubjectComposeMode mode)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(mask);
@@ -282,13 +364,13 @@ public static class OverFrameAutoArtComposer
         if (total > 0 && opaque / (float)total > 0.92f)
         {
             throw new InvalidOperationException(
-                "Background removal left almost the entire image opaque. " +
-                "Pick a cleaner source art or edit the PNG manually so the subject has a transparent background.");
+                "Subject mask left almost the entire image opaque. " +
+                "Provide a PNG (or other image) with a transparent background around the subject.");
         }
 
         var bounds = FindVisibleBounds(cutout);
         if (bounds.IsEmpty)
-            throw new InvalidOperationException("Background removal did not find a visible subject.");
+            throw new InvalidOperationException("Subject mask did not find a visible subject.");
 
         using var subject = cutout.Clone(ctx => ctx.Crop(bounds));
 
@@ -327,10 +409,10 @@ public static class OverFrameAutoArtComposer
         var artCenterY = artWindow.Top + artWindow.Height / 2f;
         // Pendulum-only: nudge the centered 3:4 cover down so the silhouette sits
         // more naturally in the short art hole (see PendulumVerticalOffset).
-        // subjectOffsetX/Y shifts foil base + rembg subject together (Custom OF dialog drag).
+        // subjectOffsetX/Y move only the overflow subject; foil/frame base stay fixed.
         var verticalOffset = useSharedEffectLayout ? 0 : PendulumVerticalOffset;
-        var bgX = (int)MathF.Round(artCenterX - scaledSourceW / 2f) + subjectOffsetX;
-        var bgY = (int)MathF.Round(artCenterY - scaledSourceH / 2f) + verticalOffset + subjectOffsetY;
+        var bgX = (int)MathF.Round(artCenterX - scaledSourceW / 2f);
+        var bgY = (int)MathF.Round(artCenterY - scaledSourceH / 2f) + verticalOffset;
 
         var targetWidth = Math.Max(1, (int)MathF.Round(subject.Width * scale));
         var targetHeight = Math.Max(1, (int)MathF.Round(subject.Height * scale));
@@ -341,8 +423,8 @@ public static class OverFrameAutoArtComposer
             Sampler = KnownResamplers.Lanczos3
         }));
 
-        var xOffset = bgX + (int)MathF.Round(bounds.Left * scale);
-        var yOffset = bgY + (int)MathF.Round(bounds.Top * scale);
+        var xOffset = bgX + (int)MathF.Round(bounds.Left * scale) + subjectOffsetX;
+        var yOffset = bgY + (int)MathF.Round(bounds.Top * scale) + subjectOffsetY;
 
         // Fail closed: rembg must overframe the art hole on at least one side.
         // No L/R/T/B overflow → abort (do not emit a flat in-frame OF canvas).
@@ -354,6 +436,28 @@ public static class OverFrameAutoArtComposer
                 yOffset + resized.Height))
         {
             throw new InvalidOperationException(CannotDetectSubjectMessage);
+        }
+
+        if (mode == SubjectComposeMode.SubjectLayerOnly)
+        {
+            var layer = new Image<Rgba32>(
+                Assets.OverFrameConstants.Width,
+                Assets.OverFrameConstants.Height,
+                new Rgba32(0, 0, 0, 0));
+            var textBoxForLayer = ResolveTextBox(frame, artWindow, useSharedEffectLayout, layout);
+            var loreCutTopForLayer = ResolveLoreCutTop(
+                frame, textBoxForLayer, artWindow, useSharedEffectLayout, layout);
+            var occupiedLayer = new bool[layer.Width * layer.Height];
+            BlitSubjectFoilMask(
+                layer,
+                resized,
+                xOffset,
+                yOffset,
+                occupiedLayer,
+                loreCutTopForLayer,
+                textBoxForLayer,
+                allowPendulumGreenPunch: !useSharedEffectLayout);
+            return layer;
         }
 
         // 1) Art window + type-line strip + soft lore underlay (not lore side wings).
@@ -376,8 +480,11 @@ public static class OverFrameAutoArtComposer
         //    Pendulum also allows subject punch on outer green side/bottom chrome.
         var occupied = new bool[canvas.Width * canvas.Height];
         var pendulumGreenPunch = !useSharedEffectLayout;
-        BlitSubjectFoilMask(
-            canvas, resized, xOffset, yOffset, occupied, loreCutTop, textBox, pendulumGreenPunch);
+        if (mode == SubjectComposeMode.Full)
+        {
+            BlitSubjectFoilMask(
+                canvas, resized, xOffset, yOffset, occupied, loreCutTop, textBox, pendulumGreenPunch);
+        }
 
         // 3) Frame chrome + lore panel. Effect: tall lore-top falloff + footprint feather.
         //    Pendulum: constant Mirrorjade soft where art underlays (no Effect gradient).

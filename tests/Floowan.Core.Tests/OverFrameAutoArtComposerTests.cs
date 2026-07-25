@@ -1,3 +1,4 @@
+using System.IO;
 using Floowan.Core.Assets;
 using Floowan.Core.Imaging;
 using SixLabors.ImageSharp;
@@ -8,7 +9,7 @@ namespace Floowan.Core.Tests;
 public class OverFrameAutoArtComposerTests
 {
     [Fact]
-    public void Compose_SubjectOffset_ShiftsFoilAndSubjectTogether()
+    public void Compose_SubjectOffset_ShiftsSubjectOnly_LeavesFoilFixed()
     {
         using var source = new Image<Rgba32>(100, 100, new Rgba32(220, 30, 20, 255));
         using var mask = new Image<L8>(100, 100, new L8(0));
@@ -26,6 +27,11 @@ public class OverFrameAutoArtComposerTests
             pendulumLayout: null,
             subjectOffsetX: 40,
             subjectOffsetY: 0);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var foilX = art.Left + art.Width / 2;
+        var foilY = art.Top + art.Height / 2;
+        Assert.Equal(baseline[foilX, foilY], shifted[foilX, foilY]);
 
         var overflowY = FindSubjectAboveArtWindow(baseline);
         Assert.True(overflowY >= 0, "expected baseline overflow above art window");
@@ -56,6 +62,76 @@ public class OverFrameAutoArtComposerTests
 
         Assert.True(shiftedX >= 0, "expected shifted subject foil above art window");
         Assert.InRange(shiftedX - baselineX, 36, 44);
+    }
+
+    [Fact]
+    public void LoadSubjectFromAlpha_UsesExistingAlphaAsMask()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"floowan-alpha-subject-{Guid.NewGuid():N}.png");
+        try
+        {
+            using (var image = new Image<Rgba32>(64, 64, new Rgba32(0, 0, 0, 0)))
+            {
+                for (var y = 8; y < 56; y++)
+                for (var x = 20; x < 44; x++)
+                    image[x, y] = new Rgba32(10, 200, 40, 255);
+                image.SaveAsPng(path);
+            }
+
+            var (source, mask) = AutoOverFrameArtService.LoadSubjectFromAlpha(path);
+            using (source)
+            using (mask)
+            {
+                Assert.Equal(64, source.Width);
+                Assert.Equal(64, mask.Width);
+                Assert.Equal(255, mask[30, 30].PackedValue);
+                Assert.Equal(0, mask[0, 0].PackedValue);
+                Assert.Equal(10, source[30, 30].R);
+            }
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
+    public void LoadSubjectFromAlpha_RejectsFullyOpaqueImage()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"floowan-opaque-{Guid.NewGuid():N}.png");
+        try
+        {
+            using (var image = new Image<Rgba32>(32, 32, new Rgba32(12, 34, 56, 255)))
+                image.SaveAsPng(path);
+
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => AutoOverFrameArtService.LoadSubjectFromAlpha(path));
+            Assert.Contains("almost fully opaque", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
+    public void ComposeBaseWithoutSubject_OmitsOverflowSilhouette()
+    {
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(220, 30, 20, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+            mask[x, y] = new L8(255);
+
+        using var full = OverFrameAutoArtComposer.Compose(source, mask, CardFrameStyle.Effect);
+        using var baseOnly = OverFrameAutoArtComposer.ComposeBaseWithoutSubject(
+            source, mask, CardFrameStyle.Effect);
+        using var subjectLayer = OverFrameAutoArtComposer.RenderSubjectDragLayer(
+            source, mask, CardFrameStyle.Effect);
+
+        Assert.True(FindSubjectAboveArtWindow(full) >= 0, "full compose should overflow");
+        Assert.True(FindSubjectAboveArtWindow(baseOnly) < 0, "base should omit overflow subject");
+        Assert.True(FindSubjectAboveArtWindow(subjectLayer) >= 0, "subject layer should overflow");
     }
 
     [Fact]

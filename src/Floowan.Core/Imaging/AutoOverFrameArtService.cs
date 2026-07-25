@@ -78,33 +78,58 @@ public sealed class AutoOverFrameArtService : IDisposable
     }
 
     /// <summary>
-    /// Runs rembg once and returns owned clean source + mask for repeated compose
-    /// (e.g. Custom OF dialog drag / frame changes without re-running the model).
-    /// Caller must dispose both images.
+    /// Loads a user-provided subject image and uses its existing alpha channel as the
+    /// subject mask (no rembg). Caller must dispose both images.
     /// </summary>
-    public async Task<(Image<Rgba32> Source, Image<L8> Mask)> PrepareSubjectAsync(
+    public static (Image<Rgba32> Source, Image<L8> Mask) LoadSubjectFromAlpha(
         string sourceImagePath,
-        IProgress<string>? progress = null,
-        CancellationToken cancellationToken = default)
+        IProgress<string>? progress = null)
     {
         if (!File.Exists(sourceImagePath))
             throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
 
-        await EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
-        progress?.Report("Removing background with isnet-anime…");
-
-        return await Task.Run(() =>
+        progress?.Report("Reading subject alpha mask…");
+        var source = Image.Load<Rgba32>(sourceImagePath);
+        var mask = new Image<L8>(source.Width, source.Height);
+        var keep = 0;
+        for (var y = 0; y < source.Height; y++)
         {
-            using var prepared = PrepareCleanSource(sourceImagePath, progress);
-            // Transfer ownership: clone source out of the using scope.
-            var source = prepared.Source.Clone();
-            var mask = PredictMask(source);
-            return (source, mask);
-        }, cancellationToken).ConfigureAwait(false);
+            var pixels = source.DangerousGetPixelRowMemory(y).Span;
+            var maskRow = mask.DangerousGetPixelRowMemory(y).Span;
+            for (var x = 0; x < pixels.Length; x++)
+            {
+                var alpha = pixels[x].A;
+                maskRow[x] = new L8(alpha);
+                if (alpha >= OverFrameAutoArtComposer.MaskKeepThreshold)
+                    keep++;
+            }
+        }
+
+        var total = source.Width * source.Height;
+        if (keep == 0)
+        {
+            source.Dispose();
+            mask.Dispose();
+            throw new InvalidOperationException(
+                "No opaque subject found in the image alpha channel. " +
+                "Provide a PNG (or other image) with an alpha layer around the subject.");
+        }
+
+        if (total > 0 && keep / (float)total > 0.92f)
+        {
+            source.Dispose();
+            mask.Dispose();
+            throw new InvalidOperationException(
+                "Image alpha is almost fully opaque. " +
+                "Provide a PNG (or other image) with a transparent background around the subject.");
+        }
+
+        progress?.Report("Subject alpha mask ready.");
+        return (source, mask);
     }
 
     /// <summary>
-    /// Composes a previously prepared rembg subject onto a frame (no model inference).
+    /// Composes a previously prepared subject onto a frame (no model inference).
     /// </summary>
     public static void ComposePreparedSubject(
         Image<Rgba32> source,
