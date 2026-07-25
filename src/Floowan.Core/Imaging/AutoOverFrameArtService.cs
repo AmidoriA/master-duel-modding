@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Floowan.Core.Data;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using SixLabors.ImageSharp;
@@ -51,7 +52,8 @@ public sealed class AutoOverFrameArtService : IDisposable
         IProgress<string>? progress = null,
         CancellationToken cancellationToken = default,
         int subjectOffsetX = 0,
-        int subjectOffsetY = 0)
+        int subjectOffsetY = 0,
+        LinkMarkerMask? linkMarkers = null)
     {
         if (!File.Exists(sourceImagePath))
             throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
@@ -70,6 +72,7 @@ public sealed class AutoOverFrameArtService : IDisposable
                 frameStyle,
                 subjectOffsetX: subjectOffsetX,
                 subjectOffsetY: subjectOffsetY);
+            ApplyLinkArrowsIfNeeded(result, frameStyle, linkMarkers, progress);
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPngPath))!);
             result.Save(outputPngPath, new PngEncoder());
         }, cancellationToken).ConfigureAwait(false);
@@ -191,7 +194,8 @@ public sealed class AutoOverFrameArtService : IDisposable
         Image<Rgba32>? background = null,
         float backgroundScale = 1f,
         int backgroundOffsetX = 0,
-        int backgroundOffsetY = 0)
+        int backgroundOffsetY = 0,
+        LinkMarkerMask? linkMarkers = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(mask);
@@ -207,8 +211,29 @@ public sealed class AutoOverFrameArtService : IDisposable
             backgroundScale: backgroundScale,
             backgroundOffsetX: backgroundOffsetX,
             backgroundOffsetY: backgroundOffsetY);
+        ApplyLinkArrowsIfNeeded(result, frameStyle, linkMarkers);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPngPath))!);
         result.Save(outputPngPath, new PngEncoder());
+    }
+
+    /// <summary>
+    /// Topmost Link-arrow redraw after OF compose. No-op unless frame is Link and
+    /// <paramref name="linkMarkers"/> is set (including <see cref="LinkMarkerMask.None"/>,
+    /// which clears the need to redraw — pass null to skip when markers are unknown).
+    /// </summary>
+    public static void ApplyLinkArrowsIfNeeded(
+        Image<Rgba32> canvas,
+        CardFrameStyle frameStyle,
+        LinkMarkerMask? linkMarkers,
+        IProgress<string>? progress = null)
+    {
+        if (!LinkArrowOverlay.NeedsArrowOverlay(frameStyle) || linkMarkers is null)
+            return;
+        LinkArrowOverlay.Apply(canvas, linkMarkers.Value);
+        progress?.Report(
+            linkMarkers.Value == LinkMarkerMask.None
+                ? "Link frame: no active arrows to redraw."
+                : $"Redrawing Link arrows ({LinkMarkerMaskConvert.Count(linkMarkers.Value)} directions)…");
     }
 
     private static PreparedSource PrepareCleanSource(

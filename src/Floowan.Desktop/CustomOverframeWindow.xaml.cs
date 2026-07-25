@@ -24,6 +24,8 @@ public partial class CustomOverframeWindow : Window
     private readonly CardRecord _card;
     private readonly string _gamePath;
     private readonly CardDatabase? _database;
+    private readonly CardLinkMarkerLoader _linkMarkerLoader = new();
+    private LinkMarkerMask? _linkMarkers;
 
     private Image<Rgba32>? _subjectSource;
     private Image<L8>? _subjectMask;
@@ -57,7 +59,8 @@ public partial class CustomOverframeWindow : Window
         CardRecord card,
         string gamePath,
         CardDatabase? database,
-        CardFrameStyle initialFrameStyle)
+        CardFrameStyle initialFrameStyle,
+        LinkMarkerMask? linkMarkers = null)
     {
         InitializeComponent();
         _autoArt = autoArt;
@@ -65,8 +68,10 @@ public partial class CustomOverframeWindow : Window
         _card = card;
         _gamePath = gamePath;
         _database = database;
+        _linkMarkers = linkMarkers;
         Title = $"Custom overframe art — {card.DisplayName}";
         SelectFrameStyle(initialFrameStyle);
+        RefreshLinkMarkersForFrame(initialFrameStyle);
         ArtScaleSlider.Value = DefaultSubjectScale;
         _subjectScale = DefaultSubjectScale;
         BgScaleSlider.Value = DefaultBackgroundScale;
@@ -148,6 +153,27 @@ public partial class CustomOverframeWindow : Window
         }
 
         return CardFrameStyle.Effect;
+    }
+
+    private void RefreshLinkMarkersForFrame(CardFrameStyle frameStyle)
+    {
+        if (!LinkArrowOverlay.NeedsArrowOverlay(frameStyle))
+        {
+            _linkMarkers = null;
+            return;
+        }
+
+        try
+        {
+            if (_linkMarkerLoader.TryGetMarkers(_gamePath, _card.Id, out var markers))
+                _linkMarkers = markers;
+            else
+                _linkMarkers = null;
+        }
+        catch
+        {
+            _linkMarkers = null;
+        }
     }
 
     private float GetSubjectScale() =>
@@ -534,6 +560,7 @@ public partial class CustomOverframeWindow : Window
         var backgroundScale = _backgroundScale;
         var backgroundOffsetX = _backgroundOffsetX;
         var backgroundOffsetY = _backgroundOffsetY;
+        var linkMarkers = _linkMarkers;
         var bmp = await Task.Run(() =>
         {
             using var preview = OverFrameAutoArtComposer.ComposeCustomBackgroundOnly(
@@ -542,6 +569,7 @@ public partial class CustomOverframeWindow : Window
                 backgroundScale: backgroundScale,
                 backgroundOffsetX: backgroundOffsetX,
                 backgroundOffsetY: backgroundOffsetY);
+            AutoOverFrameArtService.ApplyLinkArrowsIfNeeded(preview, frameStyle, linkMarkers);
             return ToPreviewBitmap(preview);
         });
 
@@ -732,6 +760,8 @@ public partial class CustomOverframeWindow : Window
         if (!IsLoaded || _busy)
             return;
 
+        RefreshLinkMarkersForFrame(GetSelectedFrameStyle());
+
         if (_subjectSource is null || _subjectMask is null)
         {
             if (_backgroundSource is null)
@@ -809,6 +839,7 @@ public partial class CustomOverframeWindow : Window
             $"floowan-custom-of-{Guid.NewGuid():N}.png");
 
         var outputPath = _composedTempPath;
+        var linkMarkers = _linkMarkers;
         await Task.Run(() =>
             AutoOverFrameArtService.ComposePreparedSubject(
                 source,
@@ -822,7 +853,8 @@ public partial class CustomOverframeWindow : Window
                 background,
                 backgroundScale,
                 backgroundOffsetX,
-                backgroundOffsetY));
+                backgroundOffsetY,
+                linkMarkers));
 
         PreviewImage.Source = LoadOfComposePreview(outputPath);
         ClearSubjectOverlay();
@@ -843,6 +875,7 @@ public partial class CustomOverframeWindow : Window
         var backgroundScale = _backgroundScale;
         var backgroundOffsetX = _backgroundOffsetX;
         var backgroundOffsetY = _backgroundOffsetY;
+        var linkMarkers = _linkMarkers;
 
         var (baseBmp, subjectBmp) = await Task.Run(() =>
         {
@@ -856,6 +889,8 @@ public partial class CustomOverframeWindow : Window
                 backgroundScale: backgroundScale,
                 backgroundOffsetX: backgroundOffsetX,
                 backgroundOffsetY: backgroundOffsetY);
+            // Arrows sit above chrome/background but under the dragged subject layer.
+            AutoOverFrameArtService.ApplyLinkArrowsIfNeeded(baseLayer, frameStyle, linkMarkers);
             using var subjectLayer = OverFrameAutoArtComposer.RenderSubjectDragLayer(
                 source,
                 mask,
