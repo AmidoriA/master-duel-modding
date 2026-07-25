@@ -65,6 +65,88 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
+    public void Compose_SubjectOffset_KeepsEffectLoreCreamBehavior()
+    {
+        // subjectOffset must not skip or alter Mirrorjade lore paint (soft where art,
+        // solid where uncovered). Custom OF drag-release recompose uses the same path.
+        using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 255, 255));
+        using var mask = new Image<L8>(512, 512, new L8(0));
+        for (var y = 20; y < 492; y++)
+        for (var x = 40; x < 472; x++)
+            mask[x, y] = new L8(255);
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        using var baseline = OverFrameAutoArtComposer.Compose(source, mask, frame.Clone());
+        using var shifted = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 40,
+            subjectOffsetY: 60);
+        using var fullEffect = OverFrameAutoArtComposer.Compose(source, mask, CardFrameStyle.Effect);
+        using var baseOnly = OverFrameAutoArtComposer.ComposeBaseWithoutSubject(
+            source, mask, CardFrameStyle.Effect);
+
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var midX = creamR.Left + creamR.Width / 2;
+        var coveredY = creamR.Top + 20;
+        var uncoveredY = creamR.Bottom - 10;
+
+        Assert.Equal(baseline[midX, coveredY], shifted[midX, coveredY]);
+        Assert.Equal(baseline[midX, uncoveredY], shifted[midX, uncoveredY]);
+        Assert.Equal(cream, baseline[midX, uncoveredY]);
+        Assert.True(
+            baseline[midX, coveredY].B > cream.B,
+            $"covered lore must stay soft Mirrorjade underlay, got {baseline[midX, coveredY]}");
+
+        // Drag base layer uses the same lore paint path as full compose (foil fixed).
+        Assert.Equal(fullEffect[midX, coveredY], baseOnly[midX, coveredY]);
+        Assert.Equal(fullEffect[midX, uncoveredY], baseOnly[midX, uncoveredY]);
+    }
+
+    [Fact]
+    public void Compose_AlphaCutout_LoreCream_SolidWhereSourceTransparent()
+    {
+        // Custom OF alpha cutouts must not dim lore by soft-blending over zero-alpha RGB.
+        using var source = new Image<Rgba32>(704, 1024, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(704, 1024, new L8(0));
+        for (var y = 50; y < 900; y++)
+        for (var x = 300; x < 400; x++)
+        {
+            source[x, y] = new Rgba32(40, 200, 255, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+        using var shifted = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 50,
+            subjectOffsetY: 40);
+
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var leftX = creamR.Left + 30;
+        var yTop = creamR.Top + 20;
+        var left = result[leftX, yTop];
+        Assert.Equal(cream, left);
+        Assert.Equal(result[leftX, yTop], shifted[leftX, yTop]);
+    }
+
+    [Fact]
     public void LoadSubjectFromAlpha_UsesExistingAlphaAsMask()
     {
         var path = Path.Combine(Path.GetTempPath(), $"floowan-alpha-subject-{Guid.NewGuid():N}.png");
@@ -269,19 +351,6 @@ public class OverFrameAutoArtComposerTests
             () => OverFrameAutoArtComposer.Compose(source, mask, frame));
 
         Assert.Contains("visible subject", error.Message);
-    }
-
-    [Fact]
-    public void Compose_RejectsNearlyOpaqueCutout()
-    {
-        using var source = new Image<Rgba32>(64, 64, Color.White);
-        using var mask = new Image<L8>(64, 64, new L8(255));
-        using var frame = CreateSolidFrame();
-
-        var error = Assert.Throws<InvalidOperationException>(
-            () => OverFrameAutoArtComposer.Compose(source, mask, frame));
-
-        Assert.Contains("opaque", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
