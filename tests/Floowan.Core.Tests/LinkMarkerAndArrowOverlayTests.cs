@@ -154,27 +154,32 @@ public class LinkMarkerAndArrowOverlayTests
     }
 
     [Fact]
-    public void LinkArrowOverlay_Apply_LeavesMetallicBevelUnlit()
+    public void LinkArrowOverlay_Apply_CompositesMetalBorderBlackInsetAndGlow()
     {
-        // Decode Talker Integration OF anatomy: metallic L/triangular housing stays
-        // silver-grey; only the inner glyph glows. Sample mid-tone bevel pixels that
-        // used to light when lum≤120 recolored the whole corner.
-        using var canvas = CardFrameTemplates.Load(CardFrameStyle.Link);
+        // Active anatomy: silver triangular housing → black inset → orange fill.
+        // Must NOT flood the card L-corner chrome orange.
+        using var canvas = new Image<Rgba32>(
+            OverFrameConstants.Width,
+            OverFrameConstants.Height,
+            new Rgba32(40, 50, 70, 255));
         LinkArrowOverlay.Apply(
             canvas,
             LinkMarkerMask.DownLeft | LinkMarkerMask.DownRight | LinkMarkerMask.Up);
 
-        // Metallic bevel / housing mid-tones (not near-black glyph fill).
-        Assert.False(IsLitOrange(canvas[64, 744]), "DL bevel must stay unlit");
-        Assert.False(IsLitOrange(canvas[84, 739]), "DL bevel rim must stay unlit");
-        Assert.False(IsLitOrange(canvas[641, 744]), "DR bevel must stay unlit");
-        Assert.False(IsLitOrange(canvas[621, 739]), "DR bevel rim must stay unlit");
-        Assert.False(IsLitOrange(canvas[352, 155]), "Up housing rim must stay unlit");
-
-        // Inner triangle tips / fills should be lit.
         Assert.True(IsLitOrange(canvas[69, 724]), "DL triangle glyph should be lit");
         Assert.True(IsLitOrange(canvas[636, 724]), "DR triangle glyph should be lit");
         Assert.True(IsLitOrange(canvas[352, 168]), "Up triangle glyph should be lit");
+
+        Assert.True(IsMetallicSilver(canvas[63, 735]), "DL should gain silver housing");
+        Assert.True(IsMetallicSilver(canvas[641, 735]), "DR should gain silver housing");
+        Assert.True(IsMetallicSilver(canvas[352, 154]), "Up should gain silver housing");
+
+        Assert.True(IsBlackInset(canvas[79, 709]), "DL black inset between metal and glow");
+        Assert.True(IsBlackInset(canvas[626, 708]), "DR black inset between metal and glow");
+
+        // Card L-corner chrome outside the triangular housing must stay non-orange.
+        Assert.False(IsLitOrange(canvas[45, 700]), "Far DL L-corner must not be orange");
+        Assert.False(IsLitOrange(canvas[660, 700]), "Far DR L-corner must not be orange");
     }
 
     [Fact]
@@ -190,8 +195,33 @@ public class LinkMarkerAndArrowOverlayTests
         Assert.True(center.G - edge.G > 40, "Center must be clearly brighter/yellower than edge");
     }
 
+    [Fact]
+    public void LinkArrowOverlay_ToMetalPixel_OuterBrighterThanInner()
+    {
+        var outer = LinkArrowOverlay.ToMetalPixel(1f);
+        var inner = LinkArrowOverlay.ToMetalPixel(0f);
+        Assert.True(IsMetallicSilver(outer), $"Outer metal should be silver, got {outer}");
+        Assert.True(IsMetallicSilver(inner), $"Inner metal should be silver, got {inner}");
+        Assert.True(outer.R > inner.R && outer.G > inner.G, "Outer rim should be brighter");
+    }
+
     private static bool IsLitOrange(Rgba32 c) =>
         c.A > 180 && c.R > 160 && c.R > c.G + 15 && c.G > c.B;
+
+    private static bool IsMetallicSilver(Rgba32 c)
+    {
+        if (c.A < 180)
+            return false;
+        var lum = (c.R + c.G + c.B) / 3;
+        // Neutral mid/high grey — not orange, not near-black.
+        return lum is >= 110 and <= 230
+               && Math.Abs(c.R - c.G) <= 25
+               && Math.Abs(c.G - c.B) <= 30
+               && c.R < c.G + 40; // reject warm orange
+    }
+
+    private static bool IsBlackInset(Rgba32 c) =>
+        c.A > 180 && (c.R + c.G + c.B) / 3 <= 28;
 
     private static int CountLitOrange(Image<Rgba32> img, Rectangle zone)
     {

@@ -7,34 +7,42 @@ namespace Floowan.Core.Imaging;
 
 /// <summary>
 /// Redraws Master Duel Link arrow markers as the topmost OF layer so subject/frame
-/// punches cannot erase them. Active directions take the <em>inner triangle glyph</em>
-/// only from <c>Link.png</c> (largest near-black connected component in each crop) and
-/// recolor it lit orange/red — the metallic L-bevel / outer triangular housing stays
-/// as painted by the frame (Decode Talker Integration OF look).
+/// punches cannot erase them. <c>Link.png</c> only has inactive flat triangles, so
+/// active directions synthesize the MD active housing:
+/// metallic silver triangular bevel → thin black inset → orange/red glow fill
+/// (Decode Talker Integration / A Bao A Qu look). Inactive directions stay as the
+/// flat dark glyphs already on the frame.
 /// </summary>
 public static class LinkArrowOverlay
 {
     /// <summary>
     /// Crop rectangles on the 704×1024 Link frame for each direction (measured from
-    /// dark arrow pixels on <c>card_frame18</c> / <c>Link.png</c>, padded for AA).
+    /// dark arrow pixels on <c>card_frame18</c> / <c>Link.png</c>, padded for AA and
+    /// for the synthesized metallic bevel ring).
     /// </summary>
     private static readonly (LinkMarkerMask Bit, Rectangle Crop)[] ArrowCrops =
     [
-        (LinkMarkerMask.UpLeft, new Rectangle(56, 157, 93, 97)),
-        (LinkMarkerMask.Up, new Rectangle(296, 147, 113, 47)),
-        (LinkMarkerMask.UpRight, new Rectangle(551, 156, 100, 98)),
-        (LinkMarkerMask.Left, new Rectangle(45, 396, 46, 118)),
-        (LinkMarkerMask.Right, new Rectangle(613, 396, 48, 118)),
-        (LinkMarkerMask.DownLeft, new Rectangle(41, 656, 108, 107)),
-        (LinkMarkerMask.Down, new Rectangle(296, 715, 113, 48)),
-        (LinkMarkerMask.DownRight, new Rectangle(551, 656, 108, 107)),
+        (LinkMarkerMask.UpLeft, new Rectangle(50, 150, 105, 110)),
+        (LinkMarkerMask.Up, new Rectangle(290, 140, 125, 58)),
+        (LinkMarkerMask.UpRight, new Rectangle(545, 149, 112, 111)),
+        (LinkMarkerMask.Left, new Rectangle(38, 390, 58, 130)),
+        (LinkMarkerMask.Right, new Rectangle(606, 390, 60, 130)),
+        (LinkMarkerMask.DownLeft, new Rectangle(34, 650, 120, 118)),
+        (LinkMarkerMask.Down, new Rectangle(290, 708, 125, 60)),
+        (LinkMarkerMask.DownRight, new Rectangle(544, 650, 120, 118)),
     ];
 
     /// <summary>
     /// Near-black fill of the inactive triangle glyph (and thin bevel outlines).
-    /// Metallic silver bevel sits above this (~lum 50–110) and is never recolored.
+    /// Used only to locate the glyph; metallic mid-tones are not candidates.
     /// </summary>
     private const int GlyphLuminanceMax = 32;
+
+    /// <summary>Disk radius (px) of the black inset between metal and orange fill.</summary>
+    private const int BlackMarginRadius = 2;
+
+    /// <summary>Disk radius (px) of the outer metallic triangular housing.</summary>
+    private const int MetalBevelRadius = 6;
 
     // Decode Talker Integration OF: bright yellow-orange center → deep red-orange edge.
     private const byte ActiveCenterR = 255;
@@ -44,6 +52,16 @@ public static class LinkArrowOverlay
     private const byte ActiveEdgeG = 72;
     private const byte ActiveEdgeB = 18;
 
+    // Raised silver housing (highlight on outer rim, cooler mid on inner).
+    private const byte MetalOuterR = 210;
+    private const byte MetalOuterG = 214;
+    private const byte MetalOuterB = 222;
+    private const byte MetalInnerR = 130;
+    private const byte MetalInnerG = 136;
+    private const byte MetalInnerB = 148;
+
+    private static readonly Rgba32 BlackInset = new(8, 8, 12, 255);
+
     /// <summary>
     /// True when OF compose should redraw Link arrows for this frame style.
     /// Floowan has no separate Link Pendulum template today — only <see cref="CardFrameStyle.Link"/>.
@@ -52,8 +70,8 @@ public static class LinkArrowOverlay
         frameStyle == CardFrameStyle.Link;
 
     /// <summary>
-    /// Blits lit (orange/red) active <em>triangle glyphs</em> from the Link frame template
-    /// onto <paramref name="canvas"/> (must be 704×1024). No-op when
+    /// Composites active Link arrows (metallic bevel + black inset + lit fill) onto
+    /// <paramref name="canvas"/> (must be 704×1024). No-op when
     /// <paramref name="markers"/> is <see cref="LinkMarkerMask.None"/>.
     /// </summary>
     public static void Apply(
@@ -92,16 +110,15 @@ public static class LinkArrowOverlay
         {
             if ((markers & bit) == 0)
                 continue;
-            BlitLitTriangleGlyph(canvas, linkTemplate, crop);
+            BlitActiveArrow(canvas, linkTemplate, crop);
         }
     }
 
     /// <summary>
-    /// Isolates the filled triangle glyph (largest near-black 4-connected component in
-    /// <paramref name="crop"/>), then paints a center-bright orange/red gradient.
-    /// Thin near-black bevel outline strokes are discarded as smaller components.
+    /// Locates the inactive triangle glyph, synthesizes metallic bevel + black inset
+    /// rings by disk dilation, then paints orange fill. Draw order: metal → black → glow.
     /// </summary>
-    private static void BlitLitTriangleGlyph(Image<Rgba32> dst, Image<Rgba32> src, Rectangle crop)
+    private static void BlitActiveArrow(Image<Rgba32> dst, Image<Rgba32> src, Rectangle crop)
     {
         var x0 = Math.Clamp(crop.X, 0, src.Width - 1);
         var y0 = Math.Clamp(crop.Y, 0, src.Height - 1);
@@ -126,6 +143,38 @@ public static class LinkArrowOverlay
 
         if (!TryLargestComponent(dark, w, h, out var glyph, out var cx, out var cy, out var maxDistSq))
             return;
+
+        var glyphMask = new bool[w * h];
+        foreach (var (lx, ly) in glyph)
+            glyphMask[ly * w + lx] = true;
+
+        var blackRing = DilateDisk(glyphMask, w, h, BlackMarginRadius);
+        var metalOuter = DilateDisk(glyphMask, w, h, MetalBevelRadius);
+
+        // Metal = outer dilate − black dilate; black inset = black dilate − glyph.
+        for (var i = 0; i < metalOuter.Length; i++)
+        {
+            if (!metalOuter[i] || blackRing[i])
+                continue;
+            var lx = i % w;
+            var ly = i / w;
+            var dist = MinDistanceToMask(lx, ly, glyphMask, w, h, MetalBevelRadius + 1);
+            var t = Math.Clamp(
+                (dist - BlackMarginRadius) / (float)(MetalBevelRadius - BlackMarginRadius),
+                0f,
+                1f);
+            var metal = ToMetalPixel(t);
+            dst[x0 + lx, y0 + ly] = AlphaOver(dst[x0 + lx, y0 + ly], metal);
+        }
+
+        for (var i = 0; i < blackRing.Length; i++)
+        {
+            if (!blackRing[i] || glyphMask[i])
+                continue;
+            var lx = i % w;
+            var ly = i / w;
+            dst[x0 + lx, y0 + ly] = AlphaOver(dst[x0 + lx, y0 + ly], BlackInset);
+        }
 
         if (maxDistSq < 1f)
             maxDistSq = 1f;
@@ -155,12 +204,11 @@ public static class LinkArrowOverlay
     /// <summary>
     /// Maps an inactive glyph sample to lit orange/red.
     /// <paramref name="edgeT"/> 0 = triangle center (bright yellow-orange),
-    /// 1 = silhouette edge (deep red-orange), matching Decode Talker Integration OF.
+    /// 1 = silhouette edge (deep red-orange).
     /// </summary>
     public static Rgba32 ToLitArrowPixel(Rgba32 dark, float edgeT = 0.55f)
     {
         edgeT = Math.Clamp(edgeT, 0f, 1f);
-        // Slight luminance nudge so AA fringe softens toward the edge color.
         var lum = (dark.R + dark.G + dark.B) / 3f;
         var lumT = Math.Clamp(lum / GlyphLuminanceMax, 0f, 1f);
         var t = Math.Clamp(edgeT * 0.85f + lumT * 0.15f, 0f, 1f);
@@ -170,7 +218,68 @@ public static class LinkArrowOverlay
         return new Rgba32(r, g, b, dark.A);
     }
 
+    /// <summary>
+    /// Silver housing shade. <paramref name="outerT"/> 0 = inner (near black inset),
+    /// 1 = outer rim highlight.
+    /// </summary>
+    public static Rgba32 ToMetalPixel(float outerT)
+    {
+        outerT = Math.Clamp(outerT, 0f, 1f);
+        var r = (byte)Math.Clamp(MathF.Round(Lerp(MetalInnerR, MetalOuterR, outerT)), 0, 255);
+        var g = (byte)Math.Clamp(MathF.Round(Lerp(MetalInnerG, MetalOuterG, outerT)), 0, 255);
+        var b = (byte)Math.Clamp(MathF.Round(Lerp(MetalInnerB, MetalOuterB, outerT)), 0, 255);
+        return new Rgba32(r, g, b, 255);
+    }
+
     private static float Lerp(float a, float b, float t) => a + (b - a) * t;
+
+    private static bool[] DilateDisk(bool[] mask, int w, int h, int radius)
+    {
+        var r2 = radius * radius;
+        var result = new bool[mask.Length];
+        for (var y = 0; y < h; y++)
+        for (var x = 0; x < w; x++)
+        {
+            if (!mask[y * w + x])
+                continue;
+            var y0 = Math.Max(0, y - radius);
+            var y1 = Math.Min(h - 1, y + radius);
+            var x0 = Math.Max(0, x - radius);
+            var x1 = Math.Min(w - 1, x + radius);
+            for (var yy = y0; yy <= y1; yy++)
+            for (var xx = x0; xx <= x1; xx++)
+            {
+                var dx = xx - x;
+                var dy = yy - y;
+                if (dx * dx + dy * dy <= r2)
+                    result[yy * w + xx] = true;
+            }
+        }
+
+        return result;
+    }
+
+    private static float MinDistanceToMask(int x, int y, bool[] mask, int w, int h, int searchRadius)
+    {
+        var best = (float)(searchRadius + 1);
+        var y0 = Math.Max(0, y - searchRadius);
+        var y1 = Math.Min(h - 1, y + searchRadius);
+        var x0 = Math.Max(0, x - searchRadius);
+        var x1 = Math.Min(w - 1, x + searchRadius);
+        for (var yy = y0; yy <= y1; yy++)
+        for (var xx = x0; xx <= x1; xx++)
+        {
+            if (!mask[yy * w + xx])
+                continue;
+            var dx = xx - x;
+            var dy = yy - y;
+            var d = MathF.Sqrt(dx * dx + dy * dy);
+            if (d < best)
+                best = d;
+        }
+
+        return best;
+    }
 
     /// <summary>
     /// 4-connected flood fill; returns the largest near-black blob (filled triangle).
