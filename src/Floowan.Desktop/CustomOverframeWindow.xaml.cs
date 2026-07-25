@@ -32,11 +32,17 @@ public partial class CustomOverframeWindow : Window
     private int _offsetX;
     private int _offsetY;
     private const float DefaultSubjectScale = 1.5f;
+    private const float DefaultBackgroundScale = 1.0f;
 
     private float _subjectScale = DefaultSubjectScale;
+    private float _backgroundScale = DefaultBackgroundScale;
+    private int _backgroundOffsetX;
+    private int _backgroundOffsetY;
     private bool _busy;
     private bool _dragging;
     private bool _scaleDragging;
+    private bool _bgTransformDragging;
+    private bool _updatingBgPanSliders;
     private bool _defaultBackgroundStarted;
     private int _dragVisualGeneration;
     private System.Windows.Point _dragStart;
@@ -63,6 +69,8 @@ public partial class CustomOverframeWindow : Window
         SelectFrameStyle(initialFrameStyle);
         ArtScaleSlider.Value = DefaultSubjectScale;
         _subjectScale = DefaultSubjectScale;
+        BgScaleSlider.Value = DefaultBackgroundScale;
+        _backgroundScale = DefaultBackgroundScale;
         ArtScaleSlider.AddHandler(
             Thumb.DragStartedEvent,
             new DragStartedEventHandler(ArtScaleSlider_DragStarted),
@@ -71,7 +79,33 @@ public partial class CustomOverframeWindow : Window
             Thumb.DragCompletedEvent,
             new DragCompletedEventHandler(ArtScaleSlider_DragCompleted),
             handledEventsToo: true);
+        BgScaleSlider.AddHandler(
+            Thumb.DragStartedEvent,
+            new DragStartedEventHandler(BgTransformSlider_DragStarted),
+            handledEventsToo: true);
+        BgScaleSlider.AddHandler(
+            Thumb.DragCompletedEvent,
+            new DragCompletedEventHandler(BgTransformSlider_DragCompleted),
+            handledEventsToo: true);
+        BgPanHSlider.AddHandler(
+            Thumb.DragStartedEvent,
+            new DragStartedEventHandler(BgTransformSlider_DragStarted),
+            handledEventsToo: true);
+        BgPanHSlider.AddHandler(
+            Thumb.DragCompletedEvent,
+            new DragCompletedEventHandler(BgTransformSlider_DragCompleted),
+            handledEventsToo: true);
+        BgPanVSlider.AddHandler(
+            Thumb.DragStartedEvent,
+            new DragStartedEventHandler(BgTransformSlider_DragStarted),
+            handledEventsToo: true);
+        BgPanVSlider.AddHandler(
+            Thumb.DragCompletedEvent,
+            new DragCompletedEventHandler(BgTransformSlider_DragCompleted),
+            handledEventsToo: true);
         UpdateArtScaleLabel();
+        UpdateBackgroundTransformLabels();
+        SyncBackgroundPanSliderRanges();
         Loaded += CustomOverframeWindow_Loaded;
         Closed += (_, _) => Cleanup();
     }
@@ -119,9 +153,79 @@ public partial class CustomOverframeWindow : Window
     private float GetSubjectScale() =>
         OverFrameAutoArtComposer.ClampSubjectScale((float)ArtScaleSlider.Value);
 
+    private float GetBackgroundScale() =>
+        OverFrameAutoArtComposer.ClampBackgroundScale((float)BgScaleSlider.Value);
+
     private void UpdateArtScaleLabel()
     {
         ArtScaleValueText.Text = $"×{GetSubjectScale():0.00}";
+    }
+
+    private void UpdateBackgroundTransformLabels()
+    {
+        BgScaleValueText.Text = $"×{GetBackgroundScale():0.00}";
+        BgPanHValueText.Text = ((int)Math.Round(BgPanHSlider.Value)).ToString();
+        BgPanVValueText.Text = ((int)Math.Round(BgPanVSlider.Value)).ToString();
+    }
+
+    /// <summary>
+    /// Sets H/V pan slider ranges from Cover×scale overflow vs the current frame hole,
+    /// and clamps the current pan into the new limits.
+    /// </summary>
+    private void SyncBackgroundPanSliderRanges()
+    {
+        var artWindow = OverFrameAutoArtComposer.ResolveCustomBackgroundArtWindow(
+            GetSelectedFrameStyle());
+        var bgW = _backgroundSource?.Width ?? 1;
+        var bgH = _backgroundSource?.Height ?? 1;
+        var (maxPanX, maxPanY) = OverFrameAutoArtComposer.GetBackgroundPanLimits(
+            bgW, bgH, artWindow, GetBackgroundScale());
+
+        _updatingBgPanSliders = true;
+        try
+        {
+            BgPanHSlider.Minimum = -maxPanX;
+            BgPanHSlider.Maximum = maxPanX;
+            BgPanVSlider.Minimum = -maxPanY;
+            BgPanVSlider.Maximum = maxPanY;
+
+            var panX = OverFrameAutoArtComposer.ClampBackgroundPan(
+                (int)Math.Round(BgPanHSlider.Value), maxPanX);
+            var panY = OverFrameAutoArtComposer.ClampBackgroundPan(
+                (int)Math.Round(BgPanVSlider.Value), maxPanY);
+            BgPanHSlider.Value = panX;
+            BgPanVSlider.Value = panY;
+            _backgroundOffsetX = panX;
+            _backgroundOffsetY = panY;
+            BgPanHSlider.IsEnabled = maxPanX > 0;
+            BgPanVSlider.IsEnabled = maxPanY > 0;
+        }
+        finally
+        {
+            _updatingBgPanSliders = false;
+        }
+
+        UpdateBackgroundTransformLabels();
+    }
+
+    private void ResetBackgroundPlacement()
+    {
+        _backgroundScale = DefaultBackgroundScale;
+        _backgroundOffsetX = 0;
+        _backgroundOffsetY = 0;
+        _updatingBgPanSliders = true;
+        try
+        {
+            BgScaleSlider.Value = DefaultBackgroundScale;
+            BgPanHSlider.Value = 0;
+            BgPanVSlider.Value = 0;
+        }
+        finally
+        {
+            _updatingBgPanSliders = false;
+        }
+
+        SyncBackgroundPanSliderRanges();
     }
 
     private void ArtScaleSlider_DragStarted(object sender, DragStartedEventArgs e) =>
@@ -145,6 +249,39 @@ public partial class CustomOverframeWindow : Window
         await ApplyArtScaleChangeAsync();
     }
 
+    private void BgTransformSlider_DragStarted(object sender, DragStartedEventArgs e) =>
+        _bgTransformDragging = true;
+
+    private async void BgTransformSlider_DragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        _bgTransformDragging = false;
+        await ApplyBackgroundTransformChangeAsync();
+    }
+
+    private async void BgScaleSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!IsLoaded || _updatingBgPanSliders)
+            return;
+
+        SyncBackgroundPanSliderRanges();
+        if (_bgTransformDragging)
+            return;
+
+        await ApplyBackgroundTransformChangeAsync();
+    }
+
+    private async void BgPanSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!IsLoaded || _updatingBgPanSliders)
+            return;
+
+        UpdateBackgroundTransformLabels();
+        if (_bgTransformDragging)
+            return;
+
+        await ApplyBackgroundTransformChangeAsync();
+    }
+
     private async Task ApplyArtScaleChangeAsync()
     {
         var scale = GetSubjectScale();
@@ -166,6 +303,63 @@ public partial class CustomOverframeWindow : Window
             await RecomposePreviewAsync();
             StatusText.Text =
                 $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}. Drag or Apply.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Compose failed: " + ex.Message;
+            MessageBox.Show(
+                this,
+                "Could not recompose overframe:\n\n" + ex.Message,
+                "Custom overframe art",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private async Task ApplyBackgroundTransformChangeAsync()
+    {
+        var scale = GetBackgroundScale();
+        var panX = (int)Math.Round(BgPanHSlider.Value);
+        var panY = (int)Math.Round(BgPanVSlider.Value);
+        if (Math.Abs(scale - _backgroundScale) < 0.0001f
+            && panX == _backgroundOffsetX
+            && panY == _backgroundOffsetY
+            && _backgroundSource is not null)
+        {
+            // Still refresh when nothing changed only if we already have a preview —
+            // skip no-op recomposes.
+            return;
+        }
+
+        _backgroundScale = scale;
+        _backgroundOffsetX = panX;
+        _backgroundOffsetY = panY;
+
+        if (_backgroundSource is null || _busy)
+            return;
+
+        SetBusy(true);
+        StatusText.Text =
+            $"Recomposing background ×{_backgroundScale:0.00}, pan {_backgroundOffsetX}, {_backgroundOffsetY}…";
+        try
+        {
+            if (_subjectSource is not null && _subjectMask is not null)
+            {
+                await RecomposePreviewAsync();
+                StatusText.Text =
+                    $"Background ×{_backgroundScale:0.00}, pan {_backgroundOffsetX}, {_backgroundOffsetY}. " +
+                    $"Subject scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}.";
+            }
+            else
+            {
+                await ShowBackgroundOnlyPreviewAsync();
+                StatusText.Text =
+                    $"Background ×{_backgroundScale:0.00}, pan {_backgroundOffsetX}, {_backgroundOffsetY}. Pick a subject…";
+            }
         }
         catch (Exception ex)
         {
@@ -230,6 +424,7 @@ public partial class CustomOverframeWindow : Window
         {
             DisposeBackground();
             _backgroundSource = await Task.Run(() => ImageSharpImage.Load<Rgba32>(dlg.FileName));
+            ResetBackgroundPlacement();
             await RefreshPreviewAfterBackgroundChangeAsync(
                 subjectReadyStatus:
                     $"Background set ({sizeNote}). Preview updated — drag Card Art or Apply.",
@@ -283,6 +478,7 @@ public partial class CustomOverframeWindow : Window
 
             DisposeBackground();
             _backgroundSource = await Task.Run(() => ImageSharpImage.Load<Rgba32>(liveTemp));
+            ResetBackgroundPlacement();
 
             var subjectStatus = readyStatus
                 ?? "Background: current card art (Cover). Preview updated — drag Card Art or Apply.";
@@ -335,11 +531,17 @@ public partial class CustomOverframeWindow : Window
     {
         var frameStyle = GetSelectedFrameStyle();
         var background = _backgroundSource;
+        var backgroundScale = _backgroundScale;
+        var backgroundOffsetX = _backgroundOffsetX;
+        var backgroundOffsetY = _backgroundOffsetY;
         var bmp = await Task.Run(() =>
         {
             using var preview = OverFrameAutoArtComposer.ComposeCustomBackgroundOnly(
                 frameStyle,
-                background: background);
+                background: background,
+                backgroundScale: backgroundScale,
+                backgroundOffsetX: backgroundOffsetX,
+                backgroundOffsetY: backgroundOffsetY);
             return ToPreviewBitmap(preview);
         });
 
@@ -538,6 +740,7 @@ public partial class CustomOverframeWindow : Window
             SetBusy(true);
             try
             {
+                SyncBackgroundPanSliderRanges();
                 await ShowBackgroundOnlyPreviewAsync();
                 StatusText.Text =
                     $"Background preview ({GetSelectedFrameStyle()}). Pick a subject…";
@@ -563,6 +766,7 @@ public partial class CustomOverframeWindow : Window
         SetBusy(true);
         try
         {
+            SyncBackgroundPanSliderRanges();
             await RecomposePreviewAsync();
             StatusText.Text =
                 $"Preview updated ({GetSelectedFrameStyle()}). Drag or scale the art, then Apply.";
@@ -595,6 +799,9 @@ public partial class CustomOverframeWindow : Window
         var source = _subjectSource;
         var mask = _subjectMask;
         var background = _backgroundSource;
+        var backgroundScale = _backgroundScale;
+        var backgroundOffsetX = _backgroundOffsetX;
+        var backgroundOffsetY = _backgroundOffsetY;
 
         CleanupComposedTemp();
         _composedTempPath = Path.Combine(
@@ -612,7 +819,10 @@ public partial class CustomOverframeWindow : Window
                 offsetY,
                 subjectScale,
                 OverFrameComposeMode.CustomArtOnly,
-                background));
+                background,
+                backgroundScale,
+                backgroundOffsetX,
+                backgroundOffsetY));
 
         PreviewImage.Source = LoadOfComposePreview(outputPath);
         ClearSubjectOverlay();
@@ -630,6 +840,9 @@ public partial class CustomOverframeWindow : Window
         var source = _subjectSource;
         var mask = _subjectMask;
         var background = _backgroundSource;
+        var backgroundScale = _backgroundScale;
+        var backgroundOffsetX = _backgroundOffsetX;
+        var backgroundOffsetY = _backgroundOffsetY;
 
         var (baseBmp, subjectBmp) = await Task.Run(() =>
         {
@@ -639,7 +852,10 @@ public partial class CustomOverframeWindow : Window
                 frameStyle,
                 subjectScale: subjectScale,
                 composeMode: OverFrameComposeMode.CustomArtOnly,
-                background: background);
+                background: background,
+                backgroundScale: backgroundScale,
+                backgroundOffsetX: backgroundOffsetX,
+                backgroundOffsetY: backgroundOffsetY);
             using var subjectLayer = OverFrameAutoArtComposer.RenderSubjectDragLayer(
                 source,
                 mask,
@@ -859,6 +1075,14 @@ public partial class CustomOverframeWindow : Window
         FromCurrentArtRembgButton.IsEnabled = !busy;
         FrameStyleBox.IsEnabled = !busy;
         ArtScaleSlider.IsEnabled = !busy;
+        BgScaleSlider.IsEnabled = !busy;
+        if (!busy)
+            SyncBackgroundPanSliderRanges();
+        else
+        {
+            BgPanHSlider.IsEnabled = false;
+            BgPanVSlider.IsEnabled = false;
+        }
         ApplyButton.IsEnabled = !busy && _subjectSource is not null && _composedTempPath is not null;
         Cursor = busy ? Cursors.Wait : Cursors.Arrow;
     }

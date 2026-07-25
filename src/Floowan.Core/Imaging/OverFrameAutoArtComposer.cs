@@ -49,7 +49,7 @@ public enum OverFrameComposeMode
 /// the subject source and does <em>not</em> auto-punch or soft-fill the art–lore gap
 /// (type-line strip, side wings, dark margins) — frame chrome stays there unless the
 /// subject silhouette occupies those pixels. Optional <c>background</c> Cover-fills
-/// the art hole only (fixed, no overflow outside the frame interior). Stack:
+/// the art hole only (Cover ×1–×2 with H/V pan; clipped to the frame interior). Stack:
 /// Background → Card Frame → Card Art (subject) → Lore (soft where subject covers).
 /// Custom OF also allows subject punch on the dark bottom frame margin below the lore
 /// cream (Effect etc.); Auto-create keeps that strip as opaque chrome.
@@ -221,6 +221,16 @@ public static class OverFrameAutoArtComposer
     public const float SubjectScaleMax = 2.0f;
 
     /// <summary>
+    /// Minimum Cover background scale for Custom OF (slider ×1 = exact Cover fit).
+    /// </summary>
+    public const float BackgroundScaleMin = 1.0f;
+
+    /// <summary>
+    /// Maximum Cover background scale for Custom OF (slider ×2).
+    /// </summary>
+    public const float BackgroundScaleMax = 2.0f;
+
+    /// <summary>
     /// Thrown when rembg finds pixels but the placed silhouette never leaves the
     /// art hole on any side — treated as a failed subject (flat in-frame OF).
     /// </summary>
@@ -233,6 +243,53 @@ public static class OverFrameAutoArtComposer
     public static float ClampSubjectScale(float subjectScale) =>
         Math.Clamp(subjectScale, SubjectScaleMin, SubjectScaleMax);
 
+    /// <summary>
+    /// Clamps a Custom OF Cover background scale into <see cref="BackgroundScaleMin"/>–
+    /// <see cref="BackgroundScaleMax"/>.
+    /// </summary>
+    public static float ClampBackgroundScale(float backgroundScale) =>
+        Math.Clamp(backgroundScale, BackgroundScaleMin, BackgroundScaleMax);
+
+    /// <summary>
+    /// Clamps a Cover pan offset into ±<paramref name="maxPan"/> so the art hole
+    /// stays fully covered (no letterboxing inside the hole).
+    /// </summary>
+    public static int ClampBackgroundPan(int pan, int maxPan) =>
+        Math.Clamp(pan, -Math.Abs(maxPan), Math.Abs(maxPan));
+
+    /// <summary>
+    /// Max |pan| on each axis so Cover×<paramref name="backgroundScale"/> still fully
+    /// covers <paramref name="artWindow"/>. Pan 0 keeps Cover centered.
+    /// </summary>
+    public static (int MaxPanX, int MaxPanY) GetBackgroundPanLimits(
+        int backgroundWidth,
+        int backgroundHeight,
+        Rectangle artWindow,
+        float backgroundScale = 1f)
+    {
+        backgroundScale = ClampBackgroundScale(backgroundScale);
+        if (artWindow.Width <= 0 || artWindow.Height <= 0
+            || backgroundWidth <= 0 || backgroundHeight <= 0)
+        {
+            return (0, 0);
+        }
+
+        var cover = Math.Max(
+            artWindow.Width / (float)backgroundWidth,
+            artWindow.Height / (float)backgroundHeight);
+        var scaledW = Math.Max(1, (int)MathF.Round(backgroundWidth * cover * backgroundScale));
+        var scaledH = Math.Max(1, (int)MathF.Round(backgroundHeight * cover * backgroundScale));
+        var overflowX = Math.Max(0, scaledW - artWindow.Width);
+        var overflowY = Math.Max(0, scaledH - artWindow.Height);
+        return (overflowX / 2, overflowY / 2);
+    }
+
+    /// <summary>
+    /// Art-hole rectangle used for Custom OF Cover background (Effect square vs Pendulum).
+    /// </summary>
+    public static Rectangle ResolveCustomBackgroundArtWindow(CardFrameStyle frameStyle) =>
+        CardFrameTemplates.IsPendulumStyle(frameStyle) ? PendulumArtWindow : ArtWindow;
+
     public static Image<Rgba32> Compose(
         Image<Rgba32> source,
         Image<L8> mask,
@@ -242,7 +299,10 @@ public static class OverFrameAutoArtComposer
         int subjectOffsetY = 0,
         float subjectScale = 1f,
         OverFrameComposeMode composeMode = OverFrameComposeMode.AutoFoilAndSubject,
-        Image<Rgba32>? background = null)
+        Image<Rgba32>? background = null,
+        float backgroundScale = 1f,
+        int backgroundOffsetX = 0,
+        int backgroundOffsetY = 0)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(mask);
@@ -261,7 +321,10 @@ public static class OverFrameAutoArtComposer
             SubjectComposeMode.Full,
             ClampSubjectScale(subjectScale),
             composeMode,
-            background);
+            background,
+            ClampBackgroundScale(backgroundScale),
+            backgroundOffsetX,
+            backgroundOffsetY);
     }
 
     public static Image<Rgba32> Compose(
@@ -304,7 +367,10 @@ public static class OverFrameAutoArtComposer
             SubjectComposeMode.Full,
             subjectScale: 1f,
             OverFrameComposeMode.AutoFoilAndSubject,
-            background: null);
+            background: null,
+            backgroundScale: 1f,
+            backgroundOffsetX: 0,
+            backgroundOffsetY: 0);
 
     public static Image<Rgba32> Compose(
         Image<Rgba32> source,
@@ -316,7 +382,10 @@ public static class OverFrameAutoArtComposer
         int subjectOffsetY,
         float subjectScale,
         OverFrameComposeMode composeMode,
-        Image<Rgba32>? background = null) =>
+        Image<Rgba32>? background = null,
+        float backgroundScale = 1f,
+        int backgroundOffsetX = 0,
+        int backgroundOffsetY = 0) =>
         Compose(
             source,
             mask,
@@ -328,7 +397,10 @@ public static class OverFrameAutoArtComposer
             SubjectComposeMode.Full,
             ClampSubjectScale(subjectScale),
             composeMode,
-            background);
+            background,
+            ClampBackgroundScale(backgroundScale),
+            backgroundOffsetX,
+            backgroundOffsetY);
 
     /// <summary>
     /// Frame (+ Auto foil underlay / Custom Cover background) without overflow subject.
@@ -344,7 +416,10 @@ public static class OverFrameAutoArtComposer
         string? frameDirectory = null,
         float subjectScale = 1f,
         OverFrameComposeMode composeMode = OverFrameComposeMode.AutoFoilAndSubject,
-        Image<Rgba32>? background = null)
+        Image<Rgba32>? background = null,
+        float backgroundScale = 1f,
+        int backgroundOffsetX = 0,
+        int backgroundOffsetY = 0)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(mask);
@@ -363,7 +438,10 @@ public static class OverFrameAutoArtComposer
             mode: SubjectComposeMode.BaseWithoutSubject,
             subjectScale: ClampSubjectScale(subjectScale),
             composeMode,
-            background);
+            background,
+            ClampBackgroundScale(backgroundScale),
+            backgroundOffsetX,
+            backgroundOffsetY);
     }
 
     /// <summary>
@@ -375,7 +453,10 @@ public static class OverFrameAutoArtComposer
     public static Image<Rgba32> ComposeCustomBackgroundOnly(
         CardFrameStyle frameStyle = CardFrameStyle.Effect,
         string? frameDirectory = null,
-        Image<Rgba32>? background = null)
+        Image<Rgba32>? background = null,
+        float backgroundScale = 1f,
+        int backgroundOffsetX = 0,
+        int backgroundOffsetY = 0)
     {
         using var frameTemplate = CardFrameTemplates.Load(frameStyle, frameDirectory);
         var useSharedEffectLayout = !CardFrameTemplates.IsPendulumStyle(frameStyle);
@@ -416,7 +497,15 @@ public static class OverFrameAutoArtComposer
             Assets.OverFrameConstants.Height,
             new Rgba32(0, 0, 0, 0));
         if (background is not null)
-            FillArtWindowCoverBackground(canvas, background, artWindow);
+        {
+            FillArtWindowCoverBackground(
+                canvas,
+                background,
+                artWindow,
+                ClampBackgroundScale(backgroundScale),
+                backgroundOffsetX,
+                backgroundOffsetY);
+        }
 
         var occupied = new bool[canvas.Width * canvas.Height];
         EnsureArtWindowHole(frame, artWindow);
@@ -468,7 +557,10 @@ public static class OverFrameAutoArtComposer
             SubjectComposeMode.SubjectLayerOnly,
             ClampSubjectScale(subjectScale),
             composeMode,
-            background: null);
+            background: null,
+            backgroundScale: 1f,
+            backgroundOffsetX: 0,
+            backgroundOffsetY: 0);
     }
 
     private enum SubjectComposeMode
@@ -489,7 +581,10 @@ public static class OverFrameAutoArtComposer
         SubjectComposeMode mode,
         float subjectScale,
         OverFrameComposeMode composeMode,
-        Image<Rgba32>? background)
+        Image<Rgba32>? background,
+        float backgroundScale,
+        int backgroundOffsetX,
+        int backgroundOffsetY)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(mask);
@@ -572,8 +667,8 @@ public static class OverFrameAutoArtComposer
         // Pendulum-only: nudge the centered 3:4 cover down so the silhouette sits
         // more naturally in the short art hole (see PendulumVerticalOffset).
         // subjectOffsetX/Y move only the overflow subject; foil/frame base stay fixed
-        // (AutoFoilAndSubject). CustomArtOnly Cover background stays fixed too —
-        // offset moves Card Art only.
+        // (AutoFoilAndSubject). CustomArtOnly Cover background has its own scale/pan —
+        // subject offset moves Card Art only.
         var verticalOffset = useSharedEffectLayout ? 0 : PendulumVerticalOffset;
         var bgX = (int)MathF.Round(artCenterX - scaledSourceW / 2f);
         var bgY = (int)MathF.Round(artCenterY - scaledSourceH / 2f) + verticalOffset;
@@ -654,7 +749,13 @@ public static class OverFrameAutoArtComposer
                 new Rgba32(0, 0, 0, 0));
             if (background is not null)
             {
-                FillArtWindowCoverBackground(canvas, background, artWindow);
+                FillArtWindowCoverBackground(
+                    canvas,
+                    background,
+                    artWindow,
+                    backgroundScale,
+                    backgroundOffsetX,
+                    backgroundOffsetY);
             }
         }
         else
@@ -1253,33 +1354,44 @@ public static class OverFrameAutoArtComposer
 
     /// <summary>
     /// Custom OF lowest layer: Cover-scale <paramref name="background"/> into the art
-    /// hole only (CSS <c>object-fit: cover</c>). Never writes outside
-    /// <paramref name="artWindow"/> — no type-line, lore, or chrome punch.
-    /// Fixed centered placement (no subject offset / scale / Pendulum Auto nudge).
-    /// Callers pass Effect <see cref="ArtWindow"/> or Pendulum
+    /// hole only (CSS <c>object-fit: cover</c>), then multiply by
+    /// <paramref name="backgroundScale"/> (×1–×2). Optional
+    /// <paramref name="backgroundOffsetX"/> / <paramref name="backgroundOffsetY"/> pan
+    /// within the overflow of the scaled image vs the hole (clamped so the hole stays
+    /// fully covered). Never writes outside <paramref name="artWindow"/> — no type-line,
+    /// lore, or chrome punch. Callers pass Effect <see cref="ArtWindow"/> or Pendulum
     /// <see cref="PendulumArtWindow"/> (from the loaded frame template / layout).
     /// </summary>
     private static void FillArtWindowCoverBackground(
         Image<Rgba32> canvas,
         Image<Rgba32> background,
-        Rectangle artWindow)
+        Rectangle artWindow,
+        float backgroundScale = 1f,
+        int backgroundOffsetX = 0,
+        int backgroundOffsetY = 0)
     {
         ArgumentNullException.ThrowIfNull(canvas);
         ArgumentNullException.ThrowIfNull(background);
         if (artWindow.Width <= 0 || artWindow.Height <= 0)
             return;
 
+        backgroundScale = ClampBackgroundScale(backgroundScale);
         var cover = Math.Max(
             artWindow.Width / (float)background.Width,
             artWindow.Height / (float)background.Height);
-        var scaledW = Math.Max(1, (int)MathF.Round(background.Width * cover));
-        var scaledH = Math.Max(1, (int)MathF.Round(background.Height * cover));
+        var scaledW = Math.Max(1, (int)MathF.Round(background.Width * cover * backgroundScale));
+        var scaledH = Math.Max(1, (int)MathF.Round(background.Height * cover * backgroundScale));
         var artCenterX = artWindow.Left + artWindow.Width / 2f;
         var artCenterY = artWindow.Top + artWindow.Height / 2f;
-        // Center Cover in the hole. Do not apply PendulumVerticalOffset — that nudge is
-        // for Auto foil/subject on tall 3:4 sources, not for hole-only Cover fill.
-        var bgX = (int)MathF.Round(artCenterX - scaledW / 2f);
-        var bgY = (int)MathF.Round(artCenterY - scaledH / 2f);
+        // Center Cover in the hole, then apply clamped pan. Do not apply
+        // PendulumVerticalOffset — that nudge is for Auto foil/subject on tall 3:4
+        // sources, not for hole-only Cover fill.
+        var (maxPanX, maxPanY) = GetBackgroundPanLimits(
+            background.Width, background.Height, artWindow, backgroundScale);
+        var panX = ClampBackgroundPan(backgroundOffsetX, maxPanX);
+        var panY = ClampBackgroundPan(backgroundOffsetY, maxPanY);
+        var bgX = (int)MathF.Round(artCenterX - scaledW / 2f) + panX;
+        var bgY = (int)MathF.Round(artCenterY - scaledH / 2f) + panY;
         FillRegionWithScaledArt(canvas, artWindow, background, scaledW, scaledH, bgX, bgY);
     }
 
