@@ -329,6 +329,51 @@ public partial class CustomOverframeWindow : Window
         await ApplyBackgroundTransformChangeAsync();
     }
 
+    private async void MatchBackgroundToSubject_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || _backgroundSource is null)
+            return;
+
+        var subjectScale = GetSubjectScale();
+        _updatingBgPanSliders = true;
+        try
+        {
+            BgScaleSlider.Value = subjectScale;
+        }
+        finally
+        {
+            _updatingBgPanSliders = false;
+        }
+
+        // Pan limits depend on the new shared Cover scale — sync ranges first, then
+        // copy subject offset (clamped to overflow so the hole stays covered when ≥ ×1).
+        // Do not write _backgroundOffset* here; ApplyBackgroundTransformChangeAsync owns that.
+        SyncBackgroundPanSliderRanges();
+        _updatingBgPanSliders = true;
+        try
+        {
+            var panX = OverFrameAutoArtComposer.ClampBackgroundPan(
+                _offsetX, (int)Math.Round(BgPanHSlider.Maximum));
+            var panY = OverFrameAutoArtComposer.ClampBackgroundPan(
+                _offsetY, (int)Math.Round(BgPanVSlider.Maximum));
+            BgPanHSlider.Value = panX;
+            BgPanVSlider.Value = panY;
+        }
+        finally
+        {
+            _updatingBgPanSliders = false;
+        }
+
+        UpdateBackgroundTransformLabels();
+        await ApplyBackgroundTransformChangeAsync();
+        if (!_busy)
+        {
+            StatusText.Text =
+                $"Matched background to subject: scale ×{_backgroundScale:0.00}, " +
+                $"pan {_backgroundOffsetX}, {_backgroundOffsetY}.";
+        }
+    }
+
     private async Task ApplyArtScaleChangeAsync()
     {
         var scale = GetSubjectScale();
@@ -451,22 +496,9 @@ public partial class CustomOverframeWindow : Window
         }
 
         var sizeNote = CardArtTextureSizes.Describe(validation.Width, validation.Height);
-        if (validation.Width != OverFrameConstants.Width
-            || validation.Height != OverFrameConstants.Height)
-        {
-            var proceed = MessageBox.Show(
-                this,
-                $"Background is {sizeNote}; it will Cover-fill the art hole " +
-                $"(object-fit: cover) and stay clipped inside the frame.\n\nContinue?",
-                "Custom overframe art",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question);
-            if (proceed != MessageBoxResult.Yes)
-                return;
-        }
 
         SetBusy(true);
-        StatusText.Text = $"Loading background {Path.GetFileName(dlg.FileName)} ({sizeNote})…";
+        StatusText.Text = $"Loading background {Path.GetFileName(dlg.FileName)} ({sizeNote}, Cover)…";
         try
         {
             DisposeBackground();
@@ -627,21 +659,6 @@ public partial class CustomOverframeWindow : Window
         }
 
         var sizeNote = CardArtTextureSizes.Describe(validation.Width, validation.Height);
-        if (validation.Width != OverFrameConstants.Width
-            || validation.Height != OverFrameConstants.Height)
-        {
-            var proceed = MessageBox.Show(
-                this,
-                $"Image is {sizeNote}; preferred source is 704×1024.\n\n" +
-                (validation.Warning ?? "Existing alpha will be used as the subject mask (no rembg).") +
-                "\n\nContinue?",
-                "Custom overframe art",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question);
-            if (proceed != MessageBoxResult.Yes)
-                return;
-        }
-
         await PrepareFromImageAsync(dlg.FileName, sizeNote);
     }
 
@@ -1127,6 +1144,7 @@ public partial class CustomOverframeWindow : Window
         _busy = busy;
         PickBackgroundButton.IsEnabled = !busy;
         UseCardArtBackgroundButton.IsEnabled = !busy;
+        MatchBackgroundToSubjectButton.IsEnabled = !busy && _backgroundSource is not null;
         PickImageButton.IsEnabled = !busy;
         FromCurrentArtRembgButton.IsEnabled = !busy;
         FrameStyleBox.IsEnabled = !busy;

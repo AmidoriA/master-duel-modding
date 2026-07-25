@@ -49,7 +49,8 @@ public enum OverFrameComposeMode
 /// the subject source and does <em>not</em> auto-punch or soft-fill the art–lore gap
 /// (type-line strip, side wings, dark margins) — frame chrome stays there unless the
 /// subject silhouette occupies those pixels. Optional <c>background</c> Cover-fills
-/// the art hole only (Cover ×1–×4 with H/V pan; clipped to the frame interior). Stack:
+/// the art hole only (Cover ×0.5–×4 with H/V pan; clipped to the frame interior;
+/// ×1 = exact Cover fit, same meaning as Custom Card Art scale). Stack:
 /// Background → Card Frame → Card Art (subject) → Lore (soft where subject covers).
 /// Custom OF also allows subject punch on the dark bottom frame margin below the lore
 /// cream (Effect etc.); Auto-create keeps that strip as opaque chrome.
@@ -211,24 +212,35 @@ public static class OverFrameAutoArtComposer
     public const float OverflowScale = 1.38f;
 
     /// <summary>
-    /// Minimum Card Art scale multiplier for Custom OF (slider ×0.5).
+    /// Shared Custom OF scale minimum for Card Art and Cover background (slider ×0.5).
+    /// ×1 means exact Cover fit into the art hole for both layers.
     /// </summary>
-    public const float SubjectScaleMin = 0.5f;
+    public const float CustomArtScaleMin = 0.5f;
 
     /// <summary>
-    /// Maximum Card Art scale multiplier for Custom OF (slider ×2).
+    /// Shared Custom OF scale maximum for Card Art and Cover background (slider ×4).
     /// </summary>
-    public const float SubjectScaleMax = 2.0f;
+    public const float CustomArtScaleMax = 4.0f;
 
     /// <summary>
-    /// Minimum Cover background scale for Custom OF (slider ×1 = exact Cover fit).
+    /// Minimum Card Art scale multiplier for Custom OF (alias of <see cref="CustomArtScaleMin"/>).
     /// </summary>
-    public const float BackgroundScaleMin = 1.0f;
+    public const float SubjectScaleMin = CustomArtScaleMin;
 
     /// <summary>
-    /// Maximum Cover background scale for Custom OF (slider ×4).
+    /// Maximum Card Art scale multiplier for Custom OF (alias of <see cref="CustomArtScaleMax"/>).
     /// </summary>
-    public const float BackgroundScaleMax = 4.0f;
+    public const float SubjectScaleMax = CustomArtScaleMax;
+
+    /// <summary>
+    /// Minimum Cover background scale for Custom OF (alias of <see cref="CustomArtScaleMin"/>).
+    /// </summary>
+    public const float BackgroundScaleMin = CustomArtScaleMin;
+
+    /// <summary>
+    /// Maximum Cover background scale for Custom OF (alias of <see cref="CustomArtScaleMax"/>).
+    /// </summary>
+    public const float BackgroundScaleMax = CustomArtScaleMax;
 
     /// <summary>
     /// Thrown when rembg finds pixels but the placed silhouette never leaves the
@@ -237,18 +249,19 @@ public static class OverFrameAutoArtComposer
     public const string CannotDetectSubjectMessage = "Cannot detect subject.";
 
     /// <summary>
-    /// Clamps a Custom OF Card Art scale into <see cref="SubjectScaleMin"/>–
-    /// <see cref="SubjectScaleMax"/>.
+    /// Clamps a Custom OF Card Art scale into the shared <see cref="CustomArtScaleMin"/>–
+    /// <see cref="CustomArtScaleMax"/> range (×1 = Cover).
     /// </summary>
     public static float ClampSubjectScale(float subjectScale) =>
-        Math.Clamp(subjectScale, SubjectScaleMin, SubjectScaleMax);
+        Math.Clamp(subjectScale, CustomArtScaleMin, CustomArtScaleMax);
 
     /// <summary>
-    /// Clamps a Custom OF Cover background scale into <see cref="BackgroundScaleMin"/>–
-    /// <see cref="BackgroundScaleMax"/>.
+    /// Clamps a Custom OF Cover background scale into the shared
+    /// <see cref="CustomArtScaleMin"/>–<see cref="CustomArtScaleMax"/> range
+    /// (×1 = Cover; same meaning as Card Art scale).
     /// </summary>
     public static float ClampBackgroundScale(float backgroundScale) =>
-        Math.Clamp(backgroundScale, BackgroundScaleMin, BackgroundScaleMax);
+        Math.Clamp(backgroundScale, CustomArtScaleMin, CustomArtScaleMax);
 
     /// <summary>
     /// Clamps a Cover pan offset into ±<paramref name="maxPan"/> so the art hole
@@ -658,7 +671,12 @@ public static class OverFrameAutoArtComposer
         var cover = Math.Max(
             artWindow.Width / (float)source.Width,
             artWindow.Height / (float)source.Height);
-        var scale = cover * OverflowScale * subjectScale;
+        // CustomArtOnly: ×1 = Cover (same as background). Auto-create keeps the
+        // baked OverflowScale so rembg subjects still break the frame by default.
+        var customArtOnly = composeMode == OverFrameComposeMode.CustomArtOnly;
+        var scale = customArtOnly
+            ? cover * subjectScale
+            : cover * OverflowScale * subjectScale;
         var scaledSourceW = Math.Max(1, (int)MathF.Round(source.Width * scale));
         var scaledSourceH = Math.Max(1, (int)MathF.Round(source.Height * scale));
 
@@ -685,7 +703,6 @@ public static class OverFrameAutoArtComposer
         var xOffset = bgX + (int)MathF.Round(bounds.Left * scale) + subjectOffsetX;
         var yOffset = bgY + (int)MathF.Round(bounds.Top * scale) + subjectOffsetY;
 
-        var customArtOnly = composeMode == OverFrameComposeMode.CustomArtOnly;
         var writeLoreUnderlay = customArtOnly;
 
         // Fail closed (Auto-create only): rembg must overframe the art hole on at
@@ -1355,12 +1372,12 @@ public static class OverFrameAutoArtComposer
     /// <summary>
     /// Custom OF lowest layer: Cover-scale <paramref name="background"/> into the art
     /// hole only (CSS <c>object-fit: cover</c>), then multiply by
-    /// <paramref name="backgroundScale"/> (×1–×4). Optional
-    /// <paramref name="backgroundOffsetX"/> / <paramref name="backgroundOffsetY"/> pan
-    /// within the overflow of the scaled image vs the hole (clamped so the hole stays
-    /// fully covered). Never writes outside <paramref name="artWindow"/> — no type-line,
-    /// lore, or chrome punch. Callers pass Effect <see cref="ArtWindow"/> or Pendulum
-    /// <see cref="PendulumArtWindow"/> (from the loaded frame template / layout).
+    /// <paramref name="backgroundScale"/> (shared ×0.5–×4; ×1 = Cover, same as Card Art).
+    /// Optional <paramref name="backgroundOffsetX"/> / <paramref name="backgroundOffsetY"/>
+    /// pan within the overflow of the scaled image vs the hole (clamped so the hole stays
+    /// fully covered when scale ≥ ×1). Never writes outside <paramref name="artWindow"/> —
+    /// no type-line, lore, or chrome punch. Callers pass Effect <see cref="ArtWindow"/> or
+    /// Pendulum <see cref="PendulumArtWindow"/> (from the loaded frame template / layout).
     /// </summary>
     private static void FillArtWindowCoverBackground(
         Image<Rgba32> canvas,
