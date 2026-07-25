@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -28,8 +29,10 @@ public partial class CustomOverframeWindow : Window
     private string? _composedTempPath;
     private int _offsetX;
     private int _offsetY;
+    private float _subjectScale = 1f;
     private bool _busy;
     private bool _dragging;
+    private bool _scaleDragging;
     private int _dragVisualGeneration;
     private System.Windows.Point _dragStart;
     private int _dragStartOffsetX;
@@ -53,6 +56,15 @@ public partial class CustomOverframeWindow : Window
         _database = database;
         Title = $"Custom overframe art — {card.DisplayName}";
         SelectFrameStyle(initialFrameStyle);
+        ArtScaleSlider.AddHandler(
+            Thumb.DragStartedEvent,
+            new DragStartedEventHandler(ArtScaleSlider_DragStarted),
+            handledEventsToo: true);
+        ArtScaleSlider.AddHandler(
+            Thumb.DragCompletedEvent,
+            new DragCompletedEventHandler(ArtScaleSlider_DragCompleted),
+            handledEventsToo: true);
+        UpdateArtScaleLabel();
         Closed += (_, _) => Cleanup();
     }
 
@@ -83,6 +95,73 @@ public partial class CustomOverframeWindow : Window
         }
 
         return CardFrameStyle.Effect;
+    }
+
+    private float GetSubjectScale() =>
+        OverFrameAutoArtComposer.ClampSubjectScale((float)ArtScaleSlider.Value);
+
+    private void UpdateArtScaleLabel()
+    {
+        ArtScaleValueText.Text = $"×{GetSubjectScale():0.00}";
+    }
+
+    private void ArtScaleSlider_DragStarted(object sender, DragStartedEventArgs e) =>
+        _scaleDragging = true;
+
+    private async void ArtScaleSlider_DragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        _scaleDragging = false;
+        await ApplyArtScaleChangeAsync();
+    }
+
+    private async void ArtScaleSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!IsLoaded)
+            return;
+
+        UpdateArtScaleLabel();
+        if (_scaleDragging)
+            return;
+
+        await ApplyArtScaleChangeAsync();
+    }
+
+    private async Task ApplyArtScaleChangeAsync()
+    {
+        var scale = GetSubjectScale();
+        if (Math.Abs(scale - _subjectScale) < 0.0001f
+            && _subjectSource is not null
+            && _composedTempPath is not null)
+        {
+            return;
+        }
+
+        _subjectScale = scale;
+        if (_subjectSource is null || _subjectMask is null || _busy)
+            return;
+
+        SetBusy(true);
+        StatusText.Text = $"Recomposing at art scale ×{_subjectScale:0.00}…";
+        try
+        {
+            await RecomposePreviewAsync();
+            StatusText.Text =
+                $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}. Drag or Apply.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Compose failed: " + ex.Message;
+            MessageBox.Show(
+                this,
+                "Could not recompose overframe:\n\n" + ex.Message,
+                "Custom overframe art",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
     }
 
     private async void PickImage_Click(object sender, RoutedEventArgs e)
@@ -139,6 +218,9 @@ public partial class CustomOverframeWindow : Window
             DisposeSubject();
             _offsetX = 0;
             _offsetY = 0;
+            _subjectScale = 1f;
+            ArtScaleSlider.Value = 1;
+            UpdateArtScaleLabel();
             ClearSubjectOverlay();
 
             var progress = new Progress<string>(msg => StatusText.Text = msg);
@@ -149,7 +231,7 @@ public partial class CustomOverframeWindow : Window
 
             await RecomposePreviewAsync();
             StatusText.Text =
-                $"Subject ready ({sizeNote}). Drag the subject to reposition, then Apply.";
+                $"Subject ready ({sizeNote}). Drag or scale the art, then Apply.";
             PreviewHintText.Visibility = Visibility.Collapsed;
             ApplyButton.IsEnabled = true;
         }
@@ -184,7 +266,7 @@ public partial class CustomOverframeWindow : Window
         {
             await RecomposePreviewAsync();
             StatusText.Text =
-                $"Preview updated ({GetSelectedFrameStyle()}). Drag the subject to reposition, then Apply.";
+                $"Preview updated ({GetSelectedFrameStyle()}). Drag or scale the art, then Apply.";
         }
         catch (Exception ex)
         {
@@ -210,6 +292,7 @@ public partial class CustomOverframeWindow : Window
         var frameStyle = GetSelectedFrameStyle();
         var offsetX = _offsetX;
         var offsetY = _offsetY;
+        var subjectScale = _subjectScale;
         var source = _subjectSource;
         var mask = _subjectMask;
 
@@ -226,7 +309,9 @@ public partial class CustomOverframeWindow : Window
                 outputPath,
                 frameStyle,
                 offsetX,
-                offsetY));
+                offsetY,
+                subjectScale,
+                OverFrameComposeMode.CustomArtOnly));
 
         PreviewImage.Source = LoadOfComposePreview(outputPath);
         ClearSubjectOverlay();
@@ -240,15 +325,26 @@ public partial class CustomOverframeWindow : Window
         var frameStyle = GetSelectedFrameStyle();
         var offsetX = _offsetX;
         var offsetY = _offsetY;
+        var subjectScale = _subjectScale;
         var source = _subjectSource;
         var mask = _subjectMask;
 
         var (baseBmp, subjectBmp) = await Task.Run(() =>
         {
             using var baseLayer = OverFrameAutoArtComposer.ComposeBaseWithoutSubject(
-                source, mask, frameStyle);
+                source,
+                mask,
+                frameStyle,
+                subjectScale: subjectScale,
+                composeMode: OverFrameComposeMode.CustomArtOnly);
             using var subjectLayer = OverFrameAutoArtComposer.RenderSubjectDragLayer(
-                source, mask, frameStyle, subjectOffsetX: offsetX, subjectOffsetY: offsetY);
+                source,
+                mask,
+                frameStyle,
+                subjectOffsetX: offsetX,
+                subjectOffsetY: offsetY,
+                subjectScale: subjectScale,
+                composeMode: OverFrameComposeMode.CustomArtOnly);
             return (ToPreviewBitmap(baseLayer), ToPreviewBitmap(subjectLayer));
         });
 
@@ -350,7 +446,7 @@ public partial class CustomOverframeWindow : Window
         {
             await RecomposePreviewAsync();
             StatusText.Text =
-                $"Preview at offset {_offsetX}, {_offsetY}. Drag the subject again or Apply.";
+                $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}. Drag or Apply.";
         }
         catch (Exception ex)
         {
@@ -456,6 +552,7 @@ public partial class CustomOverframeWindow : Window
         _busy = busy;
         PickImageButton.IsEnabled = !busy;
         FrameStyleBox.IsEnabled = !busy;
+        ArtScaleSlider.IsEnabled = !busy;
         ApplyButton.IsEnabled = !busy && _subjectSource is not null && _composedTempPath is not null;
         Cursor = busy ? Cursors.Wait : Cursors.Arrow;
     }

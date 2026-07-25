@@ -120,6 +120,7 @@ public sealed class AutoOverFrameArtService : IDisposable
 
     /// <summary>
     /// Composes a previously prepared subject onto a frame (no model inference).
+    /// Defaults to <see cref="OverFrameComposeMode.CustomArtOnly"/> for the Custom OF dialog.
     /// </summary>
     public static void ComposePreparedSubject(
         Image<Rgba32> source,
@@ -127,7 +128,9 @@ public sealed class AutoOverFrameArtService : IDisposable
         string outputPngPath,
         CardFrameStyle frameStyle = CardFrameStyle.Effect,
         int subjectOffsetX = 0,
-        int subjectOffsetY = 0)
+        int subjectOffsetY = 0,
+        float subjectScale = 1f,
+        OverFrameComposeMode composeMode = OverFrameComposeMode.CustomArtOnly)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(mask);
@@ -136,7 +139,9 @@ public sealed class AutoOverFrameArtService : IDisposable
             mask,
             frameStyle,
             subjectOffsetX: subjectOffsetX,
-            subjectOffsetY: subjectOffsetY);
+            subjectOffsetY: subjectOffsetY,
+            subjectScale: subjectScale,
+            composeMode: composeMode);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPngPath))!);
         result.Save(outputPngPath, new PngEncoder());
     }

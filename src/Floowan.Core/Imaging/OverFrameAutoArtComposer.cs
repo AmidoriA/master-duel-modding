@@ -6,6 +6,23 @@ using SixLabors.ImageSharp.Processing;
 namespace Floowan.Core.Imaging;
 
 /// <summary>
+/// Selects how <see cref="OverFrameAutoArtComposer.Compose"/> builds the OF canvas.
+/// </summary>
+public enum OverFrameComposeMode
+{
+    /// <summary>
+    /// Auto-create: rectangular foil underlay from full source + rembg subject overflow.
+    /// </summary>
+    AutoFoilAndSubject = 0,
+
+    /// <summary>
+    /// Custom OF dialog: Card Frame + Card Art (subject alpha) + Lore only.
+    /// No rectangular foil/background fill of the art hole from live card art.
+    /// </summary>
+    CustomArtOnly = 1,
+}
+
+/// <summary>
 /// Converts a source image plus a subject mask into a 704×1024 over-frame canvas.
 /// Official OF arts keep the full illustration as a foil-mask (A≈4) base — never a
 /// solid black matte. Game illusts are Cover-scaled into the real frame hole, then
@@ -26,6 +43,8 @@ namespace Floowan.Core.Imaging;
 /// fails with <see cref="CannotDetectSubjectMessage"/> (no flat in-frame OF).
 /// Lore cream / outer / cut geometry is always taken from Effect.png so Normal,
 /// Synchro, Link, and other styles share the same punch layout.
+/// <see cref="OverFrameComposeMode.CustomArtOnly"/> skips the foil underlay fill and
+/// uses only Card Frame → Card Art (subject) → Lore (soft where subject covers).
 /// </summary>
 public static class OverFrameAutoArtComposer
 {
@@ -184,10 +203,27 @@ public static class OverFrameAutoArtComposer
     public const float OverflowScale = 1.38f;
 
     /// <summary>
+    /// Minimum Card Art scale multiplier for Custom OF (slider ×0.5).
+    /// </summary>
+    public const float SubjectScaleMin = 0.5f;
+
+    /// <summary>
+    /// Maximum Card Art scale multiplier for Custom OF (slider ×2).
+    /// </summary>
+    public const float SubjectScaleMax = 2.0f;
+
+    /// <summary>
     /// Thrown when rembg finds pixels but the placed silhouette never leaves the
     /// art hole on any side — treated as a failed subject (flat in-frame OF).
     /// </summary>
     public const string CannotDetectSubjectMessage = "Cannot detect subject.";
+
+    /// <summary>
+    /// Clamps a Custom OF Card Art scale into <see cref="SubjectScaleMin"/>–
+    /// <see cref="SubjectScaleMax"/>.
+    /// </summary>
+    public static float ClampSubjectScale(float subjectScale) =>
+        Math.Clamp(subjectScale, SubjectScaleMin, SubjectScaleMax);
 
     public static Image<Rgba32> Compose(
         Image<Rgba32> source,
@@ -195,7 +231,9 @@ public static class OverFrameAutoArtComposer
         CardFrameStyle frameStyle = CardFrameStyle.Effect,
         string? frameDirectory = null,
         int subjectOffsetX = 0,
-        int subjectOffsetY = 0)
+        int subjectOffsetY = 0,
+        float subjectScale = 1f,
+        OverFrameComposeMode composeMode = OverFrameComposeMode.AutoFoilAndSubject)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(mask);
@@ -210,7 +248,10 @@ public static class OverFrameAutoArtComposer
                 ? GetPendulumLayout(frameStyle)
                 : null,
             subjectOffsetX,
-            subjectOffsetY);
+            subjectOffsetY,
+            SubjectComposeMode.Full,
+            ClampSubjectScale(subjectScale),
+            composeMode);
     }
 
     public static Image<Rgba32> Compose(
@@ -250,17 +291,45 @@ public static class OverFrameAutoArtComposer
             pendulumLayout,
             subjectOffsetX,
             subjectOffsetY,
-            SubjectComposeMode.Full);
+            SubjectComposeMode.Full,
+            subjectScale: 1f,
+            OverFrameComposeMode.AutoFoilAndSubject);
+
+    public static Image<Rgba32> Compose(
+        Image<Rgba32> source,
+        Image<L8> mask,
+        Image<Rgba32> frameTemplate,
+        bool useSharedEffectLayout,
+        FrameLayout? pendulumLayout,
+        int subjectOffsetX,
+        int subjectOffsetY,
+        float subjectScale,
+        OverFrameComposeMode composeMode) =>
+        Compose(
+            source,
+            mask,
+            frameTemplate,
+            useSharedEffectLayout,
+            pendulumLayout,
+            subjectOffsetX,
+            subjectOffsetY,
+            SubjectComposeMode.Full,
+            ClampSubjectScale(subjectScale),
+            composeMode);
 
     /// <summary>
-    /// Foil + frame only (no overflow subject). Used as the fixed drag base in the
-    /// Custom OF dialog so live drag can move a subject overlay independently.
+    /// Frame (+ Auto foil underlay) without overflow subject. Used as the fixed drag
+    /// base in the Custom OF dialog so live drag can move a subject overlay independently.
+    /// With <see cref="OverFrameComposeMode.CustomArtOnly"/>, base is frame + solid lore
+    /// only (no foil underlay fill).
     /// </summary>
     public static Image<Rgba32> ComposeBaseWithoutSubject(
         Image<Rgba32> source,
         Image<L8> mask,
         CardFrameStyle frameStyle = CardFrameStyle.Effect,
-        string? frameDirectory = null)
+        string? frameDirectory = null,
+        float subjectScale = 1f,
+        OverFrameComposeMode composeMode = OverFrameComposeMode.AutoFoilAndSubject)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(mask);
@@ -276,7 +345,9 @@ public static class OverFrameAutoArtComposer
                 : null,
             subjectOffsetX: 0,
             subjectOffsetY: 0,
-            mode: SubjectComposeMode.BaseWithoutSubject);
+            mode: SubjectComposeMode.BaseWithoutSubject,
+            subjectScale: ClampSubjectScale(subjectScale),
+            composeMode);
     }
 
     /// <summary>
@@ -289,7 +360,9 @@ public static class OverFrameAutoArtComposer
         CardFrameStyle frameStyle = CardFrameStyle.Effect,
         string? frameDirectory = null,
         int subjectOffsetX = 0,
-        int subjectOffsetY = 0)
+        int subjectOffsetY = 0,
+        float subjectScale = 1f,
+        OverFrameComposeMode composeMode = OverFrameComposeMode.AutoFoilAndSubject)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(mask);
@@ -305,7 +378,9 @@ public static class OverFrameAutoArtComposer
                 : null,
             subjectOffsetX,
             subjectOffsetY,
-            SubjectComposeMode.SubjectLayerOnly);
+            SubjectComposeMode.SubjectLayerOnly,
+            ClampSubjectScale(subjectScale),
+            composeMode);
     }
 
     private enum SubjectComposeMode
@@ -323,7 +398,9 @@ public static class OverFrameAutoArtComposer
         FrameLayout? pendulumLayout,
         int subjectOffsetX,
         int subjectOffsetY,
-        SubjectComposeMode mode)
+        SubjectComposeMode mode,
+        float subjectScale,
+        OverFrameComposeMode composeMode)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(mask);
@@ -391,7 +468,7 @@ public static class OverFrameAutoArtComposer
         var cover = Math.Max(
             artWindow.Width / (float)source.Width,
             artWindow.Height / (float)source.Height);
-        var scale = cover * OverflowScale;
+        var scale = cover * OverflowScale * subjectScale;
         var scaledSourceW = Math.Max(1, (int)MathF.Round(source.Width * scale));
         var scaledSourceH = Math.Max(1, (int)MathF.Round(source.Height * scale));
 
@@ -399,7 +476,8 @@ public static class OverFrameAutoArtComposer
         var artCenterY = artWindow.Top + artWindow.Height / 2f;
         // Pendulum-only: nudge the centered 3:4 cover down so the silhouette sits
         // more naturally in the short art hole (see PendulumVerticalOffset).
-        // subjectOffsetX/Y move only the overflow subject; foil/frame base stay fixed.
+        // subjectOffsetX/Y move only the overflow subject; foil/frame base stay fixed
+        // (AutoFoilAndSubject). CustomArtOnly has no foil — offset moves Card Art only.
         var verticalOffset = useSharedEffectLayout ? 0 : PendulumVerticalOffset;
         var bgX = (int)MathF.Round(artCenterX - scaledSourceW / 2f);
         var bgY = (int)MathF.Round(artCenterY - scaledSourceH / 2f) + verticalOffset;
@@ -428,6 +506,9 @@ public static class OverFrameAutoArtComposer
             throw new InvalidOperationException(CannotDetectSubjectMessage);
         }
 
+        var customArtOnly = composeMode == OverFrameComposeMode.CustomArtOnly;
+        var writeLoreUnderlay = customArtOnly;
+
         if (mode == SubjectComposeMode.SubjectLayerOnly)
         {
             var layer = new Image<Rgba32>(
@@ -446,7 +527,8 @@ public static class OverFrameAutoArtComposer
                 occupiedLayer,
                 loreCutTopForLayer,
                 textBoxForLayer,
-                allowPendulumGreenPunch: !useSharedEffectLayout);
+                allowPendulumGreenPunch: !useSharedEffectLayout,
+                writeLoreCreamUnderlay: false);
             return layer;
         }
 
@@ -455,30 +537,57 @@ public static class OverFrameAutoArtComposer
         var loreCutTop = ResolveLoreCutTop(frame, textBox, artWindow, useSharedEffectLayout, layout);
         // Type-line fill stays art-hole-wide (avoids horizontal corner stubs).
         var typeLineStrip = ResolveTypeLineStrip(artWindow, loreCutTop);
-        var canvas = CreateFoilMaskArtBase(source, artWindow, scaledSourceW, scaledSourceH, bgX, bgY);
 
-        FillRegionWithScaledArt(canvas, typeLineStrip, source, scaledSourceW, scaledSourceH, bgX, bgY);
+        Image<Rgba32> canvas;
+        if (customArtOnly)
+        {
+            // Custom OF: no rectangular foil fill — Card Art is subject-only.
+            canvas = new Image<Rgba32>(
+                Assets.OverFrameConstants.Width,
+                Assets.OverFrameConstants.Height,
+                new Rgba32(0, 0, 0, 0));
+        }
+        else
+        {
+            canvas = CreateFoilMaskArtBase(source, artWindow, scaledSourceW, scaledSourceH, bgX, bgY);
+            FillRegionWithScaledArt(canvas, typeLineStrip, source, scaledSourceW, scaledSourceH, bgX, bgY);
 
-        // Soft continuation under cream lore where scaled art reaches (Mirrorjade). Never rembg.
-        // Clear cream to A=0 first so transparent source samples (alpha cutouts) do not leave
-        // black FoilMaskAlpha that would dim Mirrorjade soft→solid into muddy cream.
-        // OOB / transparent samples stay A=0 — PaintLorePanel treats those as uncovered (solid).
-        // Effect feathers soft→solid; Pendulum keeps constant Mirrorjade soft.
-        // subjectOffset moves overflow silhouette only — lore underlay stays on bgX/bgY.
-        ClearRegionTransparent(canvas, textBox);
-        FillRegionWithScaledArt(canvas, textBox, source, scaledSourceW, scaledSourceH, bgX, bgY);
+            // Soft continuation under cream lore where scaled art reaches (Mirrorjade). Never rembg.
+            // Clear cream to A=0 first so transparent source samples (alpha cutouts) do not leave
+            // black FoilMaskAlpha that would dim Mirrorjade soft→solid into muddy cream.
+            // OOB / transparent samples stay A=0 — PaintLorePanel treats those as uncovered (solid).
+            // Effect feathers soft→solid; Pendulum keeps constant Mirrorjade soft.
+            // subjectOffset moves overflow silhouette only — lore underlay stays on bgX/bgY.
+            ClearRegionTransparent(canvas, textBox);
+            FillRegionWithScaledArt(canvas, textBox, source, scaledSourceW, scaledSourceH, bgX, bgY);
+        }
 
         // 2) Overflow silhouette — may punch lore side wings + dark card margins where
         //    the rembg subject is present; never punch the cream interior. Empty dark
         //    margins stay opaque frame chrome (no always-on foil soft-fill).
         //    Pendulum also allows subject punch on outer green side/bottom chrome.
+        //    CustomArtOnly also writes subject into cream as lore underlay (no occupied).
         var occupied = new bool[canvas.Width * canvas.Height];
         var pendulumGreenPunch = !useSharedEffectLayout;
         if (mode == SubjectComposeMode.Full)
         {
             BlitSubjectFoilMask(
-                canvas, resized, xOffset, yOffset, occupied, loreCutTop, textBox, pendulumGreenPunch);
+                canvas,
+                resized,
+                xOffset,
+                yOffset,
+                occupied,
+                loreCutTop,
+                textBox,
+                pendulumGreenPunch,
+                writeLoreUnderlay);
         }
+
+        // Lore soft footprint: Auto uses fixed foil placement; Custom follows Card Art.
+        var loreBgX = customArtOnly ? xOffset : bgX;
+        var loreBgY = customArtOnly ? yOffset : bgY;
+        var loreScaledW = customArtOnly ? resized.Width : scaledSourceW;
+        var loreScaledH = customArtOnly ? resized.Height : scaledSourceH;
 
         // 3) Frame chrome + lore panel. Effect: tall lore-top falloff + footprint feather.
         //    Pendulum: constant Mirrorjade soft where art underlays (no Effect gradient).
@@ -490,10 +599,10 @@ public static class OverFrameAutoArtComposer
             frame,
             textBox,
             occupied,
-            bgX,
-            bgY,
-            scaledSourceW,
-            scaledSourceH,
+            loreBgX,
+            loreBgY,
+            loreScaledW,
+            loreScaledH,
             applyEffectLoreGradient: useSharedEffectLayout);
 
         return canvas;
@@ -1121,7 +1230,8 @@ public static class OverFrameAutoArtComposer
         bool[] occupied,
         int loreCutTop,
         Rectangle textBox,
-        bool allowPendulumGreenPunch = false)
+        bool allowPendulumGreenPunch = false,
+        bool writeLoreCreamUnderlay = false)
     {
         for (var y = 0; y < subject.Height; y++)
         {
@@ -1152,6 +1262,10 @@ public static class OverFrameAutoArtComposer
                     // Gold lore wings and dark card margins punch only where subject covers them.
                     else if (dx >= textBox.Left && dx < textBox.Right)
                     {
+                        // CustomArtOnly: subject is the only Card Art — soft lore underlay
+                        // where the silhouette covers cream (do not mark occupied).
+                        if (writeLoreCreamUnderlay)
+                            dstRow[dx] = new Rgba32(src.R, src.G, src.B, FoilMaskAlpha);
                         continue;
                     }
                 }
