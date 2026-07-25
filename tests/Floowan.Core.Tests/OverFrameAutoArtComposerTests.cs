@@ -1256,7 +1256,7 @@ public class OverFrameAutoArtComposerTests
 
         Assert.Equal(1f, Cover(artBottom), 3);
         Assert.Equal(1f, Cover(cream.Bottom - 1), 3);
-        Assert.Equal(20, ramp);
+        Assert.Equal(40, ramp);
     }
 
     [Fact]

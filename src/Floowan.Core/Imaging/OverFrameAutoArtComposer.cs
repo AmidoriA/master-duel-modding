@@ -78,7 +78,7 @@ public static class OverFrameAutoArtComposer
     /// cream cover ramps from <see cref="TextBoxFrameOpacity"/> to opaque (1.0).
     /// Above this band (toward lore top) cover holds at 0.80; below art bottom it stays 1.0.
     /// </summary>
-    public const int LoreCreamRampHeight = 20;
+    public const int LoreCreamRampHeight = 40;
 
     /// <summary>
     /// Soft→solid vanilla cream cover falloff height (px) matching Effect lore cream.
@@ -1693,7 +1693,7 @@ public static class OverFrameAutoArtComposer
         if (y < rampStart)
             return TextBoxFrameOpacity;
 
-        // 20px band ending at art bottom: 0.80 → 1.0.
+        // Ramp band ending at art bottom: 0.80 → 1.0.
         var t = Math.Clamp((y - rampStart) / (float)Math.Max(1, LoreCreamRampHeight), 0f, 1f);
         t = EaseOut01(t);
         return TextBoxFrameOpacity + (1f - TextBoxFrameOpacity) * t;
