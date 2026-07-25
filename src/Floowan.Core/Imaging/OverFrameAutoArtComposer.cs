@@ -45,6 +45,8 @@ public enum OverFrameComposeMode
 /// Synchro, Link, and other styles share the same punch layout.
 /// <see cref="OverFrameComposeMode.CustomArtOnly"/> skips the foil underlay fill and
 /// uses only Card Frame → Card Art (subject) → Lore (soft where subject covers).
+/// Custom OF also allows subject punch on the dark bottom frame margin below the lore
+/// cream (Effect etc.); Auto-create keeps that strip as opaque chrome.
 /// </summary>
 public static class OverFrameAutoArtComposer
 {
@@ -528,7 +530,8 @@ public static class OverFrameAutoArtComposer
                 loreCutTopForLayer,
                 textBoxForLayer,
                 allowPendulumGreenPunch: !useSharedEffectLayout,
-                writeLoreCreamUnderlay: false);
+                writeLoreCreamUnderlay: false,
+                allowEffectBottomChromePunch: customArtOnly);
             return layer;
         }
 
@@ -566,7 +569,8 @@ public static class OverFrameAutoArtComposer
         //    the rembg subject is present; never punch the cream interior. Empty dark
         //    margins stay opaque frame chrome (no always-on foil soft-fill).
         //    Pendulum also allows subject punch on outer green side/bottom chrome.
-        //    CustomArtOnly also writes subject into cream as lore underlay (no occupied).
+        //    CustomArtOnly also writes subject into cream as lore underlay (no occupied)
+        //    and punches the Effect-style bottom chrome below lore when subject reaches it.
         var occupied = new bool[canvas.Width * canvas.Height];
         var pendulumGreenPunch = !useSharedEffectLayout;
         if (mode == SubjectComposeMode.Full)
@@ -580,7 +584,8 @@ public static class OverFrameAutoArtComposer
                 loreCutTop,
                 textBox,
                 pendulumGreenPunch,
-                writeLoreUnderlay);
+                writeLoreUnderlay,
+                allowEffectBottomChromePunch: customArtOnly);
         }
 
         // Lore soft footprint: Auto uses fixed foil placement; Custom follows Card Art.
@@ -1231,7 +1236,8 @@ public static class OverFrameAutoArtComposer
         int loreCutTop,
         Rectangle textBox,
         bool allowPendulumGreenPunch = false,
-        bool writeLoreCreamUnderlay = false)
+        bool writeLoreCreamUnderlay = false,
+        bool allowEffectBottomChromePunch = false)
     {
         for (var y = 0; y < subject.Height; y++)
         {
@@ -1260,13 +1266,25 @@ public static class OverFrameAutoArtComposer
                     }
                     // Keep cream clear of rembg hard edges (Mirrorjade underlay instead).
                     // Gold lore wings and dark card margins punch only where subject covers them.
+                    // Cream x-span below lore bottom is bottom frame chrome (not cream).
                     else if (dx >= textBox.Left && dx < textBox.Right)
                     {
-                        // CustomArtOnly: subject is the only Card Art — soft lore underlay
-                        // where the silhouette covers cream (do not mark occupied).
-                        if (writeLoreCreamUnderlay)
-                            dstRow[dx] = new Rgba32(src.R, src.G, src.B, FoilMaskAlpha);
-                        continue;
+                        if (dy >= textBox.Bottom)
+                        {
+                            // Custom OF: allow Card Art into the dark strip under lore.
+                            // Auto-create keeps Effect bottom chrome opaque.
+                            if (!allowEffectBottomChromePunch)
+                                continue;
+                            // fall through — punch bottom frame margin
+                        }
+                        else
+                        {
+                            // CustomArtOnly: subject is the only Card Art — soft lore underlay
+                            // where the silhouette covers cream (do not mark occupied).
+                            if (writeLoreCreamUnderlay)
+                                dstRow[dx] = new Rgba32(src.R, src.G, src.B, FoilMaskAlpha);
+                            continue;
+                        }
                     }
                 }
 
