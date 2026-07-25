@@ -57,7 +57,7 @@
                  Width="48"
                  VerticalAlignment="Center"
                  Margin="8,0,0,0"
-                 Foreground="{StaticResource FgBrush}"/>
+                 Foreground="{StaticResource TextBrush}"/>
     </StackPanel>
 
     <TextBlock x:Name="StatusText"
