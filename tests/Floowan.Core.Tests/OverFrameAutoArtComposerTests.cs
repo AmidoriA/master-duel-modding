@@ -2098,6 +2098,28 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
+    public void ComposeCustomBackgroundOnly_CoverFillsArtHole_WithoutSubject()
+    {
+        using var background = new Image<Rgba32>(64, 64, new Rgba32(30, 40, 220, 255));
+        using var preview = OverFrameAutoArtComposer.ComposeCustomBackgroundOnly(
+            CardFrameStyle.Effect,
+            background: background);
+
+        Assert.Equal(OverFrameConstants.Width, preview.Width);
+        Assert.Equal(OverFrameConstants.Height, preview.Height);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var hole = preview[art.Left + 20, art.Top + 20];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, hole.A);
+        Assert.True(hole.B > 180, $"Cover background must fill art hole, got {hole}");
+
+        var cream = OverFrameAutoArtComposer.EffectLoreCream;
+        var lore = preview[cream.Left + cream.Width / 2, cream.Top + 40];
+        Assert.True(lore.A > 200, $"lore must be solid cream without subject, got {lore}");
+        Assert.InRange(lore.R, 200, 255);
+    }
+
+    [Fact]
     public void RenderSubjectDragLayer_CustomArtOnly_IncludesBottomChromePunch()
     {
         using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));

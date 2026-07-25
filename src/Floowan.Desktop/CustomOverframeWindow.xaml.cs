@@ -31,10 +31,13 @@ public partial class CustomOverframeWindow : Window
     private string? _composedTempPath;
     private int _offsetX;
     private int _offsetY;
-    private float _subjectScale = 1f;
+    private const float DefaultSubjectScale = 1.5f;
+
+    private float _subjectScale = DefaultSubjectScale;
     private bool _busy;
     private bool _dragging;
     private bool _scaleDragging;
+    private bool _defaultBackgroundStarted;
     private int _dragVisualGeneration;
     private System.Windows.Point _dragStart;
     private int _dragStartOffsetX;
@@ -58,6 +61,8 @@ public partial class CustomOverframeWindow : Window
         _database = database;
         Title = $"Custom overframe art — {card.DisplayName}";
         SelectFrameStyle(initialFrameStyle);
+        ArtScaleSlider.Value = DefaultSubjectScale;
+        _subjectScale = DefaultSubjectScale;
         ArtScaleSlider.AddHandler(
             Thumb.DragStartedEvent,
             new DragStartedEventHandler(ArtScaleSlider_DragStarted),
@@ -67,7 +72,19 @@ public partial class CustomOverframeWindow : Window
             new DragCompletedEventHandler(ArtScaleSlider_DragCompleted),
             handledEventsToo: true);
         UpdateArtScaleLabel();
+        Loaded += CustomOverframeWindow_Loaded;
         Closed += (_, _) => Cleanup();
+    }
+
+    private async void CustomOverframeWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (_defaultBackgroundStarted)
+            return;
+
+        _defaultBackgroundStarted = true;
+        await LoadCardArtAsBackgroundAsync(
+            "Loading card art as background…",
+            readyStatus: "Background: current card art (Cover). Pick a subject…");
     }
 
     private void SelectFrameStyle(CardFrameStyle style)
@@ -213,18 +230,11 @@ public partial class CustomOverframeWindow : Window
         {
             DisposeBackground();
             _backgroundSource = await Task.Run(() => ImageSharpImage.Load<Rgba32>(dlg.FileName));
-
-            if (_subjectSource is not null && _subjectMask is not null)
-            {
-                await RecomposePreviewAsync();
-                StatusText.Text =
-                    $"Background set ({sizeNote}). Preview updated — drag Card Art or Apply.";
-            }
-            else
-            {
-                StatusText.Text =
-                    $"Background ready ({sizeNote}). Art hole stays empty until subject is picked.";
-            }
+            await RefreshPreviewAfterBackgroundChangeAsync(
+                subjectReadyStatus:
+                    $"Background set ({sizeNote}). Preview updated — drag Card Art or Apply.",
+                backgroundOnlyStatus:
+                    $"Background ready ({sizeNote}). Pick a subject…");
         }
         catch (Exception ex)
         {
@@ -241,6 +251,102 @@ public partial class CustomOverframeWindow : Window
         {
             SetBusy(false);
         }
+    }
+
+    private async void UseCardArtBackground_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy)
+            return;
+
+        await LoadCardArtAsBackgroundAsync(
+            "Loading card art as background…",
+            readyStatus: null);
+    }
+
+    /// <summary>
+    /// Extracts live card art and installs it as the Cover background in the art hole.
+    /// </summary>
+    private async Task LoadCardArtAsBackgroundAsync(string loadingStatus, string? readyStatus)
+    {
+        SetBusy(true);
+        string? liveTemp = null;
+        try
+        {
+            StatusText.Text = loadingStatus;
+            liveTemp = Path.Combine(
+                Path.GetTempPath(),
+                $"floowan-custom-of-bg-{Guid.NewGuid():N}.png");
+            var gamePath = _gamePath;
+            var card = _card;
+            var outputPath = liveTemp;
+            await Task.Run(() => _overFrameService.ExtractCardArt(gamePath, card, outputPath));
+
+            DisposeBackground();
+            _backgroundSource = await Task.Run(() => ImageSharpImage.Load<Rgba32>(liveTemp));
+
+            var subjectStatus = readyStatus
+                ?? "Background: current card art (Cover). Preview updated — drag Card Art or Apply.";
+            var backgroundOnlyStatus = readyStatus
+                ?? "Background: current card art (Cover). Pick a subject…";
+            await RefreshPreviewAfterBackgroundChangeAsync(subjectStatus, backgroundOnlyStatus);
+        }
+        catch (Exception ex)
+        {
+            DisposeBackground();
+            PreviewImage.Source = null;
+            PreviewHintText.Text = "Background failed";
+            PreviewHintText.Visibility = Visibility.Visible;
+            StatusText.Text = "Background failed: " + ex.Message;
+            MessageBox.Show(
+                this,
+                "Could not load card art as background:\n\n" + ex.Message,
+                "Custom overframe art",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            if (liveTemp is not null && File.Exists(liveTemp))
+            {
+                try { File.Delete(liveTemp); } catch { /* ignore */ }
+            }
+
+            SetBusy(false);
+        }
+    }
+
+    private async Task RefreshPreviewAfterBackgroundChangeAsync(
+        string subjectReadyStatus,
+        string backgroundOnlyStatus)
+    {
+        if (_subjectSource is not null && _subjectMask is not null)
+        {
+            await RecomposePreviewAsync();
+            StatusText.Text = subjectReadyStatus;
+            PreviewHintText.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        await ShowBackgroundOnlyPreviewAsync();
+        StatusText.Text = backgroundOnlyStatus;
+    }
+
+    private async Task ShowBackgroundOnlyPreviewAsync()
+    {
+        var frameStyle = GetSelectedFrameStyle();
+        var background = _backgroundSource;
+        var bmp = await Task.Run(() =>
+        {
+            using var preview = OverFrameAutoArtComposer.ComposeCustomBackgroundOnly(
+                frameStyle,
+                background: background);
+            return ToPreviewBitmap(preview);
+        });
+
+        PreviewImage.Source = bmp;
+        ClearSubjectOverlay();
+        PreviewHintText.Visibility = Visibility.Collapsed;
+        CleanupComposedTemp();
     }
 
     private async void PickImage_Click(object sender, RoutedEventArgs e)
@@ -318,7 +424,7 @@ public partial class CustomOverframeWindow : Window
         }
         catch (Exception ex)
         {
-            FailSubjectPrepare(ex);
+            await FailSubjectPrepareAsync(ex);
         }
         finally
         {
@@ -359,7 +465,7 @@ public partial class CustomOverframeWindow : Window
         }
         catch (Exception ex)
         {
-            FailSubjectPrepare(ex);
+            await FailSubjectPrepareAsync(ex);
         }
         finally
         {
@@ -377,18 +483,16 @@ public partial class CustomOverframeWindow : Window
         DisposeSubject();
         _offsetX = 0;
         _offsetY = 0;
-        _subjectScale = 1f;
-        ArtScaleSlider.Value = 1;
+        _subjectScale = DefaultSubjectScale;
+        ArtScaleSlider.Value = DefaultSubjectScale;
         UpdateArtScaleLabel();
         ClearSubjectOverlay();
     }
 
-    private void FailSubjectPrepare(Exception ex)
+    private async Task FailSubjectPrepareAsync(Exception ex)
     {
         DisposeSubject();
-        PreviewImage.Source = null;
         ClearSubjectOverlay();
-        PreviewHintText.Visibility = Visibility.Visible;
         ApplyButton.IsEnabled = false;
         StatusText.Text = "Failed: " + ex.Message;
         MessageBox.Show(
@@ -397,12 +501,64 @@ public partial class CustomOverframeWindow : Window
             "Custom overframe art",
             MessageBoxButton.OK,
             MessageBoxImage.Error);
+
+        if (_backgroundSource is not null)
+        {
+            try
+            {
+                await ShowBackgroundOnlyPreviewAsync();
+                StatusText.Text =
+                    "Subject failed. Background still ready — pick another subject…";
+            }
+            catch
+            {
+                PreviewImage.Source = null;
+                PreviewHintText.Text = "Select a subject to preview";
+                PreviewHintText.Visibility = Visibility.Visible;
+            }
+        }
+        else
+        {
+            PreviewImage.Source = null;
+            PreviewHintText.Text = "Select a subject to preview";
+            PreviewHintText.Visibility = Visibility.Visible;
+        }
     }
 
     private async void FrameStyleBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_subjectSource is null || _subjectMask is null || _busy)
+        if (!IsLoaded || _busy)
             return;
+
+        if (_subjectSource is null || _subjectMask is null)
+        {
+            if (_backgroundSource is null)
+                return;
+
+            SetBusy(true);
+            try
+            {
+                await ShowBackgroundOnlyPreviewAsync();
+                StatusText.Text =
+                    $"Background preview ({GetSelectedFrameStyle()}). Pick a subject…";
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = "Compose failed: " + ex.Message;
+                MessageBox.Show(
+                    this,
+                    "Could not recompose overframe:\n\n" + ex.Message,
+                    "Custom overframe art",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            finally
+            {
+                SetBusy(false);
+            }
+
+            return;
+        }
 
         SetBusy(true);
         try
@@ -698,6 +854,7 @@ public partial class CustomOverframeWindow : Window
     {
         _busy = busy;
         PickBackgroundButton.IsEnabled = !busy;
+        UseCardArtBackgroundButton.IsEnabled = !busy;
         PickImageButton.IsEnabled = !busy;
         FromCurrentArtRembgButton.IsEnabled = !busy;
         FrameStyleBox.IsEnabled = !busy;
