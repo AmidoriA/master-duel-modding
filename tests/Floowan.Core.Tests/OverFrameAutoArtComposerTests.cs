@@ -1554,12 +1554,13 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
-    public void ClampBackgroundScale_ClampsToOneThroughDouble()
+    public void ClampBackgroundScale_ClampsToOneThroughQuadruple()
     {
         Assert.Equal(1f, OverFrameAutoArtComposer.ClampBackgroundScale(0.1f));
-        Assert.Equal(2f, OverFrameAutoArtComposer.ClampBackgroundScale(9f));
+        Assert.Equal(4f, OverFrameAutoArtComposer.ClampBackgroundScale(9f));
         Assert.Equal(1f, OverFrameAutoArtComposer.ClampBackgroundScale(1f));
         Assert.Equal(1.5f, OverFrameAutoArtComposer.ClampBackgroundScale(1.5f));
+        Assert.Equal(4f, OverFrameAutoArtComposer.ClampBackgroundScale(4f));
     }
 
     [Fact]
@@ -1578,6 +1579,11 @@ public class OverFrameAutoArtComposerTests
             $"×2 Cover must allow more pan than ×1 ({max1X},{max1Y} vs {max2X},{max2Y})");
         Assert.True(max2X > 50 && max2Y > 50,
             $"×2 Cover should have substantial pan room, got {max2X},{max2Y}");
+
+        var (max4X, max4Y) = OverFrameAutoArtComposer.GetBackgroundPanLimits(
+            art.Width, art.Height, art, backgroundScale: 4f);
+        Assert.True(max4X > max2X || max4Y > max2Y,
+            $"×4 Cover must allow more pan than ×2 ({max2X},{max2Y} vs {max4X},{max4Y})");
     }
 
     [Fact]
