@@ -736,6 +736,89 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void ToolsRestoreOverframesAfterPatch_Click(object sender, RoutedEventArgs e)
+    {
+        if (_database is null)
+        {
+            MessageBox.Show("Open database.db first.", "Floowan");
+            return;
+        }
+
+        if (_overFrameService is null)
+        {
+            MessageBox.Show("Over-frame service is not initialized.", "Floowan");
+            return;
+        }
+
+        var gamePath = GamePathBox.Text?.Trim() ?? "";
+        string? pathError = null;
+        if (string.IsNullOrWhiteSpace(gamePath) || !GamePathLocator.IsValidGamePath(gamePath, out pathError))
+        {
+            MessageBox.Show(
+                pathError ?? "Set a valid Master Duel LocalData path first (Home tab).",
+                "Floowan",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var pending = _database.ListFloowanOverframeCards();
+        var confirm = MessageBox.Show(
+            "Re-apply Floowan over-frames after an MD patch for " + pending.Count +
+            " card(s) recorded in user.db.\n\n" +
+            "This merges into the current of_card_asset gate (official OF entries are kept) " +
+            "and restores 704x1024 art from *-applied-overframe.png backups when live art was reset.\n\n" +
+            "Quit Master Duel first. Continue?",
+            "Restore overframes after patch",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes)
+            return;
+
+        ToolsRestoreOverframesButton.IsEnabled = false;
+        ToolsUpdateEntireDbButton.IsEnabled = false;
+        ToolsUpdateNewFilesDbButton.IsEnabled = false;
+        SetUiBusy(true);
+        ToolsRestoreOverframesStatusText.Text = "Starting...";
+        Status("Restoring Floowan over-frames after patch...");
+
+        var database = _database;
+        var service = _overFrameService;
+        var progress = new Progress<string>(msg =>
+        {
+            ToolsRestoreOverframesStatusText.Text = msg;
+            Status(msg);
+        });
+
+        try
+        {
+            var result = await Task.Run(() =>
+                service.RestoreOverframesAfterPatch(gamePath, database, progress));
+
+            ToolsRestoreOverframesStatusText.Text = result.Message;
+            Status(result.Message);
+            RunOfSearch();
+            MessageBox.Show(
+                result.Message,
+                "Floowan",
+                MessageBoxButton.OK,
+                result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        }
+        catch (Exception ex)
+        {
+            ToolsRestoreOverframesStatusText.Text = "Error: " + ex.Message;
+            Status("Restore overframes failed: " + ex.Message);
+            MessageBox.Show(ex.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            ToolsRestoreOverframesButton.IsEnabled = true;
+            ToolsUpdateEntireDbButton.IsEnabled = true;
+            ToolsUpdateNewFilesDbButton.IsEnabled = true;
+            SetUiBusy(false);
+        }
+    }
+
     private void ToolsRefreshBackups_Click(object sender, RoutedEventArgs e) =>
         EnsureAndRefreshBackupBrowser();
 

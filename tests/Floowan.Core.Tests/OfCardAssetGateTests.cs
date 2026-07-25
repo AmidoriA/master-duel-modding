@@ -98,4 +98,19 @@ public class OfCardAssetGateTests
     {
         Assert.Throws<InvalidDataException>(() => OfCardAssetGate.Parse(new byte[] { 0x01, 0x02 }));
     }
+
+    [Fact]
+    public void Add_Merges_WithoutDroppingExistingOfficialEntries()
+    {
+        // Simulate post-patch gate that only has official OF rows, then Floowan appends.
+        var gate = OfCardAssetGate.FromEntries([(100, 100), (200, 200)]);
+        gate.Add(300, 300);
+        gate.Add(100, 100); // idempotent official refresh
+
+        Assert.Equal(3, gate.Entries.Count);
+        Assert.True(gate.Contains(100));
+        Assert.True(gate.Contains(200));
+        Assert.True(gate.Contains(300));
+        Assert.Equal((ushort)100, gate.Entries.First(e => e.TriggerId == 100).BaseArtId);
+    }
 }
