@@ -174,8 +174,13 @@ public partial class CustomOverframeWindow : Window
             return;
         }
 
-        // Always (re)resolve for Link — in-memory loader cache makes a repeat hit cheap,
-        // and Effect→Link must not keep a stale null from a prior failed/timed-out attempt.
+        // Prefer catalog value — avoid LocalData scans while editing.
+        if (_card.LinkMarkers is { } fromCard)
+        {
+            _linkMarkers = fromCard;
+            return;
+        }
+
         try
         {
             using var cts = new CancellationTokenSource(LinkMarkerLoadTimeout);

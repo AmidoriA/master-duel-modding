@@ -1611,14 +1611,13 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Soft timeout for CARD_Prop marker loads so Link Preview never hangs the UI.
+    /// Soft timeout for optional live CARD_Prop marker loads (DB miss only).
     /// </summary>
     private static readonly TimeSpan LinkMarkerLoadTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// Loads CARD_Prop link markers for Link-frame OF off the UI thread.
-    /// Returns null when the frame is not Link, markers cannot be read, or the load times out
-    /// (compose skips arrow redraw — Preview still completes).
+    /// Resolves Link arrow markers for OF compose: prefer catalog <see cref="CardRecord.LinkMarkers"/>,
+    /// optionally fall back to a timed live CARD_Prop load when the DB value is missing.
     /// </summary>
     private async Task<LinkMarkerMask?> TryResolveLinkMarkersAsync(
         CardRecord card,
@@ -1627,14 +1626,30 @@ public partial class MainWindow : Window
     {
         if (!LinkArrowOverlay.NeedsArrowOverlay(frameStyle))
             return null;
+
+        // Prefer shipped/updated catalog — avoid LocalData scans on Preview.
+        var fromDb = card.LinkMarkers ?? _database?.GetById(card.Id)?.LinkMarkers;
+        if (fromDb is { } dbMarkers)
+        {
+            progress?.Report(
+                $"Link markers for '{card.DisplayName}': 0x{(byte)dbMarkers:X2} " +
+                $"({LinkMarkerMaskConvert.Count(dbMarkers)} arrows, from catalog)");
+            return dbMarkers;
+        }
+
         if (string.IsNullOrWhiteSpace(GamePathBox.Text))
+        {
+            progress?.Report(
+                $"No catalog link markers for id {card.Id}; Link arrows will not be redrawn.");
             return null;
+        }
 
         var gamePath = GamePathBox.Text;
         var cardId = card.Id;
         var displayName = card.DisplayName;
         try
         {
+            progress?.Report("Catalog missing link markers; trying live CARD_Prop…");
             using var cts = new CancellationTokenSource(LinkMarkerLoadTimeout);
             // WaitAsync guarantees we return even if AssetsTools blocks inside LoadBundleFile
             // (token alone cannot abort a native/uncooperative hang).
@@ -1653,7 +1668,7 @@ public partial class MainWindow : Window
             {
                 progress?.Report(
                     $"Link markers for '{displayName}': 0x{(byte)markers.Value:X2} " +
-                    $"({LinkMarkerMaskConvert.Count(markers.Value)} arrows)");
+                    $"({LinkMarkerMaskConvert.Count(markers.Value)} arrows, live)");
                 return markers;
             }
 

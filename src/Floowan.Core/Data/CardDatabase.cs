@@ -6,7 +6,7 @@ namespace Floowan.Core.Data;
 /// <summary>
 /// Card catalog + user state facade over two SQLite files:
 /// <list type="bullet">
-/// <item><description><c>database.db</c> (master) — identity/catalog: id, name, description, bundle, data_index, card_type, created_at</description></item>
+/// <item><description><c>database.db</c> (master) — identity/catalog: id, name, description, bundle, data_index, card_type, created_at, link_markers</description></item>
 /// <item><description><c>user.db</c> — app_config and per-card mutable state</description></item>
 /// </list>
 /// Opens master and ATTACHes user. On first open, migrates legacy user columns/rows from a
@@ -26,6 +26,9 @@ public sealed class CardDatabase : IDisposable
 
     /// <summary>True when master <c>card.created_at</c> exists (e.g. after Tools DB update / #30).</summary>
     public bool HasCreatedAtColumn { get; }
+
+    /// <summary>True when master <c>card.link_markers</c> exists (Link arrow bitmask from CARD_Prop).</summary>
+    public bool HasLinkMarkersColumn { get; }
 
     public CardDatabase(string databasePath, string? userDatabasePath = null)
     {
@@ -61,7 +64,8 @@ public sealed class CardDatabase : IDisposable
         var masterCols = GetColumnNames("main", "card");
         HasCardTypeColumn = masterCols.Any(c => string.Equals(c, "card_type", StringComparison.OrdinalIgnoreCase));
         HasCreatedAtColumn = masterCols.Any(c => string.Equals(c, "created_at", StringComparison.OrdinalIgnoreCase));
-        _cardSelectList = BuildCardSelectList(HasCardTypeColumn, HasCreatedAtColumn);
+        HasLinkMarkersColumn = masterCols.Any(c => string.Equals(c, "link_markers", StringComparison.OrdinalIgnoreCase));
+        _cardSelectList = BuildCardSelectList(HasCardTypeColumn, HasCreatedAtColumn, HasLinkMarkersColumn);
     }
 
     /// <summary>
@@ -69,12 +73,14 @@ public sealed class CardDatabase : IDisposable
     /// <list type="bullet">
     /// <item><description><c>card_type</c> — type label inferred from CARD_Desc type lines</description></item>
     /// <item><description><c>created_at</c> — ISO-8601 UTC creation time of the illustration AssetBundle file</description></item>
+    /// <item><description><c>link_markers</c> — INTEGER 0–255 Link arrow bitmask from CARD_Prop (null for non-Link)</description></item>
     /// </list>
     /// </summary>
     private void EnsureMasterSchema()
     {
         EnsureMasterCardColumn("card_type", "TEXT");
         EnsureMasterCardColumn("created_at", "TEXT");
+        EnsureMasterCardColumn("link_markers", "INTEGER");
     }
 
     private void EnsureMasterCardColumn(string column, string typeSql)
@@ -415,19 +421,20 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value;";
     }
 
     /// <summary>
-    /// Base select list (ordinals 0–11). Optional master columns follow as 12–13 when present;
+    /// Base select list (ordinals 0–11). Optional master columns follow as 12–14 when present;
     /// otherwise NULL placeholders keep <see cref="ReadCard"/> ordinals stable.
     /// </summary>
-    private static string BuildCardSelectList(bool hasCardType, bool hasCreatedAt)
+    private static string BuildCardSelectList(bool hasCardType, bool hasCreatedAt, bool hasLinkMarkers)
     {
         var cardType = hasCardType ? "c.card_type" : "NULL AS card_type";
         var createdAt = hasCreatedAt ? "c.created_at" : "NULL AS created_at";
+        var linkMarkers = hasLinkMarkers ? "c.link_markers" : "NULL AS link_markers";
         return $@"
 c.id, c.name, c.description, c.bundle,
 u.modded_name, u.modded_description, c.data_index,
 IFNULL(u.favorite, 0), IFNULL(u.has_backup, 0),
 IFNULL(u.is_overframe, 0), u.overframe_base_id, u.art_id,
-{cardType}, {createdAt}";
+{cardType}, {createdAt}, {linkMarkers}";
     }
 
     private const string CardFromJoin = @"
@@ -457,10 +464,10 @@ LEFT JOIN user.card_state u ON u.id = c.id";
         insert.Transaction = tx;
         insert.CommandText = @"
 INSERT INTO main.card (
-  id, name, description, bundle, data_index, card_type, created_at,
+  id, name, description, bundle, data_index, card_type, created_at, link_markers,
   favorite, has_backup, is_overframe
 ) VALUES (
-  $id, $name, $description, $bundle, $data_index, $card_type, $created_at,
+  $id, $name, $description, $bundle, $data_index, $card_type, $created_at, $link_markers,
   0, 0, 0
 );";
         var pId = insert.Parameters.Add("$id", SqliteType.Integer);
@@ -470,6 +477,7 @@ INSERT INTO main.card (
         var pIndex = insert.Parameters.Add("$data_index", SqliteType.Integer);
         var pType = insert.Parameters.Add("$card_type", SqliteType.Text);
         var pCreated = insert.Parameters.Add("$created_at", SqliteType.Text);
+        var pMarkers = insert.Parameters.Add("$link_markers", SqliteType.Integer);
 
         var written = 0;
         foreach (var row in list)
@@ -481,6 +489,7 @@ INSERT INTO main.card (
             pIndex.Value = row.DataIndex;
             pType.Value = string.IsNullOrWhiteSpace(row.CardType) ? DBNull.Value : row.CardType;
             pCreated.Value = string.IsNullOrWhiteSpace(row.CreatedAt) ? DBNull.Value : row.CreatedAt;
+            pMarkers.Value = row.LinkMarkers is { } m ? (int)(byte)m : DBNull.Value;
             insert.ExecuteNonQuery();
             written++;
         }
@@ -504,10 +513,10 @@ INSERT INTO main.card (
         upsert.Transaction = tx;
         upsert.CommandText = @"
 INSERT INTO main.card (
-  id, name, description, bundle, data_index, card_type, created_at,
+  id, name, description, bundle, data_index, card_type, created_at, link_markers,
   favorite, has_backup, is_overframe
 ) VALUES (
-  $id, $name, $description, $bundle, $data_index, $card_type, $created_at,
+  $id, $name, $description, $bundle, $data_index, $card_type, $created_at, $link_markers,
   0, 0, 0
 )
 ON CONFLICT(id) DO UPDATE SET
@@ -516,7 +525,8 @@ ON CONFLICT(id) DO UPDATE SET
   bundle = excluded.bundle,
   data_index = excluded.data_index,
   card_type = excluded.card_type,
-  created_at = excluded.created_at;";
+  created_at = excluded.created_at,
+  link_markers = excluded.link_markers;";
         var pId = upsert.Parameters.Add("$id", SqliteType.Integer);
         var pName = upsert.Parameters.Add("$name", SqliteType.Text);
         var pDesc = upsert.Parameters.Add("$description", SqliteType.Text);
@@ -524,6 +534,7 @@ ON CONFLICT(id) DO UPDATE SET
         var pIndex = upsert.Parameters.Add("$data_index", SqliteType.Integer);
         var pType = upsert.Parameters.Add("$card_type", SqliteType.Text);
         var pCreated = upsert.Parameters.Add("$created_at", SqliteType.Text);
+        var pMarkers = upsert.Parameters.Add("$link_markers", SqliteType.Integer);
 
         var written = 0;
         foreach (var row in list)
@@ -535,6 +546,7 @@ ON CONFLICT(id) DO UPDATE SET
             pIndex.Value = row.DataIndex;
             pType.Value = string.IsNullOrWhiteSpace(row.CardType) ? DBNull.Value : row.CardType;
             pCreated.Value = string.IsNullOrWhiteSpace(row.CreatedAt) ? DBNull.Value : row.CreatedAt;
+            pMarkers.Value = row.LinkMarkers is { } m ? (int)(byte)m : DBNull.Value;
             upsert.ExecuteNonQuery();
             written++;
         }
@@ -1079,7 +1091,10 @@ ON CONFLICT(id) DO NOTHING;";
         OverframeBaseId = reader.IsDBNull(10) ? null : reader.GetInt32(10),
         ArtId = reader.IsDBNull(11) ? null : reader.GetInt32(11),
         CardType = reader.FieldCount > 12 && !reader.IsDBNull(12) ? reader.GetString(12) : null,
-        CreatedAt = reader.FieldCount > 13 && !reader.IsDBNull(13) ? reader.GetString(13) : null
+        CreatedAt = reader.FieldCount > 13 && !reader.IsDBNull(13) ? reader.GetString(13) : null,
+        LinkMarkers = reader.FieldCount > 14 && !reader.IsDBNull(14)
+            ? (LinkMarkerMask)(byte)Convert.ToInt32(reader.GetValue(14))
+            : null
     };
 
     public void Dispose()

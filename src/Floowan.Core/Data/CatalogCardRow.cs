@@ -17,4 +17,8 @@ public sealed class CatalogCardRow
     /// (LocalData/0000/… or StreamingAssets/AssetBundle/…). Stored as ISO-8601.
     /// </summary>
     public string? CreatedAt { get; init; }
+    /// <summary>
+    /// Link arrow bitmask from CARD_Prop (null for non-Link / unknown). Stored as INTEGER 0–255.
+    /// </summary>
+    public LinkMarkerMask? LinkMarkers { get; init; }
 }

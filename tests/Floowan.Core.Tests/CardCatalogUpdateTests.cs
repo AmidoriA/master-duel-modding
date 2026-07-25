@@ -157,6 +157,7 @@ VALUES (1, 'Old', 'old', 'aaaaaaaa', 0, 0, 0, 0);";
             using var db = new CardDatabase(master, user);
             Assert.True(db.HasMasterColumn("card_type"));
             Assert.True(db.HasMasterColumn("created_at"));
+            Assert.True(db.HasMasterColumn("link_markers"));
 
             var created = DateTime.UtcNow.ToString("o");
             var written = db.ReplaceMasterCatalog(new[]
@@ -169,7 +170,9 @@ VALUES (1, 'Old', 'old', 'aaaaaaaa', 0, 0, 0, 0);";
                     Bundle = "abcd1234",
                     DataIndex = 99,
                     CardType = CardTypeLabels.InferFromCardText(null, "[Cyberse/Link/Effect]"),
-                    CreatedAt = created
+                    CreatedAt = created,
+                    LinkMarkers = LinkMarkerMask.Up | LinkMarkerMask.Left
+                        | LinkMarkerMask.Right | LinkMarkerMask.Down
                 }
             });
             Assert.Equal(1, written);
@@ -181,6 +184,9 @@ VALUES (1, 'Old', 'old', 'aaaaaaaa', 0, 0, 0, 0);";
             Assert.Equal("Link", card.CardType);
             Assert.Equal(created, card.CreatedAt);
             Assert.Equal("abcd1234", card.Bundle);
+            Assert.Equal(
+                LinkMarkerMask.Up | LinkMarkerMask.Left | LinkMarkerMask.Right | LinkMarkerMask.Down,
+                card.LinkMarkers);
 
             var latest = db.GetLatestCreatedAtUtc();
             Assert.NotNull(latest);

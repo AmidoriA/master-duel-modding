@@ -1,3 +1,5 @@
+using Floowan.Core.Data;
+
 namespace Floowan.Core.Models;
 
 public sealed class CardRecord
@@ -15,6 +17,10 @@ public sealed class CardRecord
     /// ISO-8601 UTC creation time of the illustration AssetBundle used for this catalog row.
     /// </summary>
     public string? CreatedAt { get; init; }
+    /// <summary>
+    /// Master Duel Link arrow bitmask from CARD_Prop (null when unknown or non-Link).
+    /// </summary>
+    public LinkMarkerMask? LinkMarkers { get; init; }
     /// <summary>Human-readable local display of <see cref="CreatedAt"/> for UI grids/details.</summary>
     public string CreatedAtDisplay
     {
