@@ -31,9 +31,10 @@ public enum OverFrameComposeMode
 /// (Effect-style) lore cream is Mirrorjade-soft only where scaled art reaches the
 /// text box; lore past the footprint stays solid frame cream. Soft→solid is mild
 /// while still overlapping the scaled-art footprint (upper lore near art stays
-/// see-through), then eases more aggressively from the footprint bottom to lore
-/// bottom so busy underlay / beams are covered. Past the scaled-art footprint,
-/// lore is exact cream (no clamp-to-edge last-row tint). Pendulum dual-lore keeps
+/// see-through), then reaches exact cream by the footprint bottom so the exit is not
+/// a hard cut. A short steep lore-top seam fade (<see cref="LoreTopSeamHeight"/>)
+/// eases cream in from the panel top. Past the scaled-art footprint, lore is exact
+/// cream (no clamp-to-edge last-row tint). Pendulum dual-lore keeps
 /// constant Mirrorjade soft transparency (no Effect lore-top gradient / falloff).
 /// Out-of-bounds underlay samples are skipped (no vertical edge-smear). Overflow is
 /// hard-cut across the lore panel width (gold rim + cream stay clear). Left/right
@@ -68,23 +69,31 @@ public static class OverFrameAutoArtComposer
     public const byte FoilMaskAlpha = 4;
 
     /// <summary>
-    /// Constant Mirrorjade frame opacity over lore underlay. Pendulum dual-lore uses this
-    /// for the full cream height (no vertical falloff). Effect-style lore starts here at
-    /// the lore top; soft→solid progress then follows
-    /// <see cref="ComputeEffectLoreSolidProgress"/>. High enough that lore text stays
-    /// readable; low enough that scaled art shows through near the art (Custom OF + Auto
-    /// compose share this path).
+    /// Constant Mirrorjade frame opacity over lore underlay after the lore-top seam
+    /// fade-in. Pendulum dual-lore uses this for the full cream height (no vertical
+    /// falloff). Effect-style lore reaches this after <see cref="LoreTopSeamHeight"/>,
+    /// then soft→solid progress follows <see cref="ComputeEffectLoreSolidProgress"/>.
+    /// High enough that lore text stays readable; low enough that scaled art shows
+    /// through near the art (Custom OF + Auto compose share this path).
     /// </summary>
     public const float TextBoxFrameOpacity = 0.80f;
 
     /// <summary>
     /// Soft→solid progress (0 = <see cref="TextBoxFrameOpacity"/>, 1 = exact cream)
     /// reached at the scaled-art footprint bottom when that bottom falls inside Effect
-    /// lore. Below the footprint, Effect lore eases from this value to solid over the
-    /// remaining cream so busy underlay below the art is covered more aggressively
-    /// while upper lore near the art stays relatively see-through.
+    /// lore. 1.0 avoids a hard cream cliff at the footprint exit without clamp-tinting
+    /// the last art row (which caused vertical subject streaks). Past the footprint is
+    /// exact cream.
     /// </summary>
-    public const float LoreSolidProgressAtArtBottom = 0.30f;
+    public const float LoreSolidProgressAtArtBottom = 1.0f;
+
+    /// <summary>
+    /// Steep but smooth cream fade-in height (px) from the Effect lore panel top.
+    /// Frame opacity starts near 0 (underlay continuity with the type-line / art above)
+    /// and eases out to the soft Mirrorjade opacity so the lore-top seam is not a hard
+    /// horizontal cut. Does not clamp-sample subject edge pixels.
+    /// </summary>
+    public const int LoreTopSeamHeight = 32;
 
     /// <summary>
     /// Soft→solid lore cream vertical falloff height (px) from the lore box top for
@@ -1613,12 +1622,11 @@ public static class OverFrameAutoArtComposer
     /// <summary>
     /// Paints the lore panel. When <paramref name="applyEffectLoreGradient"/> is true
     /// (non-Pendulum), soft Mirrorjade where the scaled art footprint covers the pixel,
-    /// with frame opacity from <see cref="ComputeEffectLoreSolidProgress"/> (mild over
-    /// art, stronger cream ramp past the footprint bottom). Outside the footprint paints
-    /// exact cream — never clamp-samples the last art row/column (that vertically
-    /// smeared subject edge pixels through the lore). When false (Pendulum), constant
-    /// <see cref="TextBoxFrameOpacity"/> Mirrorjade soft where art underlays; solid cream
-    /// where uncovered — no lore-top falloff.
+    /// with frame opacity from <see cref="ComputeEffectLoreFrameOpacity"/> (lore-top
+    /// seam fade-in, then soft→solid to cream by the footprint bottom). Outside the
+    /// footprint paints exact cream — never clamp-samples the last art row/column.
+    /// When false (Pendulum), constant <see cref="TextBoxFrameOpacity"/> Mirrorjade soft
+    /// where art underlays; solid cream where uncovered — no lore-top falloff.
     /// Never uses the rembg cutout (hard sleeve/panel edges caused vertical-line glitches).
     /// Skips <paramref name="occupied"/> pixels so Pendulum green side chrome that sits
     /// inside the lore cream rect can still be punched by the subject silhouette.
@@ -1655,8 +1663,7 @@ public static class OverFrameAutoArtComposer
             var x0 = Math.Max(0, textBox.Left);
             var x1 = Math.Min(canvas.Width, textBox.Right);
             var sy = y - bgY;
-            var tVert = ComputeEffectLoreSolidProgress(y, textBox, artBottom, blendHeight);
-            var verticalFrameOpacity = TextBoxFrameOpacity + (1f - TextBoxFrameOpacity) * tVert;
+            var verticalFrameOpacity = ComputeEffectLoreFrameOpacity(y, textBox, artBottom, blendHeight);
             var rowHasArtUnderlay = (uint)sy < (uint)scaledSourceH;
             for (var x = x0; x < x1; x++)
             {
@@ -1693,9 +1700,37 @@ public static class OverFrameAutoArtComposer
     }
 
     /// <summary>
+    /// Effect lore frame opacity at canvas row <paramref name="y"/> over underlay.
+    /// Combines <see cref="ComputeEffectLoreSolidProgress"/> with a steep lore-top
+    /// seam fade (<see cref="LoreTopSeamHeight"/>) so cream eases in smoothly at the
+    /// panel top without a binary cut or last-row pixel repeat.
+    /// </summary>
+    public static float ComputeEffectLoreFrameOpacity(
+        int y,
+        Rectangle textBox,
+        int artBottom,
+        int blendHeight)
+    {
+        var tSolid = ComputeEffectLoreSolidProgress(y, textBox, artBottom, blendHeight);
+        var opacity = TextBoxFrameOpacity + (1f - TextBoxFrameOpacity) * tSolid;
+
+        if (LoreTopSeamHeight <= 0 || textBox.Height <= 0)
+            return opacity;
+
+        var dy = y - textBox.Top;
+        if (dy >= LoreTopSeamHeight)
+            return opacity;
+
+        // Steep ease-out: underlay-dominant at lore top → Mirrorjade opacity by seam end.
+        var tSeam = EaseOut01(Math.Clamp(dy / (float)LoreTopSeamHeight, 0f, 1f));
+        return opacity * tSeam;
+    }
+
+    /// <summary>
     /// Effect lore soft→solid progress at canvas row <paramref name="y"/> (0 = soft
-    /// <see cref="TextBoxFrameOpacity"/>, 1 = exact cream). Mild while overlapping the
-    /// scaled-art footprint; stronger ease-out from the footprint bottom to lore bottom.
+    /// <see cref="TextBoxFrameOpacity"/> before the top seam, 1 = exact cream). Soft while
+    /// overlapping the scaled-art footprint; reaches solid by the footprint bottom so
+    /// exiting into exact cream is continuous (no last-row clamp tint).
     /// </summary>
     public static float ComputeEffectLoreSolidProgress(
         int y,
@@ -1718,17 +1753,15 @@ public static class OverFrameAutoArtComposer
         if (artBottom >= loreBottom)
             return EaseOut01(Math.Clamp((y - loreTop) / (float)blendHeight, 0f, 1f));
 
-        // Mild soft→solid while still over art; strengthen past the footprint bottom.
+        // Soft→solid over art; solid by footprint bottom (no hard cream cliff / no smear).
         if (y <= artBottom)
         {
             var softSpan = Math.Max(1, artBottom - loreTop);
-            var tSoft = Smoothstep01(Math.Clamp((y - loreTop) / (float)softSpan, 0f, 1f));
-            return tSoft * LoreSolidProgressAtArtBottom;
+            return Smoothstep01(Math.Clamp((y - loreTop) / (float)softSpan, 0f, 1f))
+                * LoreSolidProgressAtArtBottom;
         }
 
-        var belowSpan = Math.Max(1, loreBottom - artBottom);
-        var tBelow = EaseOut01(Math.Clamp((y - artBottom) / (float)belowSpan, 0f, 1f));
-        return LoreSolidProgressAtArtBottom + (1f - LoreSolidProgressAtArtBottom) * tBelow;
+        return 1f;
     }
 
     private static float Smoothstep01(float t)
