@@ -53,4 +53,22 @@
 
 - https://github.com/microsoft/onnxruntime
 - License: MIT
-- Runs the `isnet-anime` background-removal model locally.
+- Runs the `isnet-anime` background-removal model and Meta SAM 2 point-cutout
+  encoder/decoder ONNX sessions locally.
+
+## Meta Segment Anything 2 (SAM 2)
+
+- https://github.com/facebookresearch/sam2
+- Paper: https://ai.meta.com/research/publications/sam-2-segment-anything-in-images-and-videos/
+- License: Apache-2.0 (see upstream `LICENSE` / `LICENSE_cctorch` notes on the Meta repo)
+- Floowan uses an ONNX export of **SAM 2 Hiera-Tiny** (encoder + decoder) for
+  interactive point-prompt subject cutouts in Custom over-frame art. Runtime is
+  ONNX Runtime only — PyTorch is not required.
+- Pre-exported ONNX packages are downloaded on first use from
+  https://huggingface.co/vietanhdev/segment-anything-2-onnx-models
+  (`sam2_hiera_tiny.zip`, SHA-256 verified) into `%LOCALAPPDATA%\Floowan\models\sam2`.
+  Weights are not stored in this repository. Manual fetch:
+  `pwsh -File scripts/download-sam2-models.ps1`.
+- Export tooling reference: https://github.com/vietanhdev/samexporter (Apache-2.0).
+  Floowan reimplements the documented encoder/decoder preprocess and point-prompt
+  decode path in C#; it does not vendor samexporter Python sources.

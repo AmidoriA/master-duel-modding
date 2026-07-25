@@ -20,6 +20,7 @@ namespace Floowan.Desktop;
 public partial class CustomOverframeWindow : Window
 {
     private readonly AutoOverFrameArtService _autoArt;
+    private readonly Sam2PointCutoutService _sam2Cutout = new();
     private readonly OverFrameModService _overFrameService;
     private readonly CardRecord _card;
     private readonly string _gamePath;
@@ -41,6 +42,8 @@ public partial class CustomOverframeWindow : Window
     private int _backgroundOffsetX;
     private int _backgroundOffsetY;
     private bool _busy;
+    private bool _samPointPickMode;
+    private Image<Rgba32>? _samPickSource;
     private bool _dragging;
     private bool _scaleDragging;
     private bool _bgTransformDragging;
@@ -71,6 +74,10 @@ public partial class CustomOverframeWindow : Window
         _linkMarkers = linkMarkers;
         Title = $"Custom overframe art — {card.DisplayName}";
         SelectFrameStyle(initialFrameStyle);
+        FromCurrentArtSam2Button.Visibility = Sam2PointCutoutService.IsFeatureEnabled
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        PreviewKeyDown += CustomOverframeWindow_PreviewKeyDown;
         // Do not sync-load CARD_Prop here — that freezes the dialog. Parent may have
         // pre-resolved markers; otherwise load async on first Link frame selection / Loaded.
         if (LinkArrowOverlay.NeedsArrowOverlay(initialFrameStyle) && _linkMarkers is null)
@@ -675,6 +682,168 @@ public partial class CustomOverframeWindow : Window
         await PrepareSubjectFromLiveArtRembgAsync();
     }
 
+    private void CustomOverframeWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape || !_samPointPickMode)
+            return;
+
+        CancelSamPointPick();
+        StatusText.Text = "SAM 2 point pick cancelled.";
+        e.Handled = true;
+    }
+
+    private async void FromCurrentArtSam2_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || !Sam2PointCutoutService.IsFeatureEnabled)
+            return;
+
+        await BeginSamPointPickAsync();
+    }
+
+    /// <summary>
+    /// Extracts live card art into the preview and waits for a click that becomes the
+    /// SAM 2 positive point prompt.
+    /// </summary>
+    private async Task BeginSamPointPickAsync()
+    {
+        SetBusy(true);
+        string? liveTemp = null;
+        try
+        {
+            CancelSamPointPick(clearStatus: false);
+            liveTemp = Path.Combine(
+                Path.GetTempPath(),
+                $"floowan-custom-of-sam2-{Guid.NewGuid():N}.png");
+            StatusText.Text = "Extracting live card art for SAM 2…";
+            var gamePath = _gamePath;
+            var card = _card;
+            var outputPath = liveTemp;
+            await Task.Run(() => _overFrameService.ExtractCardArt(gamePath, card, outputPath));
+
+            var progress = new Progress<string>(msg => StatusText.Text = msg);
+            await _sam2Cutout.EnsureModelsAsync(progress);
+
+            using var loaded = ImageSharpImage.Load<Rgba32>(liveTemp);
+            var clean = OverFrameAutoArtComposer.RequireCleanIllustrationSource(loaded);
+            _samPickSource?.Dispose();
+            _samPickSource = clean.Clone();
+            if (!ReferenceEquals(loaded, clean))
+                clean.Dispose();
+
+            ClearSubjectOverlay();
+            PreviewImage.Source = ToPreviewBitmap(_samPickSource);
+            PreviewImage.Cursor = Cursors.Cross;
+            PreviewHintText.Visibility = Visibility.Collapsed;
+            ApplyButton.IsEnabled = false;
+            _samPointPickMode = true;
+            StatusText.Text =
+                "SAM 2: click the subject on the preview (e.g. dragon, not rider). Esc cancels.";
+        }
+        catch (Exception ex)
+        {
+            CancelSamPointPick(clearStatus: false);
+            StatusText.Text = "SAM 2 prepare failed: " + ex.Message;
+            MessageBox.Show(
+                this,
+                "Could not prepare SAM 2 point cutout:\n\n" + ex.Message,
+                "Custom overframe art",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            if (liveTemp is not null && File.Exists(liveTemp))
+            {
+                try { File.Delete(liveTemp); } catch { /* ignore */ }
+            }
+
+            SetBusy(false);
+            if (_samPointPickMode)
+                PreviewImage.Cursor = Cursors.Cross;
+        }
+    }
+
+    private void CancelSamPointPick(bool clearStatus = true)
+    {
+        _samPointPickMode = false;
+        _samPickSource?.Dispose();
+        _samPickSource = null;
+        PreviewImage.Cursor = Cursors.SizeAll;
+        if (clearStatus && StatusText.Text.StartsWith("SAM 2:", StringComparison.Ordinal))
+            StatusText.Text = "Ready.";
+    }
+
+    private async Task RunSam2AtPreviewPointAsync(System.Windows.Point hostPos)
+    {
+        if (_samPickSource is null || _busy)
+            return;
+
+        if (!Sam2PointCutoutService.TryMapPreviewClickToImage(
+                hostPos.X,
+                hostPos.Y,
+                PreviewHost.ActualWidth,
+                PreviewHost.ActualHeight,
+                _samPickSource.Width,
+                _samPickSource.Height,
+                out var imageX,
+                out var imageY))
+        {
+            StatusText.Text = "SAM 2: click inside the card art.";
+            return;
+        }
+
+        SetBusy(true);
+        StatusText.Text = $"SAM 2: segmenting at ({imageX:0},{imageY:0})…";
+        string? tempPath = null;
+        try
+        {
+            tempPath = Path.Combine(
+                Path.GetTempPath(),
+                $"floowan-sam2-src-{Guid.NewGuid():N}.png");
+            _samPickSource.Save(tempPath, new SixLabors.ImageSharp.Formats.Png.PngEncoder());
+
+            var progress = new Progress<string>(msg => StatusText.Text = msg);
+            var prepared = await _sam2Cutout.PrepareSubjectWithPointAsync(
+                tempPath,
+                imageX,
+                imageY,
+                progress);
+
+            CancelSamPointPick(clearStatus: false);
+            ResetSubjectPlacement();
+            _subjectSource = prepared.Source;
+            _subjectMask = prepared.Mask;
+
+            await RecomposePreviewAsync();
+            StatusText.Text =
+                $"Subject from SAM 2 point ({imageX:0},{imageY:0}). Drag or scale the art, then Apply.";
+            PreviewHintText.Visibility = Visibility.Collapsed;
+            ApplyButton.IsEnabled = true;
+        }
+        catch (Exception ex)
+        {
+            await FailSubjectPrepareAsync(ex);
+            if (_samPickSource is not null)
+            {
+                _samPointPickMode = true;
+                PreviewImage.Source = ToPreviewBitmap(_samPickSource);
+                PreviewImage.Cursor = Cursors.Cross;
+                StatusText.Text =
+                    "SAM 2 failed — click another point, or Esc to cancel. " + ex.Message;
+            }
+        }
+        finally
+        {
+            if (tempPath is not null && File.Exists(tempPath))
+            {
+                try { File.Delete(tempPath); } catch { /* ignore */ }
+            }
+
+            SetBusy(false);
+        }
+    }
+
+
     private async Task PrepareFromImageAsync(string imagePath, string sizeNote)
     {
         SetBusy(true);
@@ -954,9 +1123,19 @@ public partial class CustomOverframeWindow : Window
         SubjectOverlay.Visibility = Visibility.Visible;
     }
 
-    private void Preview_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private async void Preview_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (_subjectSource is null || _busy || PreviewImage.Source is null)
+        if (_busy || PreviewImage.Source is null)
+            return;
+
+        if (_samPointPickMode)
+        {
+            e.Handled = true;
+            await RunSam2AtPreviewPointAsync(e.GetPosition(PreviewHost));
+            return;
+        }
+
+        if (_subjectSource is null)
             return;
 
         _dragging = true;
@@ -1152,6 +1331,7 @@ public partial class CustomOverframeWindow : Window
         MatchBackgroundToSubjectButton.IsEnabled = !busy && _backgroundSource is not null;
         PickImageButton.IsEnabled = !busy;
         FromCurrentArtRembgButton.IsEnabled = !busy;
+        FromCurrentArtSam2Button.IsEnabled = !busy && Sam2PointCutoutService.IsFeatureEnabled;
         FrameStyleBox.IsEnabled = !busy;
         ArtScaleSlider.IsEnabled = !busy;
         BgScaleSlider.IsEnabled = !busy;
@@ -1205,9 +1385,11 @@ public partial class CustomOverframeWindow : Window
 
     private void Cleanup()
     {
+        CancelSamPointPick(clearStatus: false);
         DisposeSubject();
         DisposeBackground();
         CleanupComposedTemp();
+        _sam2Cutout.Dispose();
     }
 
     private static BitmapImage LoadOfComposePreview(string path)

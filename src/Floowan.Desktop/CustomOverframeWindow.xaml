@@ -64,8 +64,13 @@
                   <Button x:Name="FromCurrentArtRembgButton"
                           Content="From current art (rembg)…"
                           Click="FromCurrentArtRembg_Click"
-                          Margin="0,0,0,0"
+                          Margin="0,0,8,0"
                           ToolTip="Extract this card's live art, run rembg, and use the cutout as the Card Art subject layer."/>
+                  <Button x:Name="FromCurrentArtSam2Button"
+                          Content="SAM point cutout…"
+                          Click="FromCurrentArtSam2_Click"
+                          Margin="0,0,0,0"
+                          ToolTip="Extract live art, then click a point on the preview to mask that subject with Meta SAM 2 (ONNX)."/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                   <TextBlock Text="Frame"
