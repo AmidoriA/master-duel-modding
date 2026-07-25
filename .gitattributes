@@ -1,0 +1,28 @@
+# Windows-friendly line endings (Git for Windows / core.autocrlf=true intent):
+# LF in the Git object store; CRLF in the working tree on checkout.
+* text=auto eol=crlf
+
+# Binary assets — never convert line endings
+*.png -text
+*.jpg -text
+*.jpeg -text
+*.gif -text
+*.webp -text
+*.ico -text
+*.bmp -text
+*.db -text
+*.sqlite -text
+*.sqlite3 -text
+*.dll -text
+*.exe -text
+*.pdb -text
+*.tpk -text
+*.zip -text
+*.7z -text
+*.nupkg -text
+*.woff -text
+*.woff2 -text
+*.ttf -text
+*.otf -text
+*.snk -text
+*.bin -text
