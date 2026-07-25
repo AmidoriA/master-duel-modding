@@ -404,22 +404,9 @@ public partial class CustomOverframeWindow : Window
         }
 
         var sizeNote = CardArtTextureSizes.Describe(validation.Width, validation.Height);
-        if (validation.Width != OverFrameConstants.Width
-            || validation.Height != OverFrameConstants.Height)
-        {
-            var proceed = MessageBox.Show(
-                this,
-                $"Background is {sizeNote}; it will Cover-fill the art hole " +
-                $"(object-fit: cover) and stay clipped inside the frame.\n\nContinue?",
-                "Custom overframe art",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question);
-            if (proceed != MessageBoxResult.Yes)
-                return;
-        }
 
         SetBusy(true);
-        StatusText.Text = $"Loading background {Path.GetFileName(dlg.FileName)} ({sizeNote})…";
+        StatusText.Text = $"Loading background {Path.GetFileName(dlg.FileName)} ({sizeNote}, Cover)…";
         try
         {
             DisposeBackground();
@@ -578,21 +565,6 @@ public partial class CustomOverframeWindow : Window
         }
 
         var sizeNote = CardArtTextureSizes.Describe(validation.Width, validation.Height);
-        if (validation.Width != OverFrameConstants.Width
-            || validation.Height != OverFrameConstants.Height)
-        {
-            var proceed = MessageBox.Show(
-                this,
-                $"Image is {sizeNote}; preferred source is 704×1024.\n\n" +
-                (validation.Warning ?? "Existing alpha will be used as the subject mask (no rembg).") +
-                "\n\nContinue?",
-                "Custom overframe art",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question);
-            if (proceed != MessageBoxResult.Yes)
-                return;
-        }
-
         await PrepareFromImageAsync(dlg.FileName, sizeNote);
     }
 
