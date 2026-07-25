@@ -460,8 +460,12 @@ public static class OverFrameAutoArtComposer
         FillRegionWithScaledArt(canvas, typeLineStrip, source, scaledSourceW, scaledSourceH, bgX, bgY);
 
         // Soft continuation under cream lore where scaled art reaches (Mirrorjade). Never rembg.
-        // OOB samples are skipped in FillRegionWithScaledArt — uncovered lore stays empty foil.
-        // Effect PaintLorePanel feathers soft→solid; Pendulum keeps constant Mirrorjade soft.
+        // Clear cream to A=0 first so transparent source samples (alpha cutouts) do not leave
+        // black FoilMaskAlpha that would dim Mirrorjade soft→solid into muddy cream.
+        // OOB / transparent samples stay A=0 — PaintLorePanel treats those as uncovered (solid).
+        // Effect feathers soft→solid; Pendulum keeps constant Mirrorjade soft.
+        // subjectOffset moves overflow silhouette only — lore underlay stays on bgX/bgY.
+        ClearRegionTransparent(canvas, textBox);
         FillRegionWithScaledArt(canvas, textBox, source, scaledSourceW, scaledSourceH, bgX, bgY);
 
         // 2) Overflow silhouette — may punch lore side wings + dark card margins where
@@ -1024,9 +1028,37 @@ public static class OverFrameAutoArtComposer
     }
 
     /// <summary>
+    /// Clears a rectangle to fully transparent so lore underlay presence is explicit
+    /// (only <see cref="FillRegionWithScaledArt"/> writes FoilMaskAlpha art samples).
+    /// </summary>
+    private static void ClearRegionTransparent(Image<Rgba32> canvas, Rectangle region)
+    {
+        if (region.Width <= 0 || region.Height <= 0)
+            return;
+
+        for (var y = 0; y < region.Height; y++)
+        {
+            var dy = region.Top + y;
+            if ((uint)dy >= (uint)canvas.Height)
+                continue;
+
+            var dstRow = canvas.DangerousGetPixelRowMemory(dy).Span;
+            for (var x = 0; x < region.Width; x++)
+            {
+                var dx = region.Left + x;
+                if ((uint)dx >= (uint)canvas.Width)
+                    continue;
+                dstRow[dx] = new Rgba32(0, 0, 0, 0);
+            }
+        }
+    }
+
+    /// <summary>
     /// Writes scaled source art into a rectangle at foil-mask alpha (art window or lore underlay).
     /// Samples outside the scaled source footprint are skipped (no clamp-to-edge): clamping
     /// the last source row/column would smear subject edge pixels through the lore cream.
+    /// Transparent source samples are also skipped so alpha-cutout Custom OF art cannot
+    /// paint black RGB into the lore underlay (which would dim Mirrorjade cream).
     /// </summary>
     private static void FillRegionWithScaledArt(
         Image<Rgba32> canvas,
@@ -1072,6 +1104,10 @@ public static class OverFrameAutoArtComposer
                     continue;
 
                 var src = srcRow[sx];
+                // Alpha cutouts: do not write zero-alpha RGB (often black) as foil underlay.
+                if (src.A <= VisibleAlphaThreshold)
+                    continue;
+
                 dstRow[dx] = new Rgba32(src.R, src.G, src.B, FoilMaskAlpha);
             }
         }
@@ -1250,8 +1286,15 @@ public static class OverFrameAutoArtComposer
                 Rgba32 art;
                 if (inFootprint)
                 {
-                    presence = 1f;
                     art = dstRow[x];
+                    // Cleared lore / transparent source sample: no Mirrorjade underlay.
+                    if (art.A == 0)
+                    {
+                        dstRow[x] = fp;
+                        continue;
+                    }
+
+                    presence = 1f;
                 }
                 else
                 {
@@ -1282,6 +1325,11 @@ public static class OverFrameAutoArtComposer
                     }
 
                     art = underlaySnap.DangerousGetPixelRowMemory(snapY).Span[snapX];
+                    if (art.A == 0)
+                    {
+                        dstRow[x] = fp;
+                        continue;
+                    }
                 }
 
                 // Vertical falloff × footprint presence: underlay flip is continuous.
@@ -1329,7 +1377,9 @@ public static class OverFrameAutoArtComposer
                     continue;
 
                 var sx = x - bgX;
-                var hasArtUnderlay = rowHasArtUnderlay && (uint)sx < (uint)scaledSourceW;
+                var hasArtUnderlay = rowHasArtUnderlay
+                    && (uint)sx < (uint)scaledSourceW
+                    && dstRow[x].A > 0;
                 dstRow[x] = hasArtUnderlay
                     ? BlendFrameOverArt(dstRow[x], fp, TextBoxFrameOpacity)
                     : fp;

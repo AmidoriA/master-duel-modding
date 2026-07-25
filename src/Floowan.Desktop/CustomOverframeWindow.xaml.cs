@@ -327,6 +327,9 @@ public partial class CustomOverframeWindow : Window
 
         _dragging = false;
         _dragVisualGeneration++;
+        // Drop live overlay immediately so a translated subject cannot cover lore cream
+        // while the full recompose (same lore paint path as initial compose) runs.
+        ClearSubjectOverlay();
         PreviewHost.ReleaseMouseCapture();
 
         var scale = GetPreviewCanvasScale();
@@ -339,10 +342,7 @@ public partial class CustomOverframeWindow : Window
         }
 
         if (_busy || _subjectSource is null || _subjectMask is null)
-        {
-            ClearSubjectOverlay();
             return;
-        }
 
         SetBusy(true);
         StatusText.Text = $"Recomposing at offset {_offsetX}, {_offsetY}…";
@@ -355,7 +355,6 @@ public partial class CustomOverframeWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = "Compose failed: " + ex.Message;
-            ClearSubjectOverlay();
             MessageBox.Show(
                 this,
                 "Could not recompose overframe:\n\n" + ex.Message,
