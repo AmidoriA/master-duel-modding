@@ -71,7 +71,10 @@ public partial class CustomOverframeWindow : Window
         _linkMarkers = linkMarkers;
         Title = $"Custom overframe art — {card.DisplayName}";
         SelectFrameStyle(initialFrameStyle);
-        RefreshLinkMarkersForFrame(initialFrameStyle);
+        // Do not sync-load CARD_Prop here — that freezes the dialog. Parent may have
+        // pre-resolved markers; otherwise load async on first Link frame selection / Loaded.
+        if (LinkArrowOverlay.NeedsArrowOverlay(initialFrameStyle) && _linkMarkers is null)
+            Loaded += CustomOverframeWindow_LoadLinkMarkersOnOpen;
         ArtScaleSlider.Value = DefaultSubjectScale;
         _subjectScale = DefaultSubjectScale;
         BgScaleSlider.Value = DefaultBackgroundScale;
@@ -143,6 +146,14 @@ public partial class CustomOverframeWindow : Window
         FrameStyleBox.SelectedIndex = 0; // Effect
     }
 
+    private static readonly TimeSpan LinkMarkerLoadTimeout = TimeSpan.FromSeconds(30);
+
+    private async void CustomOverframeWindow_LoadLinkMarkersOnOpen(object sender, RoutedEventArgs e)
+    {
+        Loaded -= CustomOverframeWindow_LoadLinkMarkersOnOpen;
+        await RefreshLinkMarkersForFrameAsync(GetSelectedFrameStyle());
+    }
+
     private CardFrameStyle GetSelectedFrameStyle()
     {
         if (FrameStyleBox.SelectedItem is ComboBoxItem item
@@ -155,7 +166,7 @@ public partial class CustomOverframeWindow : Window
         return CardFrameStyle.Effect;
     }
 
-    private void RefreshLinkMarkersForFrame(CardFrameStyle frameStyle)
+    private async Task RefreshLinkMarkersForFrameAsync(CardFrameStyle frameStyle)
     {
         if (!LinkArrowOverlay.NeedsArrowOverlay(frameStyle))
         {
@@ -163,12 +174,22 @@ public partial class CustomOverframeWindow : Window
             return;
         }
 
+        // Always (re)resolve for Link — in-memory loader cache makes a repeat hit cheap,
+        // and Effect→Link must not keep a stale null from a prior failed/timed-out attempt.
         try
         {
-            if (_linkMarkerLoader.TryGetMarkers(_gamePath, _card.Id, out var markers))
-                _linkMarkers = markers;
-            else
-                _linkMarkers = null;
+            using var cts = new CancellationTokenSource(LinkMarkerLoadTimeout);
+            var cardId = _card.Id;
+            var gamePath = _gamePath;
+            var loadTask = Task.Run(
+                () =>
+                {
+                    if (_linkMarkerLoader.TryGetMarkers(gamePath, cardId, out var markers, cts.Token))
+                        return (LinkMarkerMask?)markers;
+                    return null;
+                },
+                CancellationToken.None);
+            _linkMarkers = await loadTask.WaitAsync(cts.Token).ConfigureAwait(true);
         }
         catch
         {
@@ -760,7 +781,7 @@ public partial class CustomOverframeWindow : Window
         if (!IsLoaded || _busy)
             return;
 
-        RefreshLinkMarkersForFrame(GetSelectedFrameStyle());
+        await RefreshLinkMarkersForFrameAsync(GetSelectedFrameStyle());
 
         if (_subjectSource is null || _subjectMask is null)
         {

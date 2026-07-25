@@ -154,4 +154,17 @@ public class LinkMarkerAndArrowOverlayTests
         Assert.Equal(3000, CardPropTypeDecoder.DecodeAtk(packed));
         Assert.Equal(2500, CardPropTypeDecoder.DecodeDef(packed));
     }
+
+    [Fact]
+    public void CardLinkMarkerLoader_CancelledToken_ThrowsBeforeScan()
+    {
+        var loader = new CardLinkMarkerLoader();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.ThrowsAny<OperationCanceledException>(() =>
+            loader.GetOrLoadMap(
+                Path.Combine(Path.GetTempPath(), "floowan-missing-localdata"),
+                progress: null,
+                cts.Token));
+    }
 }
