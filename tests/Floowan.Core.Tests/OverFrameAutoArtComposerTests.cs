@@ -1842,6 +1842,78 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
+    public void Compose_CustomArtOnly_Background_CoverFillsPendulumArtHoleOnly()
+    {
+        // Square subject; tall portrait background Cover-fills the wide/short Pendulum hole.
+        using var source = new Image<Rgba32>(80, 80, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(80, 80, new L8(0));
+        for (var y = 10; y < 70; y++)
+        for (var x = 35; x < 45; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        // Tall 1:4 image — Cover crops top/bottom equally into PendulumArtWindow (no Auto nudge).
+        using var background = new Image<Rgba32>(100, 400);
+        for (var y = 0; y < background.Height; y++)
+        for (var x = 0; x < background.Width; x++)
+        {
+            // Vertical gradient: top=magenta, bottom=cyan — centered Cover must show mid tones
+            // at the hole vertical center (not the Auto PendulumVerticalOffset-shifted crop).
+            var t = y / (float)(background.Height - 1);
+            background[x, y] = new Rgba32(
+                (byte)Math.Round(220 * (1 - t)),
+                40,
+                (byte)Math.Round(220 * t),
+                255);
+        }
+
+        using var frame = CreateSolidFrame();
+        var pendHole = OverFrameAutoArtComposer.PendulumArtWindow;
+        ClearRect(frame, pendHole);
+
+        using var result = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame,
+            useSharedEffectLayout: false,
+            pendulumLayout: OverFrameAutoArtComposer.GetPendulumLayout(CardFrameStyle.PendulumEffect),
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly,
+            background);
+
+        // Corners of the Pendulum hole (outside the narrow subject) show Cover background.
+        var corner = result[pendHole.Left + 10, pendHole.Top + 10];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, corner.A);
+        Assert.True(corner.R > 80 || corner.B > 80,
+            $"Pendulum art-hole corner must show Cover background, got {corner}");
+
+        // Vertical center of hole should be near mid-gradient (R≈B), not top-heavy magenta
+        // from a +200 PendulumVerticalOffset Cover shift.
+        var mid = result[pendHole.Left + 20, pendHole.Top + pendHole.Height / 2];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, mid.A);
+        Assert.True(Math.Abs(mid.R - mid.B) < 50,
+            $"Pendulum Cover must be vertically centered in hole (mid R≈B), got {mid}");
+
+        // Below Pendulum hole: Effect square extends lower — must stay frame chrome, not Cover.
+        var belowPendHole = result[pendHole.Left + pendHole.Width / 2, pendHole.Bottom + 6];
+        Assert.True(belowPendHole.A >= 200,
+            $"chrome below Pendulum hole must stay opaque, got {belowPendHole}");
+        Assert.True(belowPendHole.B < 100,
+            $"Cover must not spill below Pendulum art window, got {belowPendHole}");
+
+        // Mint / dual-lore band must not receive Cover fill.
+        var mint = OverFrameAutoArtComposer.PendulumMintTextBox;
+        var mintSample = result[mint.Left + mint.Width / 2, mint.Top + 20];
+        Assert.True(mintSample.A >= 200, $"Pendulum mint band must stay chrome, got {mintSample}");
+        Assert.True(mintSample.B < 100,
+            $"Cover must not fill Pendulum dual-lore, got {mintSample}");
+    }
+
+    [Fact]
     public void Compose_CustomArtOnly_Background_IgnoresSubjectOffsetAndScale()
     {
         using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));
