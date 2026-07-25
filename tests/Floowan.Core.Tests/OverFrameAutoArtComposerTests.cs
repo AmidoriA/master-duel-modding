@@ -1,3 +1,4 @@
+using System.IO;
 using Floowan.Core.Assets;
 using Floowan.Core.Imaging;
 using SixLabors.ImageSharp;
@@ -7,6 +8,195 @@ namespace Floowan.Core.Tests;
 
 public class OverFrameAutoArtComposerTests
 {
+    [Fact]
+    public void Compose_SubjectOffset_ShiftsSubjectOnly_LeavesFoilFixed()
+    {
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(220, 30, 20, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+            mask[x, y] = new L8(255);
+
+        using var frame = CreateSolidFrame();
+        using var baseline = OverFrameAutoArtComposer.Compose(source, mask, frame);
+        using var shifted = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame,
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 40,
+            subjectOffsetY: 0);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var foilX = art.Left + art.Width / 2;
+        var foilY = art.Top + art.Height / 2;
+        Assert.Equal(baseline[foilX, foilY], shifted[foilX, foilY]);
+
+        var overflowY = FindSubjectAboveArtWindow(baseline);
+        Assert.True(overflowY >= 0, "expected baseline overflow above art window");
+
+        var baselineX = -1;
+        for (var x = 0; x < baseline.Width; x++)
+        {
+            var p = baseline[x, overflowY];
+            if (p.A == OverFrameAutoArtComposer.FoilMaskAlpha && p.R > 100)
+            {
+                baselineX = x;
+                break;
+            }
+        }
+
+        Assert.True(baselineX >= 0, "expected baseline subject foil above art window");
+
+        var shiftedX = -1;
+        for (var x = 0; x < shifted.Width; x++)
+        {
+            var p = shifted[x, overflowY];
+            if (p.A == OverFrameAutoArtComposer.FoilMaskAlpha && p.R > 100)
+            {
+                shiftedX = x;
+                break;
+            }
+        }
+
+        Assert.True(shiftedX >= 0, "expected shifted subject foil above art window");
+        Assert.InRange(shiftedX - baselineX, 36, 44);
+    }
+
+    [Fact]
+    public void Compose_SubjectOffset_KeepsEffectLoreCreamBehavior()
+    {
+        // subjectOffset must not skip or alter Mirrorjade lore paint (soft where art,
+        // solid where uncovered). Custom OF drag-release recompose uses the same path.
+        using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 255, 255));
+        using var mask = new Image<L8>(512, 512, new L8(0));
+        for (var y = 20; y < 492; y++)
+        for (var x = 40; x < 472; x++)
+            mask[x, y] = new L8(255);
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        using var baseline = OverFrameAutoArtComposer.Compose(source, mask, frame.Clone());
+        using var shifted = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 40,
+            subjectOffsetY: 60);
+        using var fullEffect = OverFrameAutoArtComposer.Compose(source, mask, CardFrameStyle.Effect);
+        using var baseOnly = OverFrameAutoArtComposer.ComposeBaseWithoutSubject(
+            source, mask, CardFrameStyle.Effect);
+
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var midX = creamR.Left + creamR.Width / 2;
+        var coveredY = creamR.Top + 20;
+        var uncoveredY = creamR.Bottom - 10;
+
+        Assert.Equal(baseline[midX, coveredY], shifted[midX, coveredY]);
+        Assert.Equal(baseline[midX, uncoveredY], shifted[midX, uncoveredY]);
+        Assert.Equal(cream, baseline[midX, uncoveredY]);
+        Assert.True(
+            baseline[midX, coveredY].B > cream.B,
+            $"covered lore must stay soft Mirrorjade underlay, got {baseline[midX, coveredY]}");
+
+        // Drag base layer uses the same lore paint path as full compose (foil fixed).
+        Assert.Equal(fullEffect[midX, coveredY], baseOnly[midX, coveredY]);
+        Assert.Equal(fullEffect[midX, uncoveredY], baseOnly[midX, uncoveredY]);
+    }
+
+    [Fact]
+    public void Compose_AlphaCutout_LoreCream_SolidWhereSourceTransparent()
+    {
+        // Custom OF alpha cutouts must not dim lore by soft-blending over zero-alpha RGB.
+        using var source = new Image<Rgba32>(704, 1024, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(704, 1024, new L8(0));
+        for (var y = 50; y < 900; y++)
+        for (var x = 300; x < 400; x++)
+        {
+            source[x, y] = new Rgba32(40, 200, 255, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+        using var shifted = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 50,
+            subjectOffsetY: 40);
+
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var leftX = creamR.Left + 30;
+        var yTop = creamR.Top + 20;
+        var left = result[leftX, yTop];
+        Assert.Equal(cream, left);
+        Assert.Equal(result[leftX, yTop], shifted[leftX, yTop]);
+    }
+
+    [Fact]
+    public void LoadSubjectFromAlpha_UsesExistingAlphaAsMask()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"floowan-alpha-subject-{Guid.NewGuid():N}.png");
+        try
+        {
+            using (var image = new Image<Rgba32>(64, 64, new Rgba32(0, 0, 0, 0)))
+            {
+                for (var y = 8; y < 56; y++)
+                for (var x = 20; x < 44; x++)
+                    image[x, y] = new Rgba32(10, 200, 40, 255);
+                image.SaveAsPng(path);
+            }
+
+            var (source, mask) = AutoOverFrameArtService.LoadSubjectFromAlpha(path);
+            using (source)
+            using (mask)
+            {
+                Assert.Equal(64, source.Width);
+                Assert.Equal(64, mask.Width);
+                Assert.Equal(255, mask[30, 30].PackedValue);
+                Assert.Equal(0, mask[0, 0].PackedValue);
+                Assert.Equal(10, source[30, 30].R);
+            }
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
+    public void ComposeBaseWithoutSubject_OmitsOverflowSilhouette()
+    {
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(220, 30, 20, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+            mask[x, y] = new L8(255);
+
+        using var full = OverFrameAutoArtComposer.Compose(source, mask, CardFrameStyle.Effect);
+        using var baseOnly = OverFrameAutoArtComposer.ComposeBaseWithoutSubject(
+            source, mask, CardFrameStyle.Effect);
+        using var subjectLayer = OverFrameAutoArtComposer.RenderSubjectDragLayer(
+            source, mask, CardFrameStyle.Effect);
+
+        Assert.True(FindSubjectAboveArtWindow(full) >= 0, "full compose should overflow");
+        Assert.True(FindSubjectAboveArtWindow(baseOnly) < 0, "base should omit overflow subject");
+        Assert.True(FindSubjectAboveArtWindow(subjectLayer) >= 0, "subject layer should overflow");
+    }
+
     [Fact]
     public void Compose_PunchesFullRectangle_AndSilhouetteOutsideFrame()
     {
@@ -164,19 +354,6 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
-    public void Compose_RejectsNearlyOpaqueCutout()
-    {
-        using var source = new Image<Rgba32>(64, 64, Color.White);
-        using var mask = new Image<L8>(64, 64, new L8(255));
-        using var frame = CreateSolidFrame();
-
-        var error = Assert.Throws<InvalidOperationException>(
-            () => OverFrameAutoArtComposer.Compose(source, mask, frame));
-
-        Assert.Contains("opaque", error.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
     public void HasOverframableOverflow_False_WhenSubjectFullyInsideArtHole()
     {
         var art = OverFrameAutoArtComposer.ArtWindow;
@@ -217,6 +394,35 @@ public class OverFrameAutoArtComposerTests
             () => OverFrameAutoArtComposer.Compose(source, mask, frame));
 
         Assert.Equal(OverFrameAutoArtComposer.CannotDetectSubjectMessage, error.Message);
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_AllowsSubjectWithNoOverframableOverflow()
+    {
+        // Same tiny in-hole subject as Auto reject — Custom OF must still compose.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 40, 80, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 45; y < 55; y++)
+        for (var x = 45; x < 55; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        using var result = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame,
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly);
+
+        Assert.Equal(OverFrameConstants.Width, result.Width);
+        Assert.Equal(OverFrameConstants.Height, result.Height);
     }
 
     [Fact]
@@ -1336,6 +1542,812 @@ public class OverFrameAutoArtComposerTests
             CardFrameTemplates.InferStyle(
                 "False Spell",
                 "Destroy 1 monster on the field. This card is treated as a Spell Card while face-up."));
+    }
+
+    [Fact]
+    public void ClampSubjectScale_ClampsToHalfThroughDouble()
+    {
+        Assert.Equal(0.5f, OverFrameAutoArtComposer.ClampSubjectScale(0.1f));
+        Assert.Equal(2f, OverFrameAutoArtComposer.ClampSubjectScale(9f));
+        Assert.Equal(1f, OverFrameAutoArtComposer.ClampSubjectScale(1f));
+        Assert.Equal(1.5f, OverFrameAutoArtComposer.ClampSubjectScale(1.5f));
+    }
+
+    [Fact]
+    public void ClampBackgroundScale_ClampsToOneThroughQuadruple()
+    {
+        Assert.Equal(1f, OverFrameAutoArtComposer.ClampBackgroundScale(0.1f));
+        Assert.Equal(4f, OverFrameAutoArtComposer.ClampBackgroundScale(9f));
+        Assert.Equal(1f, OverFrameAutoArtComposer.ClampBackgroundScale(1f));
+        Assert.Equal(1.5f, OverFrameAutoArtComposer.ClampBackgroundScale(1.5f));
+        Assert.Equal(4f, OverFrameAutoArtComposer.ClampBackgroundScale(4f));
+    }
+
+    [Fact]
+    public void GetBackgroundPanLimits_GrowsWithBackgroundScale()
+    {
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        // Square source matching hole aspect → Cover has little overflow at ×1.
+        var (max1X, max1Y) = OverFrameAutoArtComposer.GetBackgroundPanLimits(
+            art.Width, art.Height, art, backgroundScale: 1f);
+        var (max2X, max2Y) = OverFrameAutoArtComposer.GetBackgroundPanLimits(
+            art.Width, art.Height, art, backgroundScale: 2f);
+
+        Assert.True(max1X <= 1 && max1Y <= 1,
+            $"×1 Cover on matching aspect should have near-zero pan, got {max1X},{max1Y}");
+        Assert.True(max2X > max1X || max2Y > max1Y,
+            $"×2 Cover must allow more pan than ×1 ({max1X},{max1Y} vs {max2X},{max2Y})");
+        Assert.True(max2X > 50 && max2Y > 50,
+            $"×2 Cover should have substantial pan room, got {max2X},{max2Y}");
+
+        var (max4X, max4Y) = OverFrameAutoArtComposer.GetBackgroundPanLimits(
+            art.Width, art.Height, art, backgroundScale: 4f);
+        Assert.True(max4X > max2X || max4Y > max2Y,
+            $"×4 Cover must allow more pan than ×2 ({max2X},{max2Y} vs {max4X},{max4Y})");
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_DoesNotFillArtHoleWithRectangularFoil()
+    {
+        // Narrow center strip subject — art-hole corners must stay empty (no full-source foil).
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 200, 40, 0));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 45; x < 55; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        using var custom = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly);
+        using var auto = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var corner = custom[art.Left + 8, art.Top + 8];
+        Assert.Equal(0, corner.A);
+
+        var autoCorner = auto[art.Left + 8, art.Top + 8];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, autoCorner.A);
+
+        var mid = custom[art.Left + art.Width / 2, art.Top + art.Height / 2];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, mid.A);
+        Assert.True(mid.R > 100, $"expected subject in art hole, got {mid}");
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_SubjectScale_EnlargesCardArt()
+    {
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        using var at1 = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly);
+        using var at2 = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 2f,
+            OverFrameComposeMode.CustomArtOnly);
+
+        var y1 = FindSubjectAboveArtWindow(at1);
+        var y2 = FindSubjectAboveArtWindow(at2);
+        Assert.True(y1 >= 0, "scale 1 should overframe above art window");
+        Assert.True(y2 >= 0, "scale 2 should overframe above art window");
+        Assert.True(y2 < y1, $"×2 subject should reach higher (y={y2}) than ×1 (y={y1})");
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_LoreSoftWhereSubjectCovers_SolidElsewhere()
+    {
+        using var source = new Image<Rgba32>(512, 512, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(512, 512, new L8(0));
+        for (var y = 20; y < 492; y++)
+        for (var x = 200; x < 312; x++)
+        {
+            source[x, y] = new Rgba32(40, 200, 255, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        using var result = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame,
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly);
+
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var midX = creamR.Left + creamR.Width / 2;
+        var leftX = creamR.Left + 30;
+        var coveredY = creamR.Top + 20;
+        var uncoveredY = creamR.Bottom - 10;
+
+        Assert.Equal(cream, result[leftX, coveredY]);
+        Assert.Equal(cream, result[midX, uncoveredY]);
+        Assert.True(
+            result[midX, coveredY].B > cream.B,
+            $"covered lore must stay soft Mirrorjade underlay, got {result[midX, coveredY]}");
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_SubjectOffset_MovesLoreSoftUnderlay()
+    {
+        using var source = new Image<Rgba32>(512, 512, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(512, 512, new L8(0));
+        for (var y = 20; y < 492; y++)
+        for (var x = 200; x < 312; x++)
+        {
+            source[x, y] = new Rgba32(40, 200, 255, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        using var baseline = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly);
+        using var shifted = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 120,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly);
+
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var midX = creamR.Left + creamR.Width / 2;
+        var coveredY = creamR.Top + 20;
+        Assert.True(baseline[midX, coveredY].B > cream.B);
+        // CustomArtOnly lore soft footprint follows Card Art offset (unlike Auto foil).
+        Assert.NotEqual(baseline[midX, coveredY], shifted[midX, coveredY]);
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_KeepsArtLoreGapChrome_WithoutSubjectThere()
+    {
+        // Subject only in the upper art hole — must not auto-punch / soft-fill the
+        // type-line strip or side margins between art bottom and lore top.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 0; y < 25; y++)
+        for (var x = 40; x < 60; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        var hole = OverFrameAutoArtComposer.ArtWindow;
+        ClearRect(frame, hole);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        var gapChrome = new Rgba32(60, 40, 30, 255);
+        var cut = OverFrameAutoArtComposer.EffectLoreCutTop;
+        for (var y = hole.Bottom; y < cut; y++)
+        {
+            for (var x = hole.Left; x < hole.Right; x++)
+                frame[x, y] = gapChrome;
+            for (var x = hole.Left - 30; x < hole.Left; x++)
+                if (x >= 0) frame[x, y] = gapChrome;
+            for (var x = hole.Right; x < hole.Right + 30; x++)
+                if (x < frame.Width) frame[x, y] = gapChrome;
+        }
+
+        using var result = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame,
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly);
+
+        var gapY = (hole.Bottom + cut) / 2;
+        var mid = result[hole.Left + hole.Width / 2, gapY];
+        Assert.True(mid.A >= 200, $"Custom OF must keep type-line chrome, got {mid}");
+        Assert.True(
+            Math.Abs(mid.R - gapChrome.R) < 40 && Math.Abs(mid.G - gapChrome.G) < 40,
+            $"type-line strip must stay frame chrome (no auto punch), got {mid}");
+
+        var leftWing = result[hole.Left - 20, gapY];
+        Assert.True(leftWing.A >= 200, $"side margin must stay chrome, got {leftWing}");
+        Assert.True(
+            Math.Abs(leftWing.R - gapChrome.R) < 40,
+            $"side margin must not soft-fill without subject, got {leftWing}");
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_PunchesArtLoreGap_WhereSubjectPresent()
+    {
+        // Tall subject that reaches the art–lore type-line strip — intentional overframe.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+        {
+            source[x, y] = new Rgba32(40, 200, 255, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        var hole = OverFrameAutoArtComposer.ArtWindow;
+        ClearRect(frame, hole);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        var gapChrome = new Rgba32(60, 40, 30, 255);
+        var cut = OverFrameAutoArtComposer.EffectLoreCutTop;
+        for (var y = hole.Bottom; y < cut; y++)
+        for (var x = hole.Left; x < hole.Right; x++)
+            frame[x, y] = gapChrome;
+
+        using var result = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame,
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 2f,
+            OverFrameComposeMode.CustomArtOnly);
+
+        var midX = hole.Left + hole.Width / 2;
+        var gapY = (hole.Bottom + cut) / 2;
+        var punched = result[midX, gapY];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, punched.A);
+        Assert.True(punched.B > 100,
+            $"subject must punch type-line strip where present, got {punched}");
+
+        // Empty wing beside the strip stays chrome.
+        var wing = result[hole.Left - 20, gapY];
+        Assert.True(wing.A >= 200, $"empty side wing must stay chrome, got {wing}");
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_PunchesBottomChromeBelowLore_WhereSubjectPresent()
+    {
+        // Tall ×2 subject so Card Art reaches the dark strip under Effect lore cream.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        using var custom = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 2f,
+            OverFrameComposeMode.CustomArtOnly);
+        using var auto = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 2f,
+            composeMode: OverFrameComposeMode.AutoFoilAndSubject);
+
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var midX = creamR.Left + creamR.Width / 2;
+        var belowY = creamR.Bottom + 10;
+        Assert.True(belowY < OverFrameConstants.Height);
+
+        var customBelow = custom[midX, belowY];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, customBelow.A);
+        Assert.True(customBelow.R > 100,
+            $"Custom OF must punch subject into bottom chrome, got {customBelow}");
+
+        var autoBelow = auto[midX, belowY];
+        Assert.True(autoBelow.A >= 200,
+            $"Auto-create must keep Effect bottom chrome opaque, got {autoBelow}");
+
+        // Lore rect still paints cream on top of Card Art (soft underlay, not hard punch).
+        var loreY = creamR.Top + 40;
+        Assert.True(custom[midX, loreY].A >= 200,
+            $"lore must stay opaque over art, got {custom[midX, loreY]}");
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_Background_CoverFillsArtHoleOnly()
+    {
+        // Narrow subject strip; wide background Cover-fills the hole corners.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 45; x < 55; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        // Wide 4:1 image — Cover must crop sides and fill the full art hole height/width.
+        using var background = new Image<Rgba32>(400, 100, new Rgba32(10, 180, 240, 255));
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+
+        using var result = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame,
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly,
+            background);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var corner = result[art.Left + 8, art.Top + 8];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, corner.A);
+        Assert.True(corner.B > 200, $"art-hole corner must show Cover background, got {corner}");
+        Assert.True(corner.R < 40, $"background should be cyan, not subject red, got {corner}");
+
+        var mid = result[art.Left + art.Width / 2, art.Top + art.Height / 2];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, mid.A);
+        Assert.True(mid.R > 100, $"subject must still paint over background, got {mid}");
+
+        // Immediately outside the art hole (away from the center subject strip): frame
+        // chrome only — Cover background must not spill past the hole clip.
+        var aboveNearLeft = result[art.Left + 8, art.Top - 4];
+        Assert.True(aboveNearLeft.A >= 200,
+            $"chrome above hole must stay opaque, got {aboveNearLeft}");
+        Assert.True(aboveNearLeft.B < 100,
+            $"background must not punch outside art window, got {aboveNearLeft}");
+
+        var leftOfHole = result[art.Left - 4, art.Top + art.Height / 2];
+        Assert.True(leftOfHole.A >= 200, $"chrome left of hole must stay opaque, got {leftOfHole}");
+        Assert.True(leftOfHole.B < 100,
+            $"background must not overflow left of art window, got {leftOfHole}");
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_Background_CoverFillsPendulumArtHoleOnly()
+    {
+        // Square subject; tall portrait background Cover-fills the wide/short Pendulum hole.
+        using var source = new Image<Rgba32>(80, 80, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(80, 80, new L8(0));
+        for (var y = 10; y < 70; y++)
+        for (var x = 35; x < 45; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        // Tall 1:4 image — Cover crops top/bottom equally into PendulumArtWindow (no Auto nudge).
+        using var background = new Image<Rgba32>(100, 400);
+        for (var y = 0; y < background.Height; y++)
+        for (var x = 0; x < background.Width; x++)
+        {
+            // Vertical gradient: top=magenta, bottom=cyan — centered Cover must show mid tones
+            // at the hole vertical center (not the Auto PendulumVerticalOffset-shifted crop).
+            var t = y / (float)(background.Height - 1);
+            background[x, y] = new Rgba32(
+                (byte)Math.Round(220 * (1 - t)),
+                40,
+                (byte)Math.Round(220 * t),
+                255);
+        }
+
+        using var frame = CreateSolidFrame();
+        var pendHole = OverFrameAutoArtComposer.PendulumArtWindow;
+        ClearRect(frame, pendHole);
+
+        using var result = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame,
+            useSharedEffectLayout: false,
+            pendulumLayout: OverFrameAutoArtComposer.GetPendulumLayout(CardFrameStyle.PendulumEffect),
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly,
+            background);
+
+        // Corners of the Pendulum hole (outside the narrow subject) show Cover background.
+        var corner = result[pendHole.Left + 10, pendHole.Top + 10];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, corner.A);
+        Assert.True(corner.R > 80 || corner.B > 80,
+            $"Pendulum art-hole corner must show Cover background, got {corner}");
+
+        // Vertical center of hole should be near mid-gradient (R≈B), not top-heavy magenta
+        // from a +200 PendulumVerticalOffset Cover shift.
+        var mid = result[pendHole.Left + 20, pendHole.Top + pendHole.Height / 2];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, mid.A);
+        Assert.True(Math.Abs(mid.R - mid.B) < 50,
+            $"Pendulum Cover must be vertically centered in hole (mid R≈B), got {mid}");
+
+        // Below Pendulum hole: Effect square extends lower — must stay frame chrome, not Cover.
+        var belowPendHole = result[pendHole.Left + pendHole.Width / 2, pendHole.Bottom + 6];
+        Assert.True(belowPendHole.A >= 200,
+            $"chrome below Pendulum hole must stay opaque, got {belowPendHole}");
+        Assert.True(belowPendHole.B < 100,
+            $"Cover must not spill below Pendulum art window, got {belowPendHole}");
+
+        // Mint / dual-lore band must not receive Cover fill.
+        var mint = OverFrameAutoArtComposer.PendulumMintTextBox;
+        var mintSample = result[mint.Left + mint.Width / 2, mint.Top + 20];
+        Assert.True(mintSample.A >= 200, $"Pendulum mint band must stay chrome, got {mintSample}");
+        Assert.True(mintSample.B < 100,
+            $"Cover must not fill Pendulum dual-lore, got {mintSample}");
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_Background_IgnoresSubjectOffsetAndScale()
+    {
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var background = new Image<Rgba32>(80, 80, new Rgba32(15, 200, 90, 255));
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+
+        using var baseline = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly,
+            background);
+        using var moved = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 80,
+            subjectOffsetY: -40,
+            subjectScale: 2f,
+            OverFrameComposeMode.CustomArtOnly,
+            background);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        // Corner stays background-only (narrow subject does not cover it even at ×2 offset).
+        var cornerX = art.Left + 6;
+        var cornerY = art.Top + 6;
+        Assert.Equal(baseline[cornerX, cornerY], moved[cornerX, cornerY]);
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, baseline[cornerX, cornerY].A);
+        Assert.True(baseline[cornerX, cornerY].G > 150);
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_BackgroundScale_EnlargesCoverCrop()
+    {
+        // Horizontal gradient background — ×2 Cover zooms in so edge samples differ from ×1.
+        using var source = new Image<Rgba32>(40, 40, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(40, 40, new L8(0));
+        // Tiny subject in the far corner so most of the hole stays background-only.
+        source[2, 2] = new Rgba32(255, 0, 0, 255);
+        mask[2, 2] = new L8(255);
+
+        using var background = new Image<Rgba32>(200, 200);
+        for (var y = 0; y < background.Height; y++)
+        for (var x = 0; x < background.Width; x++)
+        {
+            var t = x / (float)(background.Width - 1);
+            background[x, y] = new Rgba32(
+                (byte)Math.Round(20 + 200 * t),
+                40,
+                (byte)Math.Round(220 * (1 - t)),
+                255);
+        }
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+
+        using var at1 = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly,
+            background,
+            backgroundScale: 1f);
+        using var at2 = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly,
+            background,
+            backgroundScale: 2f);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var sampleX = art.Left + 12;
+        var sampleY = art.Top + art.Height / 2;
+        Assert.NotEqual(at1[sampleX, sampleY], at2[sampleX, sampleY]);
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, at1[sampleX, sampleY].A);
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, at2[sampleX, sampleY].A);
+
+        // Still clipped: chrome left of hole must not pick up Cover cyan.
+        var leftOfHole = at2[art.Left - 4, sampleY];
+        Assert.True(leftOfHole.A >= 200);
+        Assert.True(leftOfHole.B < 100,
+            $"×2 Cover must not overflow art window, got {leftOfHole}");
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_BackgroundPan_ShiftsCoverInsideHole()
+    {
+        using var source = new Image<Rgba32>(40, 40, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(40, 40, new L8(0));
+        source[2, 2] = new Rgba32(255, 0, 0, 255);
+        mask[2, 2] = new L8(255);
+
+        using var background = new Image<Rgba32>(200, 200);
+        for (var y = 0; y < background.Height; y++)
+        for (var x = 0; x < background.Width; x++)
+        {
+            var t = x / (float)(background.Width - 1);
+            background[x, y] = new Rgba32(
+                (byte)Math.Round(20 + 200 * t),
+                40,
+                (byte)Math.Round(220 * (1 - t)),
+                255);
+        }
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var (maxPanX, _) = OverFrameAutoArtComposer.GetBackgroundPanLimits(
+            background.Width, background.Height, art, backgroundScale: 2f);
+        Assert.True(maxPanX > 10, $"need pan room for test, got {maxPanX}");
+
+        using var centered = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly,
+            background,
+            backgroundScale: 2f,
+            backgroundOffsetX: 0,
+            backgroundOffsetY: 0);
+        using var panned = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly,
+            background,
+            backgroundScale: 2f,
+            backgroundOffsetX: maxPanX,
+            backgroundOffsetY: 0);
+
+        var sampleX = art.Left + art.Width / 2;
+        var sampleY = art.Top + art.Height / 2;
+        Assert.NotEqual(centered[sampleX, sampleY], panned[sampleX, sampleY]);
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, panned[sampleX, sampleY].A);
+
+        // Pan still clipped to the hole (Cover cyan must not appear above).
+        var above = panned[art.Left + 8, art.Top - 4];
+        Assert.True(above.A >= 200);
+        Assert.True(above.B < 100,
+            $"panned Cover must not spill above art window, got {above}");
+    }
+
+    [Fact]
+    public void ComposeCustomBackgroundOnly_RespectsBackgroundScaleAndPan()
+    {
+        using var background = new Image<Rgba32>(200, 200);
+        for (var y = 0; y < background.Height; y++)
+        for (var x = 0; x < background.Width; x++)
+        {
+            var t = y / (float)(background.Height - 1);
+            background[x, y] = new Rgba32(
+                40,
+                (byte)Math.Round(20 + 200 * t),
+                (byte)Math.Round(220 * (1 - t)),
+                255);
+        }
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var (_, maxPanY) = OverFrameAutoArtComposer.GetBackgroundPanLimits(
+            background.Width, background.Height, art, backgroundScale: 2f);
+
+        using var centered = OverFrameAutoArtComposer.ComposeCustomBackgroundOnly(
+            CardFrameStyle.Effect,
+            background: background,
+            backgroundScale: 2f);
+        using var panned = OverFrameAutoArtComposer.ComposeCustomBackgroundOnly(
+            CardFrameStyle.Effect,
+            background: background,
+            backgroundScale: 2f,
+            backgroundOffsetY: maxPanY);
+
+        var mid = art.Left + art.Width / 2;
+        var sampleY = art.Top + art.Height / 2;
+        Assert.NotEqual(centered[mid, sampleY], panned[mid, sampleY]);
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, panned[mid, sampleY].A);
+    }
+
+    [Fact]
+    public void ComposeBaseWithoutSubject_CustomArtOnly_IncludesFixedBackground()
+    {
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var background = new Image<Rgba32>(64, 64, new Rgba32(30, 40, 220, 255));
+        using var baseLayer = OverFrameAutoArtComposer.ComposeBaseWithoutSubject(
+            source,
+            mask,
+            CardFrameStyle.Effect,
+            subjectScale: 1f,
+            composeMode: OverFrameComposeMode.CustomArtOnly,
+            background: background);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var hole = baseLayer[art.Left + 20, art.Top + 20];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, hole.A);
+        Assert.True(hole.B > 180, $"drag base must keep Cover background, got {hole}");
+
+        // No subject on the base layer.
+        var mid = baseLayer[art.Left + art.Width / 2, art.Top + art.Height / 2];
+        Assert.True(mid.R < 80, $"base must not include Card Art subject, got {mid}");
+    }
+
+    [Fact]
+    public void ComposeCustomBackgroundOnly_CoverFillsArtHole_WithoutSubject()
+    {
+        using var background = new Image<Rgba32>(64, 64, new Rgba32(30, 40, 220, 255));
+        using var preview = OverFrameAutoArtComposer.ComposeCustomBackgroundOnly(
+            CardFrameStyle.Effect,
+            background: background);
+
+        Assert.Equal(OverFrameConstants.Width, preview.Width);
+        Assert.Equal(OverFrameConstants.Height, preview.Height);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var hole = preview[art.Left + 20, art.Top + 20];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, hole.A);
+        Assert.True(hole.B > 180, $"Cover background must fill art hole, got {hole}");
+
+        var cream = OverFrameAutoArtComposer.EffectLoreCream;
+        var lore = preview[cream.Left + cream.Width / 2, cream.Top + 40];
+        Assert.True(lore.A > 200, $"lore must be solid cream without subject, got {lore}");
+        Assert.InRange(lore.R, 200, 255);
+    }
+
+    [Fact]
+    public void RenderSubjectDragLayer_CustomArtOnly_IncludesBottomChromePunch()
+    {
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+        {
+            source[x, y] = new Rgba32(40, 200, 255, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var layer = OverFrameAutoArtComposer.RenderSubjectDragLayer(
+            source,
+            mask,
+            CardFrameStyle.Effect,
+            subjectScale: 2f,
+            composeMode: OverFrameComposeMode.CustomArtOnly);
+
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var midX = creamR.Left + creamR.Width / 2;
+        var belowY = creamR.Bottom + 10;
+        var below = layer[midX, belowY];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, below.A);
+        Assert.True(below.B > 100, $"drag layer must show subject below lore, got {below}");
+
+        // Cream interior stays clear on the drag layer (lore lives on the base).
+        var loreY = creamR.Top + 40;
+        Assert.Equal(0, layer[midX, loreY].A);
     }
 
     private static Image<Rgba32> CreateSolidFrame() =>
