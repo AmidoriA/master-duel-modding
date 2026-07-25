@@ -367,6 +367,77 @@ public static class OverFrameAutoArtComposer
     }
 
     /// <summary>
+    /// CustomArtOnly frame chrome + optional Cover background with no Card Art subject.
+    /// Used by the Custom OF dialog when the default (or reloaded) card-art background is
+    /// ready before a subject is picked, and when the Frame dropdown changes in that state.
+    /// Lore is solid cream (no subject soft underlay).
+    /// </summary>
+    public static Image<Rgba32> ComposeCustomBackgroundOnly(
+        CardFrameStyle frameStyle = CardFrameStyle.Effect,
+        string? frameDirectory = null,
+        Image<Rgba32>? background = null)
+    {
+        using var frameTemplate = CardFrameTemplates.Load(frameStyle, frameDirectory);
+        var useSharedEffectLayout = !CardFrameTemplates.IsPendulumStyle(frameStyle);
+        FrameLayout? pendulumLayout = useSharedEffectLayout
+            ? null
+            : GetPendulumLayout(frameStyle);
+
+        using var frame = frameTemplate.Clone(ctx => ctx.Resize(new ResizeOptions
+        {
+            Size = new Size(Assets.OverFrameConstants.Width, Assets.OverFrameConstants.Height),
+            Mode = ResizeMode.Stretch,
+            Sampler = KnownResamplers.Lanczos3
+        }));
+
+        Rectangle artWindow;
+        var layout = pendulumLayout ?? GetPendulumLayout(CardFrameStyle.PendulumEffect);
+        if (useSharedEffectLayout)
+        {
+            NormalizeFrameToSharedArtLayout(frame);
+            artWindow = ArtWindow;
+        }
+        else
+        {
+            artWindow = DetectArtWindow(frame);
+            if (artWindow.IsEmpty
+                || artWindow.Width < PendulumArtWindow.Width - 8
+                || artWindow.Height > PendulumArtWindow.Height + 8)
+            {
+                artWindow = layout.ArtWindow;
+            }
+
+            EnsureArtWindowHole(frame, artWindow);
+        }
+
+        var textBox = ResolveTextBox(frame, artWindow, useSharedEffectLayout, layout);
+        var canvas = new Image<Rgba32>(
+            Assets.OverFrameConstants.Width,
+            Assets.OverFrameConstants.Height,
+            new Rgba32(0, 0, 0, 0));
+        if (background is not null)
+            FillArtWindowCoverBackground(canvas, background, artWindow);
+
+        var occupied = new bool[canvas.Width * canvas.Height];
+        EnsureArtWindowHole(frame, artWindow);
+        DrawFramePunchedByRectangleAndSilhouette(
+            canvas, frame, artWindow, textBox, Rectangle.Empty, occupied);
+        // Footprint outside the lore box → solid cream (no subject soft underlay).
+        PaintLorePanel(
+            canvas,
+            frame,
+            textBox,
+            occupied,
+            bgX: textBox.Right + 1,
+            bgY: textBox.Bottom + 1,
+            scaledSourceW: 1,
+            scaledSourceH: 1,
+            applyEffectLoreGradient: useSharedEffectLayout);
+
+        return canvas;
+    }
+
+    /// <summary>
     /// Subject silhouette alone on a transparent 704×1024 canvas, placed the same way
     /// <see cref="Compose"/> places overflow art. Used as the draggable overlay layer.
     /// </summary>
