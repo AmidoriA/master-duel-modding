@@ -19,6 +19,7 @@ namespace Floowan.Desktop;
 
 public partial class CustomOverframeWindow : Window
 {
+    private readonly AutoOverFrameArtService _autoArt;
     private readonly OverFrameModService _overFrameService;
     private readonly CardRecord _card;
     private readonly string _gamePath;
@@ -50,7 +51,7 @@ public partial class CustomOverframeWindow : Window
         CardFrameStyle initialFrameStyle)
     {
         InitializeComponent();
-        _ = autoArt; // Custom dialog uses alpha mask only; rembg stays on Auto-create.
+        _autoArt = autoArt;
         _overFrameService = overFrameService;
         _card = card;
         _gamePath = gamePath;
@@ -287,19 +288,21 @@ public partial class CustomOverframeWindow : Window
         await PrepareFromImageAsync(dlg.FileName, sizeNote);
     }
 
+    private async void FromCurrentArtRembg_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy)
+            return;
+
+        await PrepareSubjectFromLiveArtRembgAsync();
+    }
+
     private async Task PrepareFromImageAsync(string imagePath, string sizeNote)
     {
         SetBusy(true);
         StatusText.Text = $"Loading {Path.GetFileName(imagePath)} ({sizeNote})…";
         try
         {
-            DisposeSubject();
-            _offsetX = 0;
-            _offsetY = 0;
-            _subjectScale = 1f;
-            ArtScaleSlider.Value = 1;
-            UpdateArtScaleLabel();
-            ClearSubjectOverlay();
+            ResetSubjectPlacement();
 
             var progress = new Progress<string>(msg => StatusText.Text = msg);
             var prepared = await Task.Run(
@@ -315,23 +318,85 @@ public partial class CustomOverframeWindow : Window
         }
         catch (Exception ex)
         {
-            DisposeSubject();
-            PreviewImage.Source = null;
-            ClearSubjectOverlay();
-            PreviewHintText.Visibility = Visibility.Visible;
-            ApplyButton.IsEnabled = false;
-            StatusText.Text = "Failed: " + ex.Message;
-            MessageBox.Show(
-                this,
-                "Could not prepare custom overframe art:\n\n" + ex.Message,
-                "Custom overframe art",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+            FailSubjectPrepare(ex);
         }
         finally
         {
             SetBusy(false);
         }
+    }
+
+    /// <summary>
+    /// Extracts live card art, runs rembg, and installs the cutout as the Card Art
+    /// subject layer (same preview path as Select subject…).
+    /// </summary>
+    private async Task PrepareSubjectFromLiveArtRembgAsync()
+    {
+        SetBusy(true);
+        string? liveTemp = null;
+        try
+        {
+            ResetSubjectPlacement();
+            liveTemp = Path.Combine(
+                Path.GetTempPath(),
+                $"floowan-custom-of-live-{Guid.NewGuid():N}.png");
+            StatusText.Text = "Extracting live card art…";
+            var gamePath = _gamePath;
+            var card = _card;
+            var outputPath = liveTemp;
+            await Task.Run(() => _overFrameService.ExtractCardArt(gamePath, card, outputPath));
+
+            var progress = new Progress<string>(msg => StatusText.Text = msg);
+            var prepared = await _autoArt.PrepareSubjectWithRembgAsync(liveTemp, progress);
+            _subjectSource = prepared.Source;
+            _subjectMask = prepared.Mask;
+
+            await RecomposePreviewAsync();
+            StatusText.Text =
+                "Subject from live art (rembg). Drag or scale the art, then Apply.";
+            PreviewHintText.Visibility = Visibility.Collapsed;
+            ApplyButton.IsEnabled = true;
+        }
+        catch (Exception ex)
+        {
+            FailSubjectPrepare(ex);
+        }
+        finally
+        {
+            if (liveTemp is not null && File.Exists(liveTemp))
+            {
+                try { File.Delete(liveTemp); } catch { /* ignore */ }
+            }
+
+            SetBusy(false);
+        }
+    }
+
+    private void ResetSubjectPlacement()
+    {
+        DisposeSubject();
+        _offsetX = 0;
+        _offsetY = 0;
+        _subjectScale = 1f;
+        ArtScaleSlider.Value = 1;
+        UpdateArtScaleLabel();
+        ClearSubjectOverlay();
+    }
+
+    private void FailSubjectPrepare(Exception ex)
+    {
+        DisposeSubject();
+        PreviewImage.Source = null;
+        ClearSubjectOverlay();
+        PreviewHintText.Visibility = Visibility.Visible;
+        ApplyButton.IsEnabled = false;
+        StatusText.Text = "Failed: " + ex.Message;
+        MessageBox.Show(
+            this,
+            "Could not prepare custom overframe art:\n\n" + ex.Message,
+            "Custom overframe art",
+            MessageBoxButton.OK,
+            MessageBoxImage.Error);
     }
 
     private async void FrameStyleBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -634,6 +699,7 @@ public partial class CustomOverframeWindow : Window
         _busy = busy;
         PickBackgroundButton.IsEnabled = !busy;
         PickImageButton.IsEnabled = !busy;
+        FromCurrentArtRembgButton.IsEnabled = !busy;
         FrameStyleBox.IsEnabled = !busy;
         ArtScaleSlider.IsEnabled = !busy;
         ApplyButton.IsEnabled = !busy && _subjectSource is not null && _composedTempPath is not null;

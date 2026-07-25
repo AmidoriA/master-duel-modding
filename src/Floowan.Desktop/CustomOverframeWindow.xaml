@@ -9,7 +9,7 @@
         ShowInTaskbar="False">
   <DockPanel Margin="14">
     <TextBlock DockPanel.Dock="Top"
-               Text="Pick a Cover background (art hole only) and a subject PNG with alpha. Scale/drag Card Art only, then Apply. Layers: Background → Frame → Card Art → Lore."
+               Text="Pick a Cover background (art hole only) and a Card Art subject (PNG with alpha, or rembg from live art). Scale/drag Card Art only, then Apply. Layers: Background → Frame → Card Art → Lore."
                Foreground="{StaticResource MutedBrush}"
                TextWrapping="Wrap"
                Margin="0,0,0,10"/>
@@ -17,6 +17,11 @@
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
       <Button x:Name="PickBackgroundButton" Content="Pick background…" Click="PickBackground_Click" Margin="0,0,8,0"/>
       <Button x:Name="PickImageButton" Content="Select subject…" Click="PickImage_Click" Margin="0,0,8,0"/>
+      <Button x:Name="FromCurrentArtRembgButton"
+              Content="From current art (rembg)…"
+              Click="FromCurrentArtRembg_Click"
+              Margin="0,0,8,0"
+              ToolTip="Extract this card's live art, run rembg, and use the cutout as the Card Art subject layer."/>
       <TextBlock Text="Frame" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,8,0"/>
       <ComboBox x:Name="FrameStyleBox" Width="170" Margin="0,0,8,0" SelectionChanged="FrameStyleBox_SelectionChanged">
         <ComboBoxItem Content="Effect" Tag="Effect" IsSelected="True"/>

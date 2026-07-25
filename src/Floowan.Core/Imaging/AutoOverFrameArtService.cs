@@ -119,6 +119,60 @@ public sealed class AutoOverFrameArtService : IDisposable
     }
 
     /// <summary>
+    /// Runs rembg (isnet-anime) on card art and returns the cleaned illustration +
+    /// subject mask for Custom OF Card Art layering. Caller must dispose both images.
+    /// Does not compose a frame (unlike <see cref="CreateAsync"/>).
+    /// </summary>
+    public async Task<(Image<Rgba32> Source, Image<L8> Mask)> PrepareSubjectWithRembgAsync(
+        string sourceImagePath,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(sourceImagePath))
+            throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
+
+        await EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
+        progress?.Report("Removing background with isnet-anime…");
+
+        return await Task.Run(() =>
+        {
+            using var prepared = PrepareCleanSource(sourceImagePath, progress);
+            var source = prepared.Source.Clone();
+            Image<L8>? mask = null;
+            try
+            {
+                mask = PredictMask(source);
+                var keep = 0;
+                for (var y = 0; y < mask.Height; y++)
+                {
+                    var row = mask.DangerousGetPixelRowMemory(y).Span;
+                    for (var x = 0; x < row.Length; x++)
+                    {
+                        if (row[x].PackedValue >= OverFrameAutoArtComposer.MaskKeepThreshold)
+                            keep++;
+                    }
+                }
+
+                if (keep == 0)
+                {
+                    throw new InvalidOperationException(
+                        "rembg found no opaque subject in the live card art. " +
+                        "Try Select subject… with a PNG that already has alpha.");
+                }
+
+                progress?.Report("Subject rembg mask ready.");
+                return (source, mask);
+            }
+            catch
+            {
+                source.Dispose();
+                mask?.Dispose();
+                throw;
+            }
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Composes a previously prepared subject onto a frame (no model inference).
     /// Defaults to <see cref="OverFrameComposeMode.CustomArtOnly"/> for the Custom OF dialog.
     /// Optional <paramref name="background"/> Cover-fills the art hole under the frame

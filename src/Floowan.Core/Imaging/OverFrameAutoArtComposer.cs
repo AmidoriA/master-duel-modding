@@ -474,10 +474,16 @@ public static class OverFrameAutoArtComposer
         }
         else
         {
-            // Pendulum faces keep their native wider/shorter hole (measured per PNG).
+            // Pendulum faces: use the measured template hole, falling back to the shared
+            // PendulumArtWindow layout (wider/shorter than Effect — never the Effect square).
             artWindow = DetectArtWindow(frame);
-            if (artWindow.IsEmpty)
+            if (artWindow.IsEmpty
+                || artWindow.Width < PendulumArtWindow.Width - 8
+                || artWindow.Height > PendulumArtWindow.Height + 8)
+            {
                 artWindow = layout.ArtWindow;
+            }
+
             EnsureArtWindowHole(frame, artWindow);
         }
 
@@ -570,8 +576,7 @@ public static class OverFrameAutoArtComposer
                 new Rgba32(0, 0, 0, 0));
             if (background is not null)
             {
-                FillArtWindowCoverBackground(
-                    canvas, background, artWindow, useSharedEffectLayout);
+                FillArtWindowCoverBackground(canvas, background, artWindow);
             }
         }
         else
@@ -1169,13 +1174,14 @@ public static class OverFrameAutoArtComposer
     /// Custom OF lowest layer: Cover-scale <paramref name="background"/> into the art
     /// hole only (CSS <c>object-fit: cover</c>). Never writes outside
     /// <paramref name="artWindow"/> — no type-line, lore, or chrome punch.
-    /// Fixed placement (no subject offset / scale).
+    /// Fixed centered placement (no subject offset / scale / Pendulum Auto nudge).
+    /// Callers pass Effect <see cref="ArtWindow"/> or Pendulum
+    /// <see cref="PendulumArtWindow"/> (from the loaded frame template / layout).
     /// </summary>
     private static void FillArtWindowCoverBackground(
         Image<Rgba32> canvas,
         Image<Rgba32> background,
-        Rectangle artWindow,
-        bool useSharedEffectLayout)
+        Rectangle artWindow)
     {
         ArgumentNullException.ThrowIfNull(canvas);
         ArgumentNullException.ThrowIfNull(background);
@@ -1189,9 +1195,10 @@ public static class OverFrameAutoArtComposer
         var scaledH = Math.Max(1, (int)MathF.Round(background.Height * cover));
         var artCenterX = artWindow.Left + artWindow.Width / 2f;
         var artCenterY = artWindow.Top + artWindow.Height / 2f;
-        var verticalOffset = useSharedEffectLayout ? 0 : PendulumVerticalOffset;
+        // Center Cover in the hole. Do not apply PendulumVerticalOffset — that nudge is
+        // for Auto foil/subject on tall 3:4 sources, not for hole-only Cover fill.
         var bgX = (int)MathF.Round(artCenterX - scaledW / 2f);
-        var bgY = (int)MathF.Round(artCenterY - scaledH / 2f) + verticalOffset;
+        var bgY = (int)MathF.Round(artCenterY - scaledH / 2f);
         FillRegionWithScaledArt(canvas, artWindow, background, scaledW, scaledH, bgX, bgY);
     }
 
