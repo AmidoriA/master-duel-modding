@@ -8,7 +8,7 @@ namespace Floowan.Core.Data;
 /// <para>
 /// Special summon faces (Link / Xyz / Synchro / Fusion / Ritual and pendulum variants) are
 /// matched by bit masks <b>before</b> the generic Effect fallback — exact-byte lists alone
-/// miss most Synchro/Xyz/Ritual variants (e.g. Synchro faces that share <see cref="SynchroXyzBit"/>).
+/// miss most Synchro/Xyz/Ritual/Token/Fusion variants.
 /// </para>
 /// </summary>
 public static class CardPropTypeDecoder
@@ -35,9 +35,13 @@ public static class CardPropTypeDecoder
     public const byte SpellFace = 0x0D;
     public const byte TrapFace = 0x4E;
 
-    // --- Token exact faces ---
+    // --- Token faces (low nibble <see cref="TokenNibble"/>, no Link/Synchro bits) ---
+    /// <summary>Token low nibble shared by Sheep / Kuriboh / Slime / Mirage / … (not Link).</summary>
+    public const byte TokenNibble = 0x0A;
+    public const byte MirageTokenFace = 0x0A;
     public const byte SheepTokenFace = 0x4A;
     public const byte KuribohTokenFace = 0x8A;
+    public const byte SlimeTokenFace = 0xCA;
 
     // --- Link low nibbles (with LinkOrExtraPendulumBit) ---
     public const byte LinkNibbleA = 0x0A;
@@ -60,10 +64,23 @@ public static class CardPropTypeDecoder
     public const byte RitualFamilyNormal = 0x04;
     public const byte RitualFamilyEffect = 0x05;
 
-    // --- Fusion / pendulum / normal exact faces ---
+    // --- Fusion low nibbles (no LinkOrExtraPendulumBit, no SynchroXyzBit) ---
+    /// <summary>Normal-looking Fusion face nibble (Blue-Eyes Ultimate, Flame Swordsman, …).</summary>
+    public const byte FusionNibbleNormal = 0x02;
+    /// <summary>Effect Fusion face nibble (Flame Wingman, Exceed, Neo Blue-Eyes, …).</summary>
+    public const byte FusionNibbleEffect = 0x03;
     public const byte FusionFaceA = 0x42;
     public const byte FusionFaceB = 0x43;
-    public const byte FusionPendulumFace = 0x83;
+    /// <summary>
+    /// Legacy name: face <c>0x83</c> is a common Effect Fusion (Exceed, Flame Wingman),
+    /// <b>not</b> Fusion Pendulum. True Fusion Pendulums use <see cref="FusionPendulumNibble"/>
+    /// with <see cref="LinkOrExtraPendulumBit"/> (e.g. Z-ARC <c>0xA9</c>).
+    /// </summary>
+    public const byte FusionFaceC = 0x83;
+    /// <summary>Blue-Eyes Toon Ultimate Dragon — Fusion that also sets Extra-Deck pendulum bits.</summary>
+    public const byte FusionFaceToonUltimate = 0x78;
+
+    // --- Main-deck pendulum / normal exact faces ---
     public const byte EffectPendulumFace = 0x9A;
     public const byte NormalPendulumFaceA = 0x59;
     public const byte NormalPendulumFaceB = 0xD9;
@@ -95,16 +112,24 @@ public static class CardPropTypeDecoder
                 return "Trap";
         }
 
-        // Tokens (Sheep Token, Kuriboh Token, …).
-        if (typeByte is SheepTokenFace or KuribohTokenFace)
-            return "Token";
-
         var low = (byte)(typeByte & LowNibbleMask);
+
+        // Tokens: low nibble A without Link or Synchro/Xyz bits (0x0A / 0x4A / 0x8A / 0xCA).
+        // Effect Pendulum 0x9A shares nibble A but sets SynchroXyzBit — must not match here.
+        if (low == TokenNibble
+            && (typeByte & LinkOrExtraPendulumBit) == 0
+            && (typeByte & SynchroXyzBit) == 0)
+            return "Token";
 
         // True Links set LinkOrExtraPendulumBit with low nibble A/B (Accesscode, Link Spider, …).
         // Other LinkOrExtraPendulumBit faces are Extra Deck pendulums (Synchro/Xyz/Ritual/…) — not Link.
         if ((typeByte & LinkOrExtraPendulumBit) != 0 && low is LinkNibbleA or LinkNibbleB)
             return "Link";
+
+        // Odd Fusion that also sets LinkOrExtraPendulumBit (Blue-Eyes Toon Ultimate Dragon).
+        // Must win over the Extra Deck Effect-Pendulum nibble path below.
+        if (typeByte == FusionFaceToonUltimate)
+            return "Fusion";
 
         // Extra Deck pendulum frames also set LinkOrExtraPendulumBit with other low nibbles.
         if ((typeByte & LinkOrExtraPendulumBit) != 0)
@@ -134,11 +159,10 @@ public static class CardPropTypeDecoder
             && (typeByte & FamilyNibbleMask) is SynchroFamilyNormal or SynchroFamilyEffect or SynchroFamilyTuner)
             return "Synchro";
 
-        // Fusion (classic faces; separate Fusion Pendulum face).
-        if (typeByte is FusionFaceA or FusionFaceB)
+        // Fusion: low nibble 2/3 without Link or Synchro/Xyz bits (0x02/42/82/C2, 0x03/43/83/C3, …).
+        // Face 0x83 is Effect Fusion (Exceed, Flame Wingman) — not Fusion Pendulum.
+        if ((typeByte & ExtraDeckBitsMask) == 0 && low is FusionNibbleNormal or FusionNibbleEffect)
             return "Fusion";
-        if (typeByte == FusionPendulumFace)
-            return "Fusion Pendulum";
 
         // Ritual: family nibble Normal/Effect without Extra Deck bits.
         if ((typeByte & ExtraDeckBitsMask) == 0
