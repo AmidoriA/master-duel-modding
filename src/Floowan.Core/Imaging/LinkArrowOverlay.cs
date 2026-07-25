@@ -8,28 +8,28 @@ namespace Floowan.Core.Imaging;
 /// <summary>
 /// Redraws Master Duel Link arrow markers as the topmost OF layer so subject/frame
 /// punches cannot erase them. <c>Link.png</c> only has inactive flat triangles, so
-/// active directions synthesize the MD active housing:
-/// metallic silver triangular bevel → thin black inset → orange/red glow fill
-/// (Decode Talker Integration / A Bao A Qu look). Inactive directions stay as the
+/// active directions synthesize a glanceable MD-style marker:
+/// soft dark drop halo → bright silver/white rim → thin black inset → orange/red fill
+/// (Cyberse Witch / Decode Talker Integration look). Inactive directions stay as the
 /// flat dark glyphs already on the frame.
 /// </summary>
 public static class LinkArrowOverlay
 {
     /// <summary>
     /// Crop rectangles on the 704×1024 Link frame for each direction (measured from
-    /// dark arrow pixels on <c>card_frame18</c> / <c>Link.png</c>, padded for AA and
-    /// for the synthesized metallic bevel ring).
+    /// dark arrow pixels on <c>card_frame18</c> / <c>Link.png</c>, padded for AA,
+    /// bright rim, and drop-shadow halo).
     /// </summary>
     private static readonly (LinkMarkerMask Bit, Rectangle Crop)[] ArrowCrops =
     [
-        (LinkMarkerMask.UpLeft, new Rectangle(50, 150, 105, 110)),
-        (LinkMarkerMask.Up, new Rectangle(290, 140, 125, 58)),
-        (LinkMarkerMask.UpRight, new Rectangle(545, 149, 112, 111)),
-        (LinkMarkerMask.Left, new Rectangle(38, 390, 58, 130)),
-        (LinkMarkerMask.Right, new Rectangle(606, 390, 60, 130)),
-        (LinkMarkerMask.DownLeft, new Rectangle(34, 650, 120, 118)),
-        (LinkMarkerMask.Down, new Rectangle(290, 708, 125, 60)),
-        (LinkMarkerMask.DownRight, new Rectangle(544, 650, 120, 118)),
+        (LinkMarkerMask.UpLeft, new Rectangle(42, 142, 120, 125)),
+        (LinkMarkerMask.Up, new Rectangle(282, 132, 140, 72)),
+        (LinkMarkerMask.UpRight, new Rectangle(537, 141, 125, 125)),
+        (LinkMarkerMask.Left, new Rectangle(30, 382, 72, 145)),
+        (LinkMarkerMask.Right, new Rectangle(598, 382, 74, 145)),
+        (LinkMarkerMask.DownLeft, new Rectangle(26, 642, 135, 132)),
+        (LinkMarkerMask.Down, new Rectangle(282, 700, 140, 74)),
+        (LinkMarkerMask.DownRight, new Rectangle(536, 642, 135, 132)),
     ];
 
     /// <summary>
@@ -38,29 +38,38 @@ public static class LinkArrowOverlay
     /// </summary>
     private const int GlyphLuminanceMax = 32;
 
-    /// <summary>Disk radius (px) of the black inset between metal and orange fill.</summary>
+    /// <summary>Disk radius (px) of the black inset between rim and orange fill.</summary>
     private const int BlackMarginRadius = 2;
 
-    /// <summary>Disk radius (px) of the outer metallic triangular housing.</summary>
-    private const int MetalBevelRadius = 6;
+    /// <summary>Disk radius (px) of the bright silver/white triangular rim.</summary>
+    private const int MetalBevelRadius = 8;
 
-    // Decode Talker Integration OF: bright yellow-orange center → deep red-orange edge.
+    /// <summary>
+    /// Extra disk radius beyond the rim for the soft dark drop halo
+    /// (total shadow extent = <see cref="MetalBevelRadius"/> + this).
+    /// </summary>
+    private const int ShadowHaloRadius = 5;
+
+    /// <summary>Peak alpha at the shadow’s inner edge (against the rim).</summary>
+    private const byte ShadowMaxAlpha = 180;
+
+    // Bright red-orange fill (Cyberse Witch glanceability).
     private const byte ActiveCenterR = 255;
-    private const byte ActiveCenterG = 220;
-    private const byte ActiveCenterB = 48;
+    private const byte ActiveCenterG = 210;
+    private const byte ActiveCenterB = 40;
     private const byte ActiveEdgeR = 255;
-    private const byte ActiveEdgeG = 72;
-    private const byte ActiveEdgeB = 18;
+    private const byte ActiveEdgeG = 55;
+    private const byte ActiveEdgeB = 12;
 
-    // Raised silver housing (highlight on outer rim, cooler mid on inner).
-    private const byte MetalOuterR = 210;
-    private const byte MetalOuterG = 214;
-    private const byte MetalOuterB = 222;
-    private const byte MetalInnerR = 130;
-    private const byte MetalInnerG = 136;
-    private const byte MetalInnerB = 148;
+    // Crisp bright silver/white rim (outer nearly white, inner still light silver).
+    private const byte MetalOuterR = 255;
+    private const byte MetalOuterG = 255;
+    private const byte MetalOuterB = 255;
+    private const byte MetalInnerR = 198;
+    private const byte MetalInnerG = 204;
+    private const byte MetalInnerB = 214;
 
-    private static readonly Rgba32 BlackInset = new(8, 8, 12, 255);
+    private static readonly Rgba32 BlackInset = new(6, 6, 10, 255);
 
     /// <summary>
     /// True when OF compose should redraw Link arrows for this frame style.
@@ -70,8 +79,8 @@ public static class LinkArrowOverlay
         frameStyle == CardFrameStyle.Link;
 
     /// <summary>
-    /// Composites active Link arrows (metallic bevel + black inset + lit fill) onto
-    /// <paramref name="canvas"/> (must be 704×1024). No-op when
+    /// Composites active Link arrows (drop shadow + bright rim + black inset + lit fill)
+    /// onto <paramref name="canvas"/> (must be 704×1024). No-op when
     /// <paramref name="markers"/> is <see cref="LinkMarkerMask.None"/>.
     /// </summary>
     public static void Apply(
@@ -115,8 +124,9 @@ public static class LinkArrowOverlay
     }
 
     /// <summary>
-    /// Locates the inactive triangle glyph, synthesizes metallic bevel + black inset
-    /// rings by disk dilation, then paints orange fill. Draw order: metal → black → glow.
+    /// Locates the inactive triangle glyph, synthesizes drop halo + bright rim + black
+    /// inset by disk dilation, then paints orange fill.
+    /// Draw order: shadow → bright rim → black inset → glow.
     /// </summary>
     private static void BlitActiveArrow(Image<Rgba32> dst, Image<Rgba32> src, Rectangle crop)
     {
@@ -150,8 +160,25 @@ public static class LinkArrowOverlay
 
         var blackRing = DilateDisk(glyphMask, w, h, BlackMarginRadius);
         var metalOuter = DilateDisk(glyphMask, w, h, MetalBevelRadius);
+        var shadowOuterRadius = MetalBevelRadius + ShadowHaloRadius;
+        var shadowOuter = DilateDisk(glyphMask, w, h, shadowOuterRadius);
+        var searchRadius = shadowOuterRadius + 1;
 
-        // Metal = outer dilate − black dilate; black inset = black dilate − glyph.
+        // Soft dark halo outside the rim (Cyberse Witch–style pop on blue honeycomb).
+        for (var i = 0; i < shadowOuter.Length; i++)
+        {
+            if (!shadowOuter[i] || metalOuter[i])
+                continue;
+            var lx = i % w;
+            var ly = i / w;
+            var dist = MinDistanceToMask(lx, ly, glyphMask, w, h, searchRadius);
+            var shadow = ToShadowPixel(dist);
+            if (shadow.A == 0)
+                continue;
+            dst[x0 + lx, y0 + ly] = AlphaOver(dst[x0 + lx, y0 + ly], shadow);
+        }
+
+        // Bright rim = metal dilate − black dilate; black inset = black dilate − glyph.
         for (var i = 0; i < metalOuter.Length; i++)
         {
             if (!metalOuter[i] || blackRing[i])
@@ -219,8 +246,8 @@ public static class LinkArrowOverlay
     }
 
     /// <summary>
-    /// Silver housing shade. <paramref name="outerT"/> 0 = inner (near black inset),
-    /// 1 = outer rim highlight.
+    /// Bright silver/white rim shade. <paramref name="outerT"/> 0 = inner (near black
+    /// inset), 1 = outer nearly-white highlight.
     /// </summary>
     public static Rgba32 ToMetalPixel(float outerT)
     {
@@ -229,6 +256,25 @@ public static class LinkArrowOverlay
         var g = (byte)Math.Clamp(MathF.Round(Lerp(MetalInnerG, MetalOuterG, outerT)), 0, 255);
         var b = (byte)Math.Clamp(MathF.Round(Lerp(MetalInnerB, MetalOuterB, outerT)), 0, 255);
         return new Rgba32(r, g, b, 255);
+    }
+
+    /// <summary>
+    /// Soft dark drop halo outside the rim. <paramref name="distFromGlyph"/> is the
+    /// Euclidean distance from the nearest glyph pixel; alpha peaks at the rim edge
+    /// and falls to 0 at <see cref="MetalBevelRadius"/> + <see cref="ShadowHaloRadius"/>.
+    /// </summary>
+    public static Rgba32 ToShadowPixel(float distFromGlyph)
+    {
+        var inner = MetalBevelRadius;
+        var outer = MetalBevelRadius + ShadowHaloRadius;
+        if (distFromGlyph <= inner || distFromGlyph >= outer)
+            return default;
+
+        var t = (distFromGlyph - inner) / ShadowHaloRadius; // 0 at rim, 1 at outer
+        // Mostly linear falloff with a light ease-out so the halo stays readable.
+        var falloff = (1f - t) * (1f - 0.35f * t);
+        var a = (byte)Math.Clamp(MathF.Round(ShadowMaxAlpha * falloff), 0, 255);
+        return a == 0 ? default : new Rgba32(0, 0, 0, a);
     }
 
     private static float Lerp(float a, float b, float t) => a + (b - a) * t;
