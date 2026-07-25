@@ -1187,7 +1187,7 @@ public class OverFrameAutoArtComposerTests
     [Fact]
     public void Compose_Effect_LoreCream_VerticalSoftToSolidFromLoreTop()
     {
-        // Hold 0.80 until 20px before art bottom, ramp to 1.0, then opaque cream below.
+        // Hold 0.80 until 40px before art bottom, ramp to 1.0, then opaque cream below.
         using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 255, 255));
         using var mask = new Image<L8>(512, 512, new L8(0));
         for (var y = 20; y < 492; y++)
@@ -1237,7 +1237,7 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
-    public void ComputeEffectLoreCreamCover_Hold80ThenRamp20pxAtArtBottom()
+    public void ComputeEffectLoreCreamCover_Hold80ThenRamp40pxAtArtBottom()
     {
         var cream = OverFrameAutoArtComposer.EffectLoreCream;
         var artBottom = cream.Top + 54;
