@@ -65,6 +65,43 @@ public sealed class BackupServiceTests
         }
     }
 
+    [Fact]
+    public void TryInvalidateOverFrameTextureBackup_DeletesExistingSnapshot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "floowan-backup-tests-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var backups = new BackupService(root);
+            var path = backups.GetOverFrameTextureBackupPath("Test Card");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, [1, 2, 3]);
+
+            Assert.True(backups.HasOverFrameTextureBackup("Test Card"));
+            Assert.True(backups.TryInvalidateOverFrameTextureBackup("Test Card"));
+            Assert.False(backups.HasOverFrameTextureBackup("Test Card"));
+            Assert.False(backups.TryInvalidateOverFrameTextureBackup("Test Card"));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* ignore */ }
+        }
+    }
+
+    [Theory]
+    [InlineData(false, 512, 512, true)]
+    [InlineData(false, 512, 683, true)]
+    [InlineData(false, 512, 1024, true)]
+    [InlineData(false, OverFrameConstants.Width, OverFrameConstants.Height, false)]
+    [InlineData(true, 512, 512, false)]
+    [InlineData(true, OverFrameConstants.Width, OverFrameConstants.Height, false)]
+    public void PreferLiveAutoCreateSource_UsesLiveWhenNotOverframed(
+        bool cardIsOverframe, int width, int height, bool expected)
+    {
+        Assert.Equal(
+            expected,
+            OverFrameModService.PreferLiveAutoCreateSource(cardIsOverframe, width, height));
+    }
+
     [Theory]
     [InlineData(false, 512, 512, false)]
     [InlineData(false, 512, 683, false)]

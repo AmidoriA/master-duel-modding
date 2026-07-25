@@ -99,6 +99,12 @@ public sealed class CardArtModService : IDisposable
 
             // Keeps live Texture2D width/height (Pendulum canvas or normal 512×512).
             _bundleService.ReplaceTexture(bundlePath, replacementImagePath, packer);
+
+            // OF Auto-create / Preview previously preferred a stale *-overframe.png (or the
+            // pre-replace bundle backup). Drop the OF pre-art snapshot so the next OF run
+            // uses the live replaced illustration.
+            _backupService.TryInvalidateOverFrameTextureBackup(card.Name);
+
             var targetDesc = CardArtTextureSizes.Describe(info.Width, info.Height);
             var msg = $"Replaced art for '{card.DisplayName}' ({targetDesc}, format→RGBA32).";
             if (!string.IsNullOrEmpty(validation.Info))
