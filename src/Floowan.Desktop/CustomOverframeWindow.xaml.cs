@@ -24,6 +24,8 @@ public partial class CustomOverframeWindow : Window
     private readonly CardRecord _card;
     private readonly string _gamePath;
     private readonly CardDatabase? _database;
+    private readonly CardLinkMarkerLoader _linkMarkerLoader = new();
+    private LinkMarkerMask? _linkMarkers;
 
     private Image<Rgba32>? _subjectSource;
     private Image<L8>? _subjectMask;
@@ -57,7 +59,8 @@ public partial class CustomOverframeWindow : Window
         CardRecord card,
         string gamePath,
         CardDatabase? database,
-        CardFrameStyle initialFrameStyle)
+        CardFrameStyle initialFrameStyle,
+        LinkMarkerMask? linkMarkers = null)
     {
         InitializeComponent();
         _autoArt = autoArt;
@@ -65,8 +68,13 @@ public partial class CustomOverframeWindow : Window
         _card = card;
         _gamePath = gamePath;
         _database = database;
+        _linkMarkers = linkMarkers;
         Title = $"Custom overframe art — {card.DisplayName}";
         SelectFrameStyle(initialFrameStyle);
+        // Do not sync-load CARD_Prop here — that freezes the dialog. Parent may have
+        // pre-resolved markers; otherwise load async on first Link frame selection / Loaded.
+        if (LinkArrowOverlay.NeedsArrowOverlay(initialFrameStyle) && _linkMarkers is null)
+            Loaded += CustomOverframeWindow_LoadLinkMarkersOnOpen;
         ArtScaleSlider.Value = DefaultSubjectScale;
         _subjectScale = DefaultSubjectScale;
         BgScaleSlider.Value = DefaultBackgroundScale;
@@ -138,6 +146,14 @@ public partial class CustomOverframeWindow : Window
         FrameStyleBox.SelectedIndex = 0; // Effect
     }
 
+    private static readonly TimeSpan LinkMarkerLoadTimeout = TimeSpan.FromSeconds(30);
+
+    private async void CustomOverframeWindow_LoadLinkMarkersOnOpen(object sender, RoutedEventArgs e)
+    {
+        Loaded -= CustomOverframeWindow_LoadLinkMarkersOnOpen;
+        await RefreshLinkMarkersForFrameAsync(GetSelectedFrameStyle());
+    }
+
     private CardFrameStyle GetSelectedFrameStyle()
     {
         if (FrameStyleBox.SelectedItem is ComboBoxItem item
@@ -148,6 +164,42 @@ public partial class CustomOverframeWindow : Window
         }
 
         return CardFrameStyle.Effect;
+    }
+
+    private async Task RefreshLinkMarkersForFrameAsync(CardFrameStyle frameStyle)
+    {
+        if (!LinkArrowOverlay.NeedsArrowOverlay(frameStyle))
+        {
+            _linkMarkers = null;
+            return;
+        }
+
+        // Prefer catalog value — avoid LocalData scans while editing.
+        if (_card.LinkMarkers is { } fromCard)
+        {
+            _linkMarkers = fromCard;
+            return;
+        }
+
+        try
+        {
+            using var cts = new CancellationTokenSource(LinkMarkerLoadTimeout);
+            var cardId = _card.Id;
+            var gamePath = _gamePath;
+            var loadTask = Task.Run(
+                () =>
+                {
+                    if (_linkMarkerLoader.TryGetMarkers(gamePath, cardId, out var markers, cts.Token))
+                        return (LinkMarkerMask?)markers;
+                    return null;
+                },
+                CancellationToken.None);
+            _linkMarkers = await loadTask.WaitAsync(cts.Token).ConfigureAwait(true);
+        }
+        catch
+        {
+            _linkMarkers = null;
+        }
     }
 
     private float GetSubjectScale() =>
@@ -566,6 +618,7 @@ public partial class CustomOverframeWindow : Window
         var backgroundScale = _backgroundScale;
         var backgroundOffsetX = _backgroundOffsetX;
         var backgroundOffsetY = _backgroundOffsetY;
+        var linkMarkers = _linkMarkers;
         var bmp = await Task.Run(() =>
         {
             using var preview = OverFrameAutoArtComposer.ComposeCustomBackgroundOnly(
@@ -574,6 +627,7 @@ public partial class CustomOverframeWindow : Window
                 backgroundScale: backgroundScale,
                 backgroundOffsetX: backgroundOffsetX,
                 backgroundOffsetY: backgroundOffsetY);
+            AutoOverFrameArtService.ApplyLinkArrowsIfNeeded(preview, frameStyle, linkMarkers);
             return ToPreviewBitmap(preview);
         });
 
@@ -749,6 +803,8 @@ public partial class CustomOverframeWindow : Window
         if (!IsLoaded || _busy)
             return;
 
+        await RefreshLinkMarkersForFrameAsync(GetSelectedFrameStyle());
+
         if (_subjectSource is null || _subjectMask is null)
         {
             if (_backgroundSource is null)
@@ -826,6 +882,7 @@ public partial class CustomOverframeWindow : Window
             $"floowan-custom-of-{Guid.NewGuid():N}.png");
 
         var outputPath = _composedTempPath;
+        var linkMarkers = _linkMarkers;
         await Task.Run(() =>
             AutoOverFrameArtService.ComposePreparedSubject(
                 source,
@@ -839,7 +896,8 @@ public partial class CustomOverframeWindow : Window
                 background,
                 backgroundScale,
                 backgroundOffsetX,
-                backgroundOffsetY));
+                backgroundOffsetY,
+                linkMarkers));
 
         PreviewImage.Source = LoadOfComposePreview(outputPath);
         ClearSubjectOverlay();
@@ -860,6 +918,7 @@ public partial class CustomOverframeWindow : Window
         var backgroundScale = _backgroundScale;
         var backgroundOffsetX = _backgroundOffsetX;
         var backgroundOffsetY = _backgroundOffsetY;
+        var linkMarkers = _linkMarkers;
 
         var (baseBmp, subjectBmp) = await Task.Run(() =>
         {
@@ -873,6 +932,8 @@ public partial class CustomOverframeWindow : Window
                 backgroundScale: backgroundScale,
                 backgroundOffsetX: backgroundOffsetX,
                 backgroundOffsetY: backgroundOffsetY);
+            // Arrows sit above chrome/background but under the dragged subject layer.
+            AutoOverFrameArtService.ApplyLinkArrowsIfNeeded(baseLayer, frameStyle, linkMarkers);
             using var subjectLayer = OverFrameAutoArtComposer.RenderSubjectDragLayer(
                 source,
                 mask,
