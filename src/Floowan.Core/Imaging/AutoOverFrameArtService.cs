@@ -49,7 +49,9 @@ public sealed class AutoOverFrameArtService : IDisposable
         string outputPngPath,
         CardFrameStyle frameStyle = CardFrameStyle.Effect,
         IProgress<string>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int subjectOffsetX = 0,
+        int subjectOffsetY = 0)
     {
         if (!File.Exists(sourceImagePath))
             throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
@@ -59,30 +61,187 @@ public sealed class AutoOverFrameArtService : IDisposable
 
         await Task.Run(() =>
         {
-            using var loaded = Image.Load<Rgba32>(sourceImagePath);
-            // Crop OF / Pendulum canvases to illustration bounds before rembg.
-            using var source = OverFrameAutoArtComposer.RequireCleanIllustrationSource(loaded);
-            if (OverFrameAutoArtComposer.IsOverFrameTextureSize(loaded.Width, loaded.Height))
-            {
-                progress?.Report(
-                    "Source was 704×1024 — cropped art window before rembg…");
-            }
-            else if (CardArtTextureSizes.IsPendulumNativeCanvas(loaded.Width, loaded.Height) ||
-                     CardArtTextureSizes.IsPendulum(loaded.Width, loaded.Height) ||
-                     CardArtTextureSizes.HasPendulumAspect(loaded.Width, loaded.Height))
-            {
-                progress?.Report(
-                    $"Source was Pendulum {loaded.Width}×{loaded.Height} — using 3:4 art for rembg…");
-            }
-
-            using var mask = PredictMask(source);
+            using var prepared = PrepareCleanSource(sourceImagePath, progress);
+            using var mask = PredictMask(prepared.Source);
             progress?.Report($"Compositing subject onto {frameStyle} frame (704×1024)…");
-            using var result = OverFrameAutoArtComposer.Compose(source, mask, frameStyle);
+            using var result = OverFrameAutoArtComposer.Compose(
+                prepared.Source,
+                mask,
+                frameStyle,
+                subjectOffsetX: subjectOffsetX,
+                subjectOffsetY: subjectOffsetY);
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPngPath))!);
             result.Save(outputPngPath, new PngEncoder());
         }, cancellationToken).ConfigureAwait(false);
 
         progress?.Report("Automatic over-frame art is ready for review.");
+    }
+
+    /// <summary>
+    /// Loads a user-provided subject image and uses its existing alpha channel as the
+    /// subject mask (no rembg). Caller must dispose both images.
+    /// </summary>
+    public static (Image<Rgba32> Source, Image<L8> Mask) LoadSubjectFromAlpha(
+        string sourceImagePath,
+        IProgress<string>? progress = null)
+    {
+        if (!File.Exists(sourceImagePath))
+            throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
+
+        progress?.Report("Reading subject alpha mask…");
+        var source = Image.Load<Rgba32>(sourceImagePath);
+        var mask = new Image<L8>(source.Width, source.Height);
+        var keep = 0;
+        for (var y = 0; y < source.Height; y++)
+        {
+            var pixels = source.DangerousGetPixelRowMemory(y).Span;
+            var maskRow = mask.DangerousGetPixelRowMemory(y).Span;
+            for (var x = 0; x < pixels.Length; x++)
+            {
+                var alpha = pixels[x].A;
+                maskRow[x] = new L8(alpha);
+                if (alpha >= OverFrameAutoArtComposer.MaskKeepThreshold)
+                    keep++;
+            }
+        }
+
+        if (keep == 0)
+        {
+            source.Dispose();
+            mask.Dispose();
+            throw new InvalidOperationException(
+                "No opaque subject found in the image alpha channel. " +
+                "Provide a PNG (or other image) with an alpha layer around the subject.");
+        }
+
+        progress?.Report("Subject alpha mask ready.");
+        return (source, mask);
+    }
+
+    /// <summary>
+    /// Runs rembg (isnet-anime) on card art and returns the cleaned illustration +
+    /// subject mask for Custom OF Card Art layering. Caller must dispose both images.
+    /// Does not compose a frame (unlike <see cref="CreateAsync"/>).
+    /// </summary>
+    public async Task<(Image<Rgba32> Source, Image<L8> Mask)> PrepareSubjectWithRembgAsync(
+        string sourceImagePath,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(sourceImagePath))
+            throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
+
+        await EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
+        progress?.Report("Removing background with isnet-anime…");
+
+        return await Task.Run(() =>
+        {
+            using var prepared = PrepareCleanSource(sourceImagePath, progress);
+            var source = prepared.Source.Clone();
+            Image<L8>? mask = null;
+            try
+            {
+                mask = PredictMask(source);
+                var keep = 0;
+                for (var y = 0; y < mask.Height; y++)
+                {
+                    var row = mask.DangerousGetPixelRowMemory(y).Span;
+                    for (var x = 0; x < row.Length; x++)
+                    {
+                        if (row[x].PackedValue >= OverFrameAutoArtComposer.MaskKeepThreshold)
+                            keep++;
+                    }
+                }
+
+                if (keep == 0)
+                {
+                    throw new InvalidOperationException(
+                        "rembg found no opaque subject in the live card art. " +
+                        "Try Select subject… with a PNG that already has alpha.");
+                }
+
+                progress?.Report("Subject rembg mask ready.");
+                return (source, mask);
+            }
+            catch
+            {
+                source.Dispose();
+                mask?.Dispose();
+                throw;
+            }
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Composes a previously prepared subject onto a frame (no model inference).
+    /// Defaults to <see cref="OverFrameComposeMode.CustomArtOnly"/> for the Custom OF dialog.
+    /// Optional <paramref name="background"/> Cover-fills the art hole under the frame
+    /// (CustomArtOnly only; ignored for Auto-create). Optional background scale (×1–×4)
+    /// and H/V pan move that Cover within the hole without overflowing it.
+    /// </summary>
+    public static void ComposePreparedSubject(
+        Image<Rgba32> source,
+        Image<L8> mask,
+        string outputPngPath,
+        CardFrameStyle frameStyle = CardFrameStyle.Effect,
+        int subjectOffsetX = 0,
+        int subjectOffsetY = 0,
+        float subjectScale = 1f,
+        OverFrameComposeMode composeMode = OverFrameComposeMode.CustomArtOnly,
+        Image<Rgba32>? background = null,
+        float backgroundScale = 1f,
+        int backgroundOffsetX = 0,
+        int backgroundOffsetY = 0)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(mask);
+        using var result = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frameStyle,
+            subjectOffsetX: subjectOffsetX,
+            subjectOffsetY: subjectOffsetY,
+            subjectScale: subjectScale,
+            composeMode: composeMode,
+            background: background,
+            backgroundScale: backgroundScale,
+            backgroundOffsetX: backgroundOffsetX,
+            backgroundOffsetY: backgroundOffsetY);
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPngPath))!);
+        result.Save(outputPngPath, new PngEncoder());
+    }
+
+    private static PreparedSource PrepareCleanSource(
+        string sourceImagePath,
+        IProgress<string>? progress)
+    {
+        var loaded = Image.Load<Rgba32>(sourceImagePath);
+        var loadedW = loaded.Width;
+        var loadedH = loaded.Height;
+        // Crop OF / Pendulum canvases to illustration bounds before rembg.
+        var source = OverFrameAutoArtComposer.RequireCleanIllustrationSource(loaded);
+        if (!ReferenceEquals(loaded, source))
+            loaded.Dispose();
+
+        if (OverFrameAutoArtComposer.IsOverFrameTextureSize(loadedW, loadedH))
+        {
+            progress?.Report("Source was 704×1024 — cropped art window before rembg…");
+        }
+        else if (CardArtTextureSizes.IsPendulumNativeCanvas(loadedW, loadedH) ||
+                 CardArtTextureSizes.IsPendulum(loadedW, loadedH) ||
+                 CardArtTextureSizes.HasPendulumAspect(loadedW, loadedH))
+        {
+            progress?.Report(
+                $"Source was Pendulum {loadedW}×{loadedH} — using 3:4 art for rembg…");
+        }
+
+        return new PreparedSource(source);
+    }
+
+    private sealed class PreparedSource(Image<Rgba32> source) : IDisposable
+    {
+        public Image<Rgba32> Source { get; } = source;
+        public void Dispose() => Source.Dispose();
     }
 
     private async Task EnsureModelAsync(
