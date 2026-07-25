@@ -4,7 +4,9 @@ namespace Floowan.Core.Data;
 /// Derives Floowan card-type labels from Master Duel <c>CARD_Prop</c> records.
 /// Each prop record is 8 bytes; bytes 0–1 are the art/card id (LE). Byte 2 is a packed
 /// monster/spell face field (empirical MD encoding, not YGOPro <c>TYPE_*</c> bitflags).
-/// Byte 3 is a secondary field (spell/trap marker <see cref="SpellTrapSecondary"/>, otherwise level/rank-ish data).
+/// Byte 3 is a secondary field (spell/trap marker <see cref="SpellTrapSecondary"/>, otherwise level/rank/link-rating-ish data).
+/// Bytes 4–7 are a LE <c>uint32</c>: bits 0–8 = ATK/10, bits 9–17 = DEF/10 — or, for Link
+/// faces, an 8-bit <see cref="LinkMarkerMask"/> in the DEF slot (see <see cref="DecodeLinkMarkers"/>).
 /// <para>
 /// Special summon faces (Link / Xyz / Synchro / Fusion / Ritual and pendulum variants) are
 /// matched by bit masks <b>before</b> the generic Effect fallback — exact-byte lists alone
@@ -87,6 +89,14 @@ public static class CardPropTypeDecoder
     public const byte NormalMonsterFace = 0x40;
 
     /// <summary>
+    /// ATK and DEF are packed as 9-bit values in units of 10 into the LE uint32 at
+    /// record bytes 4–7: bits 0–8 = ATK/10, bits 9–17 = DEF/10 (or Link markers).
+    /// </summary>
+    public const int AtkDefBitWidth = 9;
+    public const int AtkDefUnit = 10;
+    public const int AtkDefRawMask = (1 << AtkDefBitWidth) - 1; // 0x1FF
+
+    /// <summary>
     /// Reads id + type bytes from a decrypted CARD_Prop blob (same stride as the ETL).
     /// </summary>
     public static IReadOnlyList<CardPropEntry> ParseEntries(ReadOnlySpan<byte> decryptedProp)
@@ -99,6 +109,63 @@ public static class CardPropTypeDecoder
         }
 
         return list;
+    }
+
+    /// <summary>
+    /// Reads full 8-byte records including the packed ATK / DEF-or-link-marker field.
+    /// </summary>
+    public static IReadOnlyList<CardPropRecord> ParseRecords(ReadOnlySpan<byte> decryptedProp)
+    {
+        var list = new List<CardPropRecord>();
+        for (var i = 8; i + 7 < decryptedProp.Length; i += 8)
+        {
+            var id = decryptedProp[i] | (decryptedProp[i + 1] << 8);
+            var typeByte = decryptedProp[i + 2];
+            var typeByte2 = decryptedProp[i + 3];
+            var packed = (uint)(
+                decryptedProp[i + 4]
+                | (decryptedProp[i + 5] << 8)
+                | (decryptedProp[i + 6] << 16)
+                | (decryptedProp[i + 7] << 24));
+            list.Add(new CardPropRecord(id, typeByte, typeByte2, packed));
+        }
+
+        return list;
+    }
+
+    /// <summary>ATK points (multiple of 10) from the packed field, or null when undecodable.</summary>
+    public static int DecodeAtk(uint packedAtkDef) =>
+        (int)(packedAtkDef & AtkDefRawMask) * AtkDefUnit;
+
+    /// <summary>
+    /// DEF points (multiple of 10) for non-Link faces. For Links this raw field is a
+    /// <see cref="LinkMarkerMask"/> — use <see cref="DecodeLinkMarkers"/> instead.
+    /// </summary>
+    public static int DecodeDef(uint packedAtkDef) =>
+        (int)((packedAtkDef >> AtkDefBitWidth) & AtkDefRawMask) * AtkDefUnit;
+
+    /// <summary>
+    /// Link arrow mask from the DEF slot (low 8 bits of the 9-bit DEF field).
+    /// Only meaningful when <see cref="InferLabel"/> returns <c>Link</c>.
+    /// </summary>
+    public static LinkMarkerMask DecodeLinkMarkers(uint packedAtkDef) =>
+        (LinkMarkerMask)(byte)((packedAtkDef >> AtkDefBitWidth) & 0xFF);
+
+    /// <summary>
+    /// Builds card-id → link-marker map for every record whose type bytes decode as Link.
+    /// </summary>
+    public static IReadOnlyDictionary<int, LinkMarkerMask> ParseLinkMarkerMap(
+        ReadOnlySpan<byte> decryptedProp)
+    {
+        var map = new Dictionary<int, LinkMarkerMask>();
+        foreach (var rec in ParseRecords(decryptedProp))
+        {
+            if (InferLabel(rec.TypeByte, rec.TypeByte2) != "Link")
+                continue;
+            map[rec.Id] = DecodeLinkMarkers(rec.PackedAtkDef);
+        }
+
+        return map;
     }
 
     public static string? InferLabel(byte typeByte, byte typeByte2)
@@ -187,4 +254,7 @@ public static class CardPropTypeDecoder
     }
 
     public readonly record struct CardPropEntry(int Id, byte TypeByte, byte TypeByte2);
+
+    /// <param name="PackedAtkDef">LE uint32 from record bytes 4–7 (ATK/10 + DEF/10 or markers).</param>
+    public readonly record struct CardPropRecord(int Id, byte TypeByte, byte TypeByte2, uint PackedAtkDef);
 }

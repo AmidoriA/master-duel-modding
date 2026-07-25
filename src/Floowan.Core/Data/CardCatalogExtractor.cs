@@ -205,11 +205,18 @@ public sealed class CardCatalogExtractor
         }
 
         progress?.Report("Building catalog rows…");
-        var propEntries = CardPropTypeDecoder.ParseEntries(decProp);
-        var ids = propEntries.Select(e => e.Id).ToList();
-        var propTypeById = propEntries
-            .GroupBy(e => e.Id)
-            .ToDictionary(g => g.Key, g => CardPropTypeDecoder.InferLabel(g.First().TypeByte, g.First().TypeByte2));
+        var propRecords = CardPropTypeDecoder.ParseRecords(decProp);
+        var ids = propRecords.Select(e => e.Id).ToList();
+        var propTypeById = new Dictionary<int, string?>();
+        var linkMarkersById = new Dictionary<int, LinkMarkerMask>();
+        foreach (var group in propRecords.GroupBy(e => e.Id))
+        {
+            var rec = group.First();
+            var label = CardPropTypeDecoder.InferLabel(rec.TypeByte, rec.TypeByte2);
+            propTypeById[group.Key] = label;
+            if (label == "Link")
+                linkMarkersById[group.Key] = CardPropTypeDecoder.DecodeLinkMarkers(rec.PackedAtkDef);
+        }
         var rawNames = CardDataFilesParser.SplitIndexedStrings(decIndx, decName, indexStart: 0);
         var descriptions = CardDataFilesParser.SplitIndexedStrings(decIndx, decDesc, indexStart: 4);
         var names = CardDataFilesParser.AddAltSuffixes(rawNames);
@@ -238,6 +245,9 @@ public sealed class CardCatalogExtractor
             // Prefer CARD_Prop (MD descriptions usually lack [Type] lines); fall back to lore heuristics.
             var cardType = propTypeById.GetValueOrDefault(artId)
                 ?? CardTypeLabels.InferFromCardText(info.Name, info.Description);
+            LinkMarkerMask? linkMarkers = null;
+            if (linkMarkersById.TryGetValue(artId, out var markers))
+                linkMarkers = markers;
             rows.Add(new CatalogCardRow
             {
                 Id = artId,
@@ -246,7 +256,8 @@ public sealed class CardCatalogExtractor
                 Bundle = bundleId,
                 DataIndex = info.DataIndex,
                 CardType = cardType,
-                CreatedAt = createdAt
+                CreatedAt = createdAt,
+                LinkMarkers = linkMarkers
             });
         }
 
