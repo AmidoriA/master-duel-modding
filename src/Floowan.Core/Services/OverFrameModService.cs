@@ -447,12 +447,25 @@ public sealed class OverFrameModService : IDisposable
     }
 
     /// <summary>
-    /// Resolves source art for Auto-create. Prefers pre-over-frame backups; refuses
-    /// already-OF live textures (704×1024 / IsOverframe) so Auto-create cannot nest frames.
+    /// True when Auto-create should use the live texture instead of pre-OF backups.
+    /// Live wins whenever it is still illustration-sized (not an over-frame canvas).
+    /// </summary>
+    public static bool PreferLiveAutoCreateSource(bool cardIsOverframe, int liveWidth, int liveHeight) =>
+        !CardArtModService.IsLiveOverFrameTexture(cardIsOverframe, liveWidth, liveHeight);
+
+    /// <summary>
+    /// Resolves source art for Auto-create / Preview. Prefers the live illustration when
+    /// it is still non-OF (including after Card Art replacement). Falls back to pre-OF backups
+    /// only when the live texture is already over-framed, so Auto-create cannot nest frames.
     /// </summary>
     public string ResolveAutoCreateSourceArt(string playerDataPath, CardRecord card, string outputPngPath)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPngPath))!);
+
+        // Live first: Card Art replace writes the live bundle but leaves a pre-replace bundle
+        // backup (and possibly an older *-overframe.png). Those must not win over current art.
+        if (TryExtractLiveIllustration(playerDataPath, card, outputPngPath, out var liveLabel, out _))
+            return liveLabel!;
 
         var textureBackup = _backupService.GetOverFrameTextureBackupPath(card.Name);
         if (File.Exists(textureBackup))
@@ -480,20 +493,35 @@ public sealed class OverFrameModService : IDisposable
             }
         }
 
-        // Live texture: only acceptable when it is still original (non-OF) art.
+        throw new InvalidOperationException(
+            $"'{card.DisplayName}' is already over-framed and no clean original art backup was found. " +
+            "Use Restore backups (or restore the card bundle from a clean install), then Auto-create again. " +
+            "Auto-create will not use framed art — that causes nested frames.");
+    }
+
+    /// <summary>
+    /// Attempts to copy live non-OF illustration to <paramref name="outputPngPath"/>.
+    /// Returns true on success. When live is over-framed, returns false with
+    /// <paramref name="liveIsOverframed"/> set so callers can fall back to backups.
+    /// </summary>
+    private bool TryExtractLiveIllustration(
+        string playerDataPath,
+        CardRecord card,
+        string outputPngPath,
+        out string? sourceLabel,
+        out bool liveIsOverframed)
+    {
+        sourceLabel = null;
+        liveIsOverframed = card.IsOverframe;
         var liveTemp = outputPngPath + ".live-extract.png";
         try
         {
             ExtractCardArt(playerDataPath, card, liveTemp);
             using var liveInfo = Image.Load<Rgba32>(liveTemp);
-            var liveIsOfSize = OverFrameAutoArtComposer.IsOverFrameTextureSize(liveInfo.Width, liveInfo.Height);
-            if (card.IsOverframe || liveIsOfSize)
-            {
-                throw new InvalidOperationException(
-                    $"'{card.DisplayName}' is already over-framed and no clean original art backup was found. " +
-                    "Use Restore backups (or restore the card bundle from a clean install), then Auto-create again. " +
-                    "Auto-create will not use framed art — that causes nested frames.");
-            }
+            liveIsOverframed = CardArtModService.IsLiveOverFrameTexture(
+                card.IsOverframe, liveInfo.Width, liveInfo.Height);
+            if (liveIsOverframed)
+                return false;
 
             if (!TryCopyCleanIllustration(liveTemp, outputPngPath))
             {
@@ -501,7 +529,16 @@ public sealed class OverFrameModService : IDisposable
                     $"Could not read live art for '{card.DisplayName}'.");
             }
 
-            return "live texture";
+            sourceLabel = "live texture";
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch
+        {
+            return false;
         }
         finally
         {
@@ -525,8 +562,9 @@ public sealed class OverFrameModService : IDisposable
     }
 
     /// <summary>
-    /// Saves the pre-over-frame art once. Skips when the live card is already over-framed unless a
-    /// prior bundle backup exists to extract from (avoids snapshotting framed art as "original").
+    /// Saves the pre-over-frame art once. Prefers the live illustration when it is still non-OF
+    /// (so Card Art replacements become the OF re-run source). Falls back to the card bundle
+    /// backup only when live is already over-framed.
     /// </summary>
     private void TryPreserveOriginalArtBackup(CardRecord card, string liveBundlePath)
     {
@@ -546,10 +584,11 @@ public sealed class OverFrameModService : IDisposable
             try
             {
                 var bundleBackup = _backupService.GetBundleBackupPath(card.Bundle);
-                if (File.Exists(bundleBackup))
-                    _bundleService.ExtractTexturePng(bundleBackup, temp);
-                else if (!card.IsOverframe)
+                // Live first when not OF — bundle backup is often pre–Card Art vanilla.
+                if (!card.IsOverframe)
                     _bundleService.ExtractTexturePng(liveBundlePath, temp);
+                else if (File.Exists(bundleBackup))
+                    _bundleService.ExtractTexturePng(bundleBackup, temp);
                 else
                     return;
 
