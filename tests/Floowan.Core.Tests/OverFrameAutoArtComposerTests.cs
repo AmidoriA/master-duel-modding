@@ -1062,7 +1062,8 @@ public class OverFrameAutoArtComposerTests
         Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, typeLinePix.A);
         Assert.True(typeLinePix.G > 100, $"expected foil art in type-line gap, got {typeLinePix}");
 
-        var loreTop = result[midX, OverFrameAutoArtComposer.EffectLoreCream.Top];
+        var loreTop = result[midX, OverFrameAutoArtComposer.EffectLoreCream.Top
+            + OverFrameAutoArtComposer.LoreTopSeamHeight];
         AssertLoreCreamChrome(loreTop, cream, "lore top");
     }
 
@@ -1187,8 +1188,8 @@ public class OverFrameAutoArtComposerTests
     [Fact]
     public void Compose_Effect_LoreCream_VerticalSoftToSolidFromLoreTop()
     {
-        // Soft→solid is mild over the scaled footprint, then exact cream past artBottom
-        // (no last-row clamp tint). Soft peek stays near lore top / over art.
+        // Lore-top seam keeps upper underlay soft; soft→solid reaches cream by artBottom
+        // (no last-row clamp tint). Soft peek is strongest near lore top.
         using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 255, 255));
         using var mask = new Image<L8>(512, 512, new L8(0));
         for (var y = 20; y < 492; y++)
@@ -1222,57 +1223,79 @@ public class OverFrameAutoArtComposerTests
             $"covered lore should sit inside the vertical falloff ({edgeY - creamR.Top} < {blendH})");
 
         var nearTop = result[midX, creamR.Top + 4];
+        var midOverArt = result[midX, creamR.Top + (edgeY - creamR.Top) / 2];
         var nearFootprint = result[midX, edgeY];
         var pastFootprint = result[midX, Math.Min(creamR.Bottom - 1, edgeY + 12)];
         var lowerLore = result[midX, creamR.Bottom - 10];
 
         Assert.True(nearTop.B > cream.B, $"near lore top should soft-tint cyan, got {nearTop}");
-        Assert.True(nearFootprint.B > cream.B, $"covered lower lore should still tint cyan, got {nearFootprint}");
-        Assert.True(nearFootprint.B < nearTop.B,
-            $"lower covered lore should be closer to cream than top ({nearTop} vs {nearFootprint})");
+        Assert.True(midOverArt.B > cream.B && midOverArt.B < nearTop.B,
+            $"mid over-art should sit between soft top and cream ({nearTop} vs {midOverArt})");
+        Assert.True(
+            ColorDistance(nearFootprint, cream) < ColorDistance(midOverArt, cream),
+            $"footprint end should be closer to cream than mid ({midOverArt} vs {nearFootprint})");
         Assert.Equal(cream, pastFootprint);
         Assert.Equal(cream, lowerLore);
     }
 
     [Fact]
-    public void ComputeEffectLoreSolidProgress_StrongerPastArtBottom()
+    public void ComputeEffectLoreFrameOpacity_LoreTopSeamFadesInCream()
     {
-        // Upper lore (over art) stays relatively soft; past artBottom eases toward solid
-        // faster than a uniform lore-top smoothstep would.
+        // Steep seam: lore top is underlay-dominant; by LoreTopSeamHeight cream reaches
+        // Mirrorjade soft opacity (no binary cut at cream.Top).
+        var cream = OverFrameAutoArtComposer.EffectLoreCream;
+        var artBottom = cream.Top + 54;
+        var blendH = cream.Height;
+        var seam = OverFrameAutoArtComposer.LoreTopSeamHeight;
+
+        var atTop = OverFrameAutoArtComposer.ComputeEffectLoreFrameOpacity(
+            cream.Top, cream, artBottom, blendH);
+        var midSeam = OverFrameAutoArtComposer.ComputeEffectLoreFrameOpacity(
+            cream.Top + seam / 2, cream, artBottom, blendH);
+        var afterSeam = OverFrameAutoArtComposer.ComputeEffectLoreFrameOpacity(
+            cream.Top + seam, cream, artBottom, blendH);
+        var atArtEnd = OverFrameAutoArtComposer.ComputeEffectLoreFrameOpacity(
+            artBottom, cream, artBottom, blendH);
+
+        Assert.True(atTop < 0.05f, $"lore top should be nearly transparent cream, got {atTop}");
+        Assert.True(midSeam > atTop + 0.15f && midSeam < afterSeam,
+            $"seam mid should ramp ({atTop} → {midSeam} → {afterSeam})");
+        Assert.True(afterSeam > OverFrameAutoArtComposer.TextBoxFrameOpacity * 0.85f,
+            $"after seam should reach Mirrorjade soft range, got {afterSeam}");
+        Assert.True(atArtEnd > 0.98f, $"art bottom should be solid cream, got {atArtEnd}");
+
+        // Continuous across consecutive seam rows (no 1px cliff).
+        var prev = atTop;
+        for (var y = cream.Top + 1; y <= cream.Top + seam; y++)
+        {
+            var o = OverFrameAutoArtComposer.ComputeEffectLoreFrameOpacity(y, cream, artBottom, blendH);
+            Assert.True(o >= prev - 1e-4f, $"seam must be monotonic non-decreasing at y={y}");
+            Assert.True(o - prev < 0.12f, $"seam step too hard at y={y} (Δ={o - prev})");
+            prev = o;
+        }
+    }
+
+    [Fact]
+    public void ComputeEffectLoreSolidProgress_ReachesSolidAtArtBottom()
+    {
+        // Soft over art; solid by footprint bottom so exact-cream past-footprint is continuous.
         var cream = OverFrameAutoArtComposer.EffectLoreCream;
         var artBottom = cream.Top + 54; // typical Cover×overflow edge inside cream
         var blendH = cream.Height;
 
         var atTop = OverFrameAutoArtComposer.ComputeEffectLoreSolidProgress(
             cream.Top, cream, artBottom, blendH);
+        var midOver = OverFrameAutoArtComposer.ComputeEffectLoreSolidProgress(
+            cream.Top + (artBottom - cream.Top) / 2, cream, artBottom, blendH);
         var atArtEnd = OverFrameAutoArtComposer.ComputeEffectLoreSolidProgress(
             artBottom, cream, artBottom, blendH);
-        var midBelow = OverFrameAutoArtComposer.ComputeEffectLoreSolidProgress(
-            artBottom + (cream.Bottom - artBottom) / 2, cream, artBottom, blendH);
-        var atBottom = OverFrameAutoArtComposer.ComputeEffectLoreSolidProgress(
-            cream.Bottom - 1, cream, artBottom, blendH);
-
-        Assert.Equal(0f, atTop, 3);
-        Assert.Equal(OverFrameAutoArtComposer.LoreSolidProgressAtArtBottom, atArtEnd, 3);
-        Assert.True(midBelow > atArtEnd + 0.25f,
-            $"mid-below-art should ramp hard toward solid (mid={midBelow}, atArt={atArtEnd})");
-        Assert.True(atBottom > 0.98f, $"lore bottom should be near solid, got {atBottom}");
-
-        // Continuity at the art/footprint boundary.
-        var justAbove = OverFrameAutoArtComposer.ComputeEffectLoreSolidProgress(
-            artBottom - 1, cream, artBottom, blendH);
         var justBelow = OverFrameAutoArtComposer.ComputeEffectLoreSolidProgress(
             artBottom + 1, cream, artBottom, blendH);
-        Assert.True(Math.Abs(justAbove - atArtEnd) < 0.05f, $"justAbove={justAbove} vs atArt={atArtEnd}");
-        Assert.True(justBelow >= atArtEnd - 0.01f && justBelow > justAbove,
-            $"justBelow={justBelow} should continue past atArt={atArtEnd}");
 
-        // Stronger than the old full-height smoothstep at the same mid-below row.
-        var dy = (artBottom + (cream.Bottom - artBottom) / 2) - cream.Top;
-        var tOld = dy / (float)blendH;
-        tOld = tOld * tOld * (3f - 2f * tOld);
-        Assert.True(midBelow > tOld + 0.08f,
-            $"past-art ramp should exceed old smoothstep (mid={midBelow} vs old={tOld})");
+        Assert.Equal(0f, atTop, 3);
+        Assert.True(midOver > 0.15f && midOver < 0.85f, $"mid over-art progress, got {midOver}");
+        Assert.Equal(1f, atArtEnd, 3);
+        Assert.Equal(1f, justBelow, 3);
     }
 
     [Fact]
@@ -1317,6 +1340,44 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
+    public void Compose_Effect_LoreCream_LoreTopSeamIsSmoothNotHardCut()
+    {
+        // Ghost underlay at lore top must fade into cream without a 1px horizontal cliff.
+        using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 255, 255));
+        using var mask = new Image<L8>(512, 512, new L8(0));
+        for (var y = 20; y < 492; y++)
+        for (var x = 40; x < 472; x++)
+            mask[x, y] = new L8(255);
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var midX = creamR.Left + creamR.Width / 2;
+        var seam = OverFrameAutoArtComposer.LoreTopSeamHeight;
+        var y1 = Math.Min(creamR.Bottom - 1, creamR.Top + seam);
+
+        var maxStep = 0;
+        for (var y = creamR.Top + 1; y <= y1; y++)
+        {
+            var step = ColorDistance(result[midX, y - 1], result[midX, y]);
+            if (step > maxStep)
+                maxStep = step;
+        }
+
+        Assert.True(maxStep <= 16,
+            $"lore-top seam must be a smooth steep gradient, not a binary cut (maxStep={maxStep})");
+        Assert.True(
+            ColorDistance(result[midX, creamR.Top + 2], cream) >
+            ColorDistance(result[midX, creamR.Top + seam - 1], cream),
+            "seam start should show more underlay tint than seam end");
+    }
+
+    [Fact]
     public void Compose_Effect_LoreCream_NoHardOpacityCliffAcrossFootprint()
     {
         // Soft→solid stays continuous inside the scaled footprint. Past the footprint
@@ -1347,8 +1408,8 @@ public class OverFrameAutoArtComposerTests
         Assert.True(edgeY >= creamR.Top && edgeY < creamR.Bottom,
             $"footprint edge y={edgeY} must fall inside lore cream");
 
-        // Continuity only while still over art (exclude the intentional cream cutoff).
-        var y0 = creamR.Top + 1;
+        // Continuity after the lore-top seam (seam itself is intentionally steep).
+        var y0 = creamR.Top + OverFrameAutoArtComposer.LoreTopSeamHeight;
         var y1 = edgeY;
         var maxStep = 0;
         for (var y = y0 + 1; y <= y1; y++)
@@ -1358,8 +1419,8 @@ public class OverFrameAutoArtComposerTests
                 maxStep = step;
         }
 
-        Assert.True(maxStep <= 3,
-            $"in-footprint lore soft→solid steps must stay continuous (maxStep={maxStep} over y={y0}..{y1})");
+        Assert.True(maxStep <= 5,
+            $"post-seam in-footprint soft→solid steps must stay continuous (maxStep={maxStep} over y={y0}..{y1})");
         Assert.Equal(cream, result[midX, Math.Min(creamR.Bottom - 1, edgeY + 1)]);
     }
 
