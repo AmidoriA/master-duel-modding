@@ -34,6 +34,26 @@ public sealed class BackupService
     public bool HasOverFrameTextureBackup(string cardName) =>
         File.Exists(GetOverFrameTextureBackupPath(cardName));
 
+    /// <summary>
+    /// Drops the pre-over-frame PNG snapshot so the next OF run re-reads current live art
+    /// (e.g. after Card Art replacement). Bundle backups used for Restore are left intact.
+    /// </summary>
+    public bool TryInvalidateOverFrameTextureBackup(string cardName)
+    {
+        var path = GetOverFrameTextureBackupPath(cardName);
+        if (!File.Exists(path))
+            return false;
+        try
+        {
+            File.Delete(path);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public string BackupBundleFile(string sourceBundlePath, string bundleId) =>
         BackupFile(sourceBundlePath, GetBundleBackupPath(bundleId));
 
