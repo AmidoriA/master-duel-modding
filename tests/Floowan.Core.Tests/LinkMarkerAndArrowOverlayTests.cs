@@ -145,24 +145,53 @@ public class LinkMarkerAndArrowOverlayTests
         var leftDelta = CountLitOrange(canvas, new Rectangle(45, 396, 46, 118)) - leftBefore;
         var downDelta = CountLitOrange(canvas, new Rectangle(296, 715, 113, 48)) - downBefore;
 
-        Assert.True(dlDelta > 400, $"SW should gain lit orange, delta {dlDelta}");
-        Assert.True(drDelta > 400, $"SE should gain lit orange, delta {drDelta}");
+        // Largest-CC triangle glyph is ~780–820 px per corner (not the full L-bevel).
+        Assert.True(dlDelta > 500, $"SW triangle should gain lit orange, delta {dlDelta}");
+        Assert.True(drDelta > 500, $"SE triangle should gain lit orange, delta {drDelta}");
         Assert.True(Math.Abs(upDelta) < 40, $"Top must stay dark/inactive, delta {upDelta}");
         Assert.True(Math.Abs(leftDelta) < 40, $"Left must stay dark/inactive, delta {leftDelta}");
         Assert.True(Math.Abs(downDelta) < 40, $"Bottom must stay dark/inactive, delta {downDelta}");
     }
 
     [Fact]
-    public void LinkArrowOverlay_ToLitArrowPixel_IsWarmOrangeRed()
+    public void LinkArrowOverlay_Apply_LeavesMetallicBevelUnlit()
     {
-        var body = LinkArrowOverlay.ToLitArrowPixel(new Rgba32(10, 10, 12, 255));
-        var fringe = LinkArrowOverlay.ToLitArrowPixel(new Rgba32(110, 110, 115, 255));
-        Assert.True(body.R > 180 && body.R > body.G && body.G > body.B,
-            $"Body should be deep red-orange, got {body}");
-        Assert.True(fringe.R > 200 && fringe.G > 100 && fringe.G > fringe.B,
-            $"Fringe should be brighter amber, got {fringe}");
-        Assert.True(fringe.G > body.G, "Fringe green channel should exceed body");
+        // Decode Talker Integration OF anatomy: metallic L/triangular housing stays
+        // silver-grey; only the inner glyph glows. Sample mid-tone bevel pixels that
+        // used to light when lum≤120 recolored the whole corner.
+        using var canvas = CardFrameTemplates.Load(CardFrameStyle.Link);
+        LinkArrowOverlay.Apply(
+            canvas,
+            LinkMarkerMask.DownLeft | LinkMarkerMask.DownRight | LinkMarkerMask.Up);
+
+        // Metallic bevel / housing mid-tones (not near-black glyph fill).
+        Assert.False(IsLitOrange(canvas[64, 744]), "DL bevel must stay unlit");
+        Assert.False(IsLitOrange(canvas[84, 739]), "DL bevel rim must stay unlit");
+        Assert.False(IsLitOrange(canvas[641, 744]), "DR bevel must stay unlit");
+        Assert.False(IsLitOrange(canvas[621, 739]), "DR bevel rim must stay unlit");
+        Assert.False(IsLitOrange(canvas[352, 155]), "Up housing rim must stay unlit");
+
+        // Inner triangle tips / fills should be lit.
+        Assert.True(IsLitOrange(canvas[69, 724]), "DL triangle glyph should be lit");
+        Assert.True(IsLitOrange(canvas[636, 724]), "DR triangle glyph should be lit");
+        Assert.True(IsLitOrange(canvas[352, 168]), "Up triangle glyph should be lit");
     }
+
+    [Fact]
+    public void LinkArrowOverlay_ToLitArrowPixel_CenterBrighterThanEdge()
+    {
+        var ink = new Rgba32(8, 8, 10, 255);
+        var center = LinkArrowOverlay.ToLitArrowPixel(ink, edgeT: 0f);
+        var edge = LinkArrowOverlay.ToLitArrowPixel(ink, edgeT: 1f);
+        Assert.True(center.R > 200 && center.G > 180,
+            $"Center should be bright yellow-orange, got {center}");
+        Assert.True(edge.R > 200 && edge.G < center.G && edge.G > edge.B,
+            $"Edge should be deeper red-orange, got {edge}");
+        Assert.True(center.G - edge.G > 40, "Center must be clearly brighter/yellower than edge");
+    }
+
+    private static bool IsLitOrange(Rgba32 c) =>
+        c.A > 180 && c.R > 160 && c.R > c.G + 15 && c.G > c.B;
 
     private static int CountLitOrange(Image<Rgba32> img, Rectangle zone)
     {
@@ -170,9 +199,7 @@ public class LinkMarkerAndArrowOverlayTests
         for (var y = zone.Top; y < zone.Bottom; y++)
         for (var x = zone.Left; x < zone.Right; x++)
         {
-            var c = img[x, y];
-            // Lit active: warm orange/red, clearly not dark inactive charcoal.
-            if (c.A > 180 && c.R > 160 && c.R > c.G + 20 && c.G > c.B)
+            if (IsLitOrange(img[x, y]))
                 n++;
         }
 
