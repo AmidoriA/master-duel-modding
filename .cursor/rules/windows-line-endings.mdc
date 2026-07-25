@@ -1,0 +1,13 @@
+---
+description: Windows CRLF working tree; follow .gitattributes; no mixed endings
+alwaysApply: true
+---
+
+# Windows line endings (CRLF in working tree)
+
+- This repo uses **`.gitattributes`**: `* text=auto eol=crlf` so checkouts get **CRLF** in the working tree and Git stores **LF** in the object database (same intent as Git for Windows `core.autocrlf=true`).
+- **Do not** fight CRLF on Windows. Do not mass-convert the tree to LF-only to silence warnings.
+- **Never** commit mixed or accidental LF↔CRLF churn. Follow `.gitattributes`; mark new binary types with `-text` when needed.
+- Prefer project `.gitattributes` over changing `git config --global`. Local `core.autocrlf=true` (installer default) is fine and aligns with this policy.
+- Encoding is separate: keep source **UTF-8** (see `utf8-no-windows-1252`); never save as Windows-1252 / ANSI.
+- Do **not** rewrite history or bulk-normalize the whole repo unless a dedicated, reviewed renormalize commit is explicitly requested.
