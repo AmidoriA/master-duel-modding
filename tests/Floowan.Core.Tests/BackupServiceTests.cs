@@ -24,6 +24,31 @@ public sealed class BackupServiceTests
     }
 
     [Fact]
+    public void AppliedOverFrameBackup_SaveAndDelete()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "floowan-backup-tests-" + Guid.NewGuid().ToString("N"));
+        var src = Path.Combine(root, "src.png");
+        try
+        {
+            Directory.CreateDirectory(root);
+            File.WriteAllBytes(src, [1, 2, 3, 4]);
+            var backups = new BackupService(root);
+
+            var saved = backups.SaveAppliedOverFramePng("Blue-Eyes White Dragon", src);
+            Assert.EndsWith(Path.Combine("cards", "blue-eyes-white-dragon-applied-overframe.png"), saved);
+            Assert.True(backups.HasAppliedOverFrameBackup("Blue-Eyes White Dragon"));
+            Assert.Equal(new byte[] { 1, 2, 3, 4 }, File.ReadAllBytes(saved));
+
+            Assert.True(backups.TryDeleteAppliedOverFrameBackup("Blue-Eyes White Dragon"));
+            Assert.False(backups.HasAppliedOverFrameBackup("Blue-Eyes White Dragon"));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
     public void TextureBackupPath_UsesReadableSlug()
     {
         var root = Path.Combine(Path.GetTempPath(), "floowan-backup-tests-" + Guid.NewGuid().ToString("N"));

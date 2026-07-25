@@ -456,6 +456,7 @@
         <Grid Margin="0,8,0,0">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
           </Grid.RowDefinitions>
 
@@ -479,7 +480,24 @@
             </DockPanel>
           </Border>
 
-          <Border Grid.Row="1" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+          <Border Grid.Row="1" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Text="Over-frames after patch" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <TextBlock DockPanel.Dock="Top"
+                         Text="After a Master Duel update replaces of_card_asset, Floowan over-frames can drop out of the gate even when art backups remain. This scans user.db for cards Floowan previously applied OF to, re-writes applied OF canvases into live art bundles when needed, and appends gate entries without wiping official Konami over-frames."
+                         Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <Button x:Name="ToolsRestoreOverframesButton" Content="Restore overframes after patch"
+                        Click="ToolsRestoreOverframesAfterPatch_Click" Background="{StaticResource AccentBrush}"
+                        Padding="12,4" Margin="0,0,8,0"
+                        ToolTip="Scan user.db for Floowan-applied over-frames, merge each art id into the current of_card_asset gate (additive — official OF entries are kept), and re-apply 704x1024 art from backups/cards/*-applied-overframe.png when live texture was reset. Skips cards that are already gated with OF-sized art. Does not restore the whole gate backup file."/>
+              </StackPanel>
+              <TextBlock x:Name="ToolsRestoreOverframesStatusText"
+                         Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+            </DockPanel>
+          </Border>
+
+          <Border Grid.Row="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
             <DockPanel>
               <TextBlock DockPanel.Dock="Top" Text="Backups" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
               <TextBlock DockPanel.Dock="Top"
