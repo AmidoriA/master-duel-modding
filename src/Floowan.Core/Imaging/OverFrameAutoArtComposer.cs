@@ -28,11 +28,11 @@ public enum OverFrameComposeMode
 /// solid black matte. Game illusts are Cover-scaled into the real frame hole, then
 /// overflowed. Auto-create always fills the type-line strip under the art hole with
 /// foil art so it meets the cream lore panel with no chrome gap. Non-Pendulum
-/// (Effect-style) lore fill is vanilla cream cover only: starts at
-/// <see cref="TextBoxFrameOpacity"/> (0.80) at the lore top and eases toward opaque
-/// cream at the lore bottom. Underlying art peeks through the soft cream — no
-/// fade-from-zero seam, art-pixel smear, or last-row clamp tint. Pendulum dual-lore
-/// keeps constant Mirrorjade soft transparency (no Effect cream-cover falloff).
+/// (Effect-style) lore fill is vanilla cream cover only: holds
+/// <see cref="TextBoxFrameOpacity"/> (0.80) from the lore top until
+/// <see cref="LoreCreamRampHeight"/> px before scaled-art bottom, ramps 0.80→1.0 in
+/// that band, then stays opaque below art. No fade-from-zero, art smear, or last-row
+/// clamp tint. Pendulum dual-lore keeps constant Mirrorjade soft transparency.
 /// Out-of-bounds underlay samples are skipped (no vertical edge-smear). Overflow is
 /// hard-cut across the lore panel width (gold rim + cream stay clear). Left/right
 /// lore side wings keep frame chrome unless the rembg subject actually occupies
@@ -66,17 +66,24 @@ public static class OverFrameAutoArtComposer
     public const byte FoilMaskAlpha = 4;
 
     /// <summary>
-    /// Soft Mirrorjade cream cover at the Effect lore panel top (and constant Pendulum
-    /// blend). Lore top starts here immediately — never fades from 0. Effect cream then
-    /// ramps to fully opaque toward the lore bottom. Cover is vanilla cream only, never
-    /// an art-pixel smear / last-row tint.
+    /// Soft Mirrorjade cream cover from the Effect lore top through most of the art
+    /// overlap (and constant Pendulum blend). Never fades from 0. Effect cream then
+    /// ramps to opaque over <see cref="LoreCreamRampHeight"/> ending at scaled-art
+    /// bottom. Cover is vanilla cream only, never an art-pixel smear / last-row tint.
     /// </summary>
     public const float TextBoxFrameOpacity = 0.80f;
 
     /// <summary>
+    /// Vertical band (px) ending at the scaled-art footprint bottom where Effect lore
+    /// cream cover ramps from <see cref="TextBoxFrameOpacity"/> to opaque (1.0).
+    /// Above this band (toward lore top) cover holds at 0.80; below art bottom it stays 1.0.
+    /// </summary>
+    public const int LoreCreamRampHeight = 20;
+
+    /// <summary>
     /// Soft→solid vanilla cream cover falloff height (px) matching Effect lore cream.
-    /// Used with <see cref="ComputeEffectLoreCreamCover"/>; Pendulum dual-lore does not
-    /// use this falloff. No rembg / clamp edge-smear tint.
+    /// Retained for layout assertions; Effect cover now uses <see cref="LoreCreamRampHeight"/>
+    /// anchored at art bottom. No rembg / clamp edge-smear tint.
     /// </summary>
     public const int LoreArtUnderlayBlendHeight = 196;
 
@@ -1628,6 +1635,7 @@ public static class OverFrameAutoArtComposer
             return;
         }
 
+        var artBottom = bgY + scaledSourceH;
         for (var y = textBox.Top; y < textBox.Bottom && y < canvas.Height; y++)
         {
             if (y < 0) continue;
@@ -1636,7 +1644,7 @@ public static class OverFrameAutoArtComposer
             var rowOffset = y * canvas.Width;
             var x0 = Math.Max(0, textBox.Left);
             var x1 = Math.Min(canvas.Width, textBox.Right);
-            var creamCover = ComputeEffectLoreCreamCover(y, textBox);
+            var creamCover = ComputeEffectLoreCreamCover(y, textBox, artBottom);
             for (var x = x0; x < x1; x++)
             {
                 if (occupied != null && occupied[rowOffset + x])
@@ -1647,7 +1655,7 @@ public static class OverFrameAutoArtComposer
                     continue;
 
                 // Vanilla cream cover only: leave underlying art as-is where cover is low;
-                // strengthen opaque cream downward. No art sampling / last-row tint.
+                // strengthen opaque cream in the art-bottom ramp. No art sampling / last-row tint.
                 if (creamCover <= 1e-5f)
                 {
                     if (dstRow[x].A == 0)
@@ -1668,35 +1676,46 @@ public static class OverFrameAutoArtComposer
 
     /// <summary>
     /// Effect lore vanilla cream cover at canvas row <paramref name="y"/>.
-    /// Starts at <see cref="TextBoxFrameOpacity"/> (0.80) at the lore top — never 0 —
-    /// then ease-out to opaque cream (1) at the lore bottom. Independent of scaled-art
-    /// footprint; not an underlay/smear gradient.
+    /// Holds <see cref="TextBoxFrameOpacity"/> from the lore top until
+    /// <see cref="LoreCreamRampHeight"/> px before <paramref name="artBottom"/>, ramps
+    /// 0.80→1.0 in that band, then stays 1.0 below art. Not an underlay/smear gradient.
     /// </summary>
-    public static float ComputeEffectLoreCreamCover(int y, Rectangle textBox)
+    public static float ComputeEffectLoreCreamCover(int y, Rectangle textBox, int artBottom)
     {
         if (textBox.Height <= 0)
             return 1f;
 
-        var dy = y - textBox.Top;
-        if (dy <= 0)
-            return TextBoxFrameOpacity;
-        if (dy >= textBox.Height)
+        // Below (or at) scaled-art bottom: full vanilla cream.
+        if (y >= artBottom)
             return 1f;
 
-        var t = EaseOut01(dy / (float)textBox.Height);
+        var rampStart = artBottom - LoreCreamRampHeight;
+        if (y < rampStart)
+            return TextBoxFrameOpacity;
+
+        // 20px band ending at art bottom: 0.80 → 1.0.
+        var t = Math.Clamp((y - rampStart) / (float)Math.Max(1, LoreCreamRampHeight), 0f, 1f);
+        t = EaseOut01(t);
         return TextBoxFrameOpacity + (1f - TextBoxFrameOpacity) * t;
     }
 
     /// <summary>
-    /// Obsolete name for <see cref="ComputeEffectLoreCreamCover"/> — cream cover does not
-    /// depend on art footprint.
+    /// Obsolete overload without art bottom — treats art as ending at lore bottom so the
+    /// 0.80 plateau spans the box and the ramp sits in the last
+    /// <see cref="LoreCreamRampHeight"/> px.
+    /// </summary>
+    public static float ComputeEffectLoreCreamCover(int y, Rectangle textBox) =>
+        ComputeEffectLoreCreamCover(y, textBox, artBottom: textBox.Bottom);
+
+    /// <summary>
+    /// Obsolete name for <see cref="ComputeEffectLoreCreamCover"/>.
     /// </summary>
     public static float ComputeEffectLoreFrameOpacity(
         int y,
         Rectangle textBox,
         int artBottom,
         int blendHeight) =>
-        ComputeEffectLoreCreamCover(y, textBox);
+        ComputeEffectLoreCreamCover(y, textBox, artBottom);
 
     /// <summary>Quadratic ease-out: rises toward 1 faster than linear (stronger cream early).</summary>
     private static float EaseOut01(float t)
