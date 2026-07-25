@@ -7,9 +7,10 @@ namespace Floowan.Core.Imaging;
 
 /// <summary>
 /// Redraws Master Duel Link arrow markers as the topmost OF layer so subject/frame
-/// punches cannot erase them. Arrow art is cropped from the bundled <c>Link.png</c>
-/// template (<c>card_frame18</c>) — only directions set in <see cref="LinkMarkerMask"/>
-/// are composited.
+/// punches cannot erase them. Arrow silhouettes are cropped from the bundled
+/// <c>Link.png</c> template (<c>card_frame18</c>); directions set in
+/// <see cref="LinkMarkerMask"/> are recolored to lit orange/red so they read as
+/// active against the dark inactive markers left on the frame.
 /// </summary>
 public static class LinkArrowOverlay
 {
@@ -29,6 +30,14 @@ public static class LinkArrowOverlay
         (LinkMarkerMask.DownRight, new Rectangle(551, 656, 108, 107)),
     ];
 
+    // Master Duel–style lit marker: deep red-orange body → brighter amber AA fringe.
+    private const byte ActiveBodyR = 228;
+    private const byte ActiveBodyG = 52;
+    private const byte ActiveBodyB = 18;
+    private const byte ActiveFringeR = 255;
+    private const byte ActiveFringeG = 168;
+    private const byte ActiveFringeB = 64;
+
     /// <summary>
     /// True when OF compose should redraw Link arrows for this frame style.
     /// Floowan has no separate Link Pendulum template today — only <see cref="CardFrameStyle.Link"/>.
@@ -37,7 +46,7 @@ public static class LinkArrowOverlay
         frameStyle == CardFrameStyle.Link;
 
     /// <summary>
-    /// Blits active arrow sprites from the Link frame template onto
+    /// Blits lit (orange/red) active arrow sprites from the Link frame template onto
     /// <paramref name="canvas"/> (must be 704×1024). No-op when
     /// <paramref name="markers"/> is <see cref="LinkMarkerMask.None"/>.
     /// </summary>
@@ -77,16 +86,16 @@ public static class LinkArrowOverlay
         {
             if ((markers & bit) == 0)
                 continue;
-            BlitArrowRegion(canvas, linkTemplate, crop);
+            BlitLitArrowRegion(canvas, linkTemplate, crop);
         }
     }
 
     /// <summary>
     /// Copies arrow-looking pixels from <paramref name="src"/> crop onto
-    /// <paramref name="dst"/> at the same absolute coordinates (topmost layer).
-    /// Keeps near-black arrow body plus mid-tone AA; skips bright frame chrome.
+    /// <paramref name="dst"/> at the same absolute coordinates (topmost layer),
+    /// recolored to lit orange/red. Skips bright frame chrome.
     /// </summary>
-    private static void BlitArrowRegion(Image<Rgba32> dst, Image<Rgba32> src, Rectangle crop)
+    private static void BlitLitArrowRegion(Image<Rgba32> dst, Image<Rgba32> src, Rectangle crop)
     {
         var x0 = Math.Clamp(crop.X, 0, src.Width - 1);
         var y0 = Math.Clamp(crop.Y, 0, src.Height - 1);
@@ -102,10 +111,27 @@ public static class LinkArrowOverlay
                 var c = srcRow[x];
                 if (!IsArrowPixel(c))
                     continue;
-                dstRow[x] = AlphaOver(dstRow[x], c);
+                dstRow[x] = AlphaOver(dstRow[x], ToLitArrowPixel(c));
             }
         }
     }
+
+    /// <summary>
+    /// Maps a dark inactive arrow sample from <c>Link.png</c> onto a lit orange/red
+    /// pixel. Lower luminance (solid body) → deep red-orange; higher (AA fringe) →
+    /// brighter amber so the silhouette stays crisp.
+    /// </summary>
+    public static Rgba32 ToLitArrowPixel(Rgba32 dark)
+    {
+        var lum = (dark.R + dark.G + dark.B) / 3f;
+        var t = Math.Clamp(lum / 120f, 0f, 1f);
+        var r = (byte)Math.Clamp(MathF.Round(Lerp(ActiveBodyR, ActiveFringeR, t)), 0, 255);
+        var g = (byte)Math.Clamp(MathF.Round(Lerp(ActiveBodyG, ActiveFringeG, t)), 0, 255);
+        var b = (byte)Math.Clamp(MathF.Round(Lerp(ActiveBodyB, ActiveFringeB, t)), 0, 255);
+        return new Rgba32(r, g, b, dark.A);
+    }
+
+    private static float Lerp(float a, float b, float t) => a + (b - a) * t;
 
     private static bool IsArrowPixel(Rgba32 c)
     {

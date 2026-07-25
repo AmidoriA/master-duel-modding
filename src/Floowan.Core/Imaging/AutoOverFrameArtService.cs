@@ -218,9 +218,10 @@ public sealed class AutoOverFrameArtService : IDisposable
     }
 
     /// <summary>
-    /// Topmost Link-arrow redraw after OF compose. No-op unless frame is Link and
-    /// <paramref name="linkMarkers"/> is set (including <see cref="LinkMarkerMask.None"/>,
-    /// which clears the need to redraw — pass null to skip when markers are unknown).
+    /// Topmost Link-arrow redraw after OF compose (subject already on canvas). No-op
+    /// unless frame is Link and <paramref name="linkMarkers"/> is set (including
+    /// <see cref="LinkMarkerMask.None"/>, which skips redraw — pass null when markers
+    /// are unknown). Active bits are painted lit orange/red; inactive stay dark on the frame.
     /// </summary>
     public static void ApplyLinkArrowsIfNeeded(
         Image<Rgba32> canvas,
@@ -234,7 +235,7 @@ public sealed class AutoOverFrameArtService : IDisposable
         progress?.Report(
             linkMarkers.Value == LinkMarkerMask.None
                 ? "Link frame: no active arrows to redraw."
-                : $"Redrawing Link arrows ({LinkMarkerMaskConvert.Count(linkMarkers.Value)} directions)…");
+                : $"Lighting Link arrows ({LinkMarkerMaskConvert.Count(linkMarkers.Value)} directions)…");
     }
 
     private static PreparedSource PrepareCleanSource(
