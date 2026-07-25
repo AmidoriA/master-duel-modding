@@ -70,8 +70,10 @@ public static class OverFrameAutoArtComposer
     /// Constant Mirrorjade frame opacity over lore underlay. Pendulum dual-lore uses this
     /// for the full cream height (no vertical falloff). Effect-style lore starts here at
     /// the lore top, then ramps soft→solid over <see cref="LoreArtUnderlayBlendHeight"/>.
+    /// High enough that lore text stays readable; low enough that scaled art shows through
+    /// clearly (Custom OF + Auto compose share this path).
     /// </summary>
-    public const float TextBoxFrameOpacity = 0.92f;
+    public const float TextBoxFrameOpacity = 0.80f;
 
     /// <summary>
     /// Soft→solid lore cream vertical falloff height (px) from the lore box top for
