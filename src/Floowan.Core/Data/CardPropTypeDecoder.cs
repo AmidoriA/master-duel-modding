@@ -2,8 +2,14 @@ namespace Floowan.Core.Data;
 
 /// <summary>
 /// Derives Floowan card-type labels from Master Duel <c>CARD_Prop</c> records.
-/// Each prop record is 8 bytes; bytes 0–1 are the art/card id (LE). Bytes 2–3 encode
-/// a packed type field observed across current MD builds (empirical; not YGOPro bitflags).
+/// Each prop record is 8 bytes; bytes 0–1 are the art/card id (LE). Byte 2 is a packed
+/// monster/spell face field (empirical MD encoding, not YGOPro <c>TYPE_*</c> bitflags).
+/// Byte 3 is a secondary field (spell/trap marker <c>0x02</c>, otherwise level/rank-ish data).
+/// <para>
+/// Special summon faces (Link / Xyz / Synchro / Fusion / Ritual and pendulum variants) are
+/// matched by bit masks <b>before</b> the generic Effect fallback — exact-byte lists alone
+/// miss most Synchro/Xyz/Ritual variants (e.g. Synchro <c>0x52</c>/<c>0xD2</c>/<c>0x53</c>).
+/// </para>
 /// </summary>
 public static class CardPropTypeDecoder
 {
@@ -33,38 +39,60 @@ public static class CardPropTypeDecoder
                 return "Trap";
         }
 
-        // Link monsters set bit 0x20 in the type byte (Accesscode, Linkuriboh, …).
-        if ((typeByte & 0x20) != 0)
-            return "Link";
-
         // Tokens (Sheep Token 0x4A, Kuriboh Token 0x8A, …).
         if (typeByte is 0x4A or 0x8A)
             return "Token";
 
-        // Synchro (incl. pendulum synchro variants like 0x12).
-        if (typeByte == 0x92 || typeByte == 0x12)
-            return typeByte == 0x12 ? "Synchro Pendulum" : "Synchro";
+        var low = (byte)(typeByte & 0x0F);
 
-        // Xyz (0x57 / 0x97 common).
-        if (typeByte is 0x57 or 0x97)
+        // True Links set bit 0x20 with low nibble A/B (Accesscode 0xAB, Link Spider 0x6B, …).
+        // Other bit-0x20 faces are Extra Deck pendulums (Synchro/Xyz/Ritual/…) — not Link.
+        if ((typeByte & 0x20) != 0 && low is 0x0A or 0x0B)
+            return "Link";
+
+        // Extra Deck pendulum frames also set bit 0x20 with other low nibbles.
+        if ((typeByte & 0x20) != 0)
+        {
+            var pendulumExtra = low switch
+            {
+                0x04 => "Synchro Pendulum", // Nirvana High Paladin 0xA4, Clear Wing Fast Dragon
+                0x02 => "Xyz Pendulum",     // Odd-Eyes Rebellion 0xA2
+                0x06 => "Ritual Pendulum",  // Shinobaron 0xA6
+                0x09 => "Fusion Pendulum",  // Supreme King Z-ARC 0xA9
+                0x01 or 0x08 => "Effect Pendulum",
+                _ => null
+            };
+            if (pendulumExtra is not null)
+                return pendulumExtra;
+        }
+
+        // Xyz: bit 0x10 + low nibble 6 (Normal Xyz) or 7 (Effect Xyz).
+        // Covers 0x57/0x97 and previously missed 0x17/0xD7/0x56/0xD6.
+        if ((typeByte & 0x10) != 0 && (typeByte & 0x07) is 0x06 or 0x07)
             return "Xyz";
 
-        // Fusion (0x42/0x43 classic; 0x83 fusion pendulum / fusion effect hybrids).
+        // Synchro: bit 0x10, not main-deck pendulum bit 0x08, low nibble 1/2/3.
+        // Covers 0x92 and previously missed 0x52/0xD2/0x53/0x93/0x13/0xD3/0x51.
+        // Note: 0x12 is plain Synchro here (Black Rose / Nitro Warrior); pendulum Synchros
+        // that only use 0x12 may still need description fallback for the Pendulum label.
+        if ((typeByte & 0x10) != 0 && (typeByte & 0x08) == 0 && (typeByte & 0x07) is 0x01 or 0x02 or 0x03)
+            return "Synchro";
+
+        // Fusion (0x42/0x43 classic; 0x83 fusion pendulum).
         if (typeByte is 0x42 or 0x43)
             return "Fusion";
         if (typeByte == 0x83)
             return "Fusion Pendulum";
 
-        // Ritual (Relinquished 0x85).
-        if (typeByte == 0x85)
+        // Ritual: low nibble 4/5 without Extra-Deck bits 0x10/0x20.
+        // Covers Relinquished 0x85 and previously missed 0x45/0xC5/0x05/0x44/0x84/….
+        if ((typeByte & 0x30) == 0 && (typeByte & 0x07) is 0x04 or 0x05)
             return "Ritual";
 
-        // Pendulum normals / effects (Odd-Eyes / Performapal / Qliphort Scout patterns).
+        // Main-deck pendulum normals / effects.
         if (typeByte == 0x9A)
             return "Effect Pendulum";
-        if (typeByte == 0x59)
-            return "Normal Pendulum";
-        if (typeByte == 0xD9)
+        if (typeByte is 0x59 or 0xD9)
             return "Normal Pendulum";
 
         // Explicit normal monster face (Blue-Eyes 0x40).
