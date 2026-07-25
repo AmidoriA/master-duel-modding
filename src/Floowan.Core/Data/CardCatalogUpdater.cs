@@ -63,7 +63,7 @@ public sealed class CardCatalogUpdater
         if (latest is null)
         {
             return CardCatalogUpdateResult.Fail(
-                "No created_at values in the catalog yet. Run ""Update entire DB"" once first.");
+                "No created_at values in the catalog yet. Run \"Update entire DB\" once first.");
         }
 
         progress?.Report(
