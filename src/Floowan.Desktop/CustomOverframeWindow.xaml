@@ -9,7 +9,7 @@
         ShowInTaskbar="False">
   <DockPanel Margin="14">
     <TextBlock DockPanel.Dock="Top"
-               Text="Subject is Card Art with alpha (file or rembg from live art). Background Cover-fills the art hole (defaults to this card's live art). Art scale and Bg scale share ×0.5–×4 where ×1 = Cover fit. Pan background with H/V sliders; Match background to subject copies subject offset+scale. Drag/scale Card Art only, then Apply. Layers: Background → Frame → Card Art → Lore."
+               Text="Subject is Card Art with alpha (file or anime-seg cutout from live art). Background Cover-fills the art hole (defaults to this card's live art). Art scale and Bg scale share ×0.5–×4 where ×1 = Cover fit. Pan background with H/V sliders; Match background to subject copies subject offset+scale. Drag/scale Card Art only, then Apply. Layers: Background → Frame → Card Art → Lore."
                Foreground="{StaticResource MutedBrush}"
                TextWrapping="Wrap"
                Margin="0,0,0,10"/>
@@ -60,12 +60,12 @@
                           Content="Select subject…"
                           Click="PickImage_Click"
                           Margin="0,0,8,0"
-                          ToolTip="Pick a PNG with existing alpha (no rembg)."/>
+                          ToolTip="Pick a PNG with existing alpha (no segmentation)."/>
                   <Button x:Name="FromCurrentArtRembgButton"
-                          Content="From current art (rembg)…"
+                          Content="From current art (cutout)…"
                           Click="FromCurrentArtRembg_Click"
                           Margin="0,0,0,0"
-                          ToolTip="Extract this card's live art, run rembg, and use the cutout as the Card Art subject layer."/>
+                          ToolTip="Extract this card's live art, run SkyTNT anime-segmentation (isnetis), and use the cutout as the Card Art subject layer."/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                   <TextBlock Text="Frame"

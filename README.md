@@ -16,7 +16,7 @@
 - **Pendulum card art**: art aspect is **3:4** (canonical export **512×683**). Live MD Texture2D is often a taller **512×1024** canvas — extract **resizes** the full canvas to **512×683** (no crop). Import accepts **512×512**, **512×683**, **512×1024**, and other **3:4** images — **512×683** stretches back onto the tall canvas (round-trip); other aspect mismatches are letterboxed
 - **Over-frame tab**: apply **704×1024** art, register the card in `of_card_asset`, enable/remove gate entries, restore backups
 - **Pendulum over-frame**: Frame dropdown lists all MD Pendulum variants (Normal / Effect / Fusion / Synchro / Xyz / Token). Auto-create crops native 512×1024 sources to the top **3:4** band and composites into each style’s wider/shorter art hole (~603×450)
-- **Auto-create over-frame art**: remove the current art background with rembg’s `isnet-anime` model, trim/resize the subject, and preview it on a transparent 704×1024 canvas
+- **Auto-create over-frame art**: remove the current art background with SkyTNT’s `isnetis` anime-segmentation ONNX model, trim/resize the subject, and preview it on a transparent 704×1024 canvas
 - **Link over-frame**: Link frames are supported for Auto-create and Custom OF; active `CARD_Prop` markers fit a geometric triangle to the jagged `Link.png` glyph and paint an AA SDF stack (drop halo + bright silver/white rim + black inset + orange/red glow) as a topmost overlay after compose; inactive stay dark
 
 ## Projects
@@ -56,7 +56,7 @@ dotnet run --project src/Floowan.Desktop -c Release
 Automates the [Nexus Mods over-frame guide](https://www.nexusmods.com/yugiohmasterduel/articles/103):
 
 1. Prefer replacement art at exactly **704×1024**. Other sizes are stretched with a warning.
-2. Or select a card and click **Auto-create from current art**. Floowan extracts the current texture, removes its background, composites it under a **card frame with a transparent art hole** (from Master Duel `card_frame*` faces), and places an opaque cutout overflow on top. Pick the frame style (Normal / Effect / Fusion / …) in the Over-frame tab; it is auto-suggested from card text when possible. The first run downloads and verifies the rembg `isnet-anime` ONNX model (~168 MB) under `%LOCALAPPDATA%\Floowan\models`; Python and the rembg CLI are not required.
+2. Or select a card and click **Auto-create from current art**. Floowan extracts the current texture, removes its background with [SkyTNT anime-segmentation](https://github.com/SkyTNT/anime-segmentation) (`isnetis.onnx`), composites it under a **card frame with a transparent art hole** (from Master Duel `card_frame*` faces), and places an opaque cutout overflow on top. Pick the frame style (Normal / Effect / Fusion / …) in the Over-frame tab; it is auto-suggested from card text when possible. The first run downloads and verifies `isnetis.onnx` (~168 MB) from Hugging Face `skytnt/anime-seg` into `%LOCALAPPDATA%\Floowan\models` (Python is not required).
 3. Keep **RGBA32** (not BC7) — same writable path as normal card-art replace.
 4. Tip: main art / frame-overlap regions must use alpha ≈ **4** (not 0). Official over-frames and the Nexus guide comments use this as the foil/coverage mask; alpha 0 blacks out the card frame.
 5. On first use of the Over-frame tab (or via **Scan / locate of_card_asset**), Floowan finds the bundle containing TextAsset `of_card_asset`, caches its id in `user.db` `app_config`, and can sync `is_overframe` flags from the gate.

@@ -40,17 +40,19 @@
 - License: MIT
 - Reads Floowan’s master `database.db` (and attached `user.db`).
 
-## rembg / IS-Net anime (`isnet-anime`)
+## SkyTNT anime-segmentation (`isnetis`)
 
-- https://github.com/danielgatis/rembg
-- https://github.com/SkyTNT/anime-segmentation
-- Licenses: rembg MIT; anime-segmentation model per upstream project
-- The automatic over-frame generator independently ports rembg's documented
-  `isnet-anime` preprocessing/postprocessing to .NET. The ONNX model is downloaded
-  from the official rembg release on first use and is not stored in this repository.
+- Project: https://github.com/SkyTNT/anime-segmentation
+- Model hub: https://huggingface.co/skytnt/anime-seg (`isnetis.onnx`)
+- License: Apache-2.0 (upstream anime-segmentation repository)
+- Floowan ports SkyTNT’s documented ONNX inference path (letterbox + `/255`
+  normalize, crop pad, resize mask) to .NET via Microsoft.ML.OnnxRuntime.
+  The ONNX weights are downloaded from Hugging Face on first use and are not
+  stored in this repository. A previously downloaded rembg `isnet-anime.onnx`
+  with the same MD5 is reused as `isnetis.onnx` when present.
 
 ## Microsoft.ML.OnnxRuntime
 
 - https://github.com/microsoft/onnxruntime
 - License: MIT
-- Runs the `isnet-anime` background-removal model locally.
+- Runs the SkyTNT `isnetis` anime subject-segmentation model locally.

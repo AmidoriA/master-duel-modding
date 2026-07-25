@@ -28,6 +28,7 @@
   <ItemGroup>
     <None Include="..\..\src\Floowan.Core\Resources\classdata.tpk" Link="classdata.tpk" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\Floowan.Core\Resources\frames\*.png" Link="frames\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\anime-seg-example.jpg" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

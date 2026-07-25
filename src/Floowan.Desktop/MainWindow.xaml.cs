@@ -1508,7 +1508,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Non-OF: compose what Auto-create would produce (rembg + frame -> 704x1024), without Apply.
+        // Non-OF: compose what Auto-create would produce (anime-seg + frame -> 704x1024), without Apply.
         if (_overFrameService is null || _autoOverFrameArtService is null || _ofSelected is null)
         {
             MessageBox.Show("Select a card first.", "Floowan");
@@ -1553,7 +1553,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Resolve clean source art, run rembg + frame compose to a temp 704x1024 PNG,
+    /// Resolve clean source art, run anime-seg + frame compose to a temp 704x1024 PNG,
     /// and queue it as the OF replacement preview. Does not apply to the game.
     /// </summary>
     /// <param name="frameStyleOverride">

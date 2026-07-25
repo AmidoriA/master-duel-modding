@@ -706,7 +706,7 @@ public partial class CustomOverframeWindow : Window
     }
 
     /// <summary>
-    /// Extracts live card art, runs rembg, and installs the cutout as the Card Art
+    /// Extracts live card art, runs anime-seg cutout, and installs it as the Card Art
     /// subject layer (same preview path as Select subject…).
     /// </summary>
     private async Task PrepareSubjectFromLiveArtRembgAsync()
@@ -732,7 +732,7 @@ public partial class CustomOverframeWindow : Window
 
             await RecomposePreviewAsync();
             StatusText.Text =
-                "Subject from live art (rembg). Drag or scale the art, then Apply.";
+                "Subject from live art (anime-seg). Drag or scale the art, then Apply.";
             PreviewHintText.Visibility = Visibility.Collapsed;
             ApplyButton.IsEnabled = true;
         }

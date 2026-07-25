@@ -11,23 +11,31 @@ using SixLabors.ImageSharp.Processing;
 namespace Floowan.Core.Imaging;
 
 /// <summary>
-/// One-click over-frame art generation using rembg's <c>isnet-anime</c> session.
-/// Runs the ONNX model natively in .NET, so Python/rembg does not need to be
-/// installed. The model is downloaded and verified on first use.
+/// One-click over-frame art generation using SkyTNT
+/// <c>anime-segmentation</c> (<c>isnetis</c>) ONNX.
+/// Runs the model natively in .NET (no Python). The ONNX file is downloaded and
+/// verified on first use from Hugging Face <c>skytnt/anime-seg</c>.
 /// </summary>
 public sealed class AutoOverFrameArtService : IDisposable
 {
-    public const string ModelName = "isnet-anime.onnx";
+    /// <summary>SkyTNT recommended ISNet anime character model.</summary>
+    public const string ModelName = "isnetis.onnx";
+
+    /// <summary>Official Hugging Face resolve URL for <see cref="ModelName"/>.</summary>
     public const string ModelUrl =
-        "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-anime.onnx";
+        "https://huggingface.co/skytnt/anime-seg/resolve/main/isnetis.onnx";
+
+    /// <summary>
+    /// MD5 of the published <c>isnetis.onnx</c> (same bytes historically mirrored as
+    /// rembg <c>isnet-anime.onnx</c>).
+    /// </summary>
     public const string ModelMd5 = "6f184e756bb3bd901c8849220a83e38e";
 
-    /// <summary>Matches rembg <c>DisSession</c> / isnet-anime normalize size.</summary>
-    private const int ModelSize = 1024;
+    /// <summary>Legacy rembg release filename; migrated when checksum matches.</summary>
+    public const string LegacyModelName = "isnet-anime.onnx";
 
-    private static readonly float[] Mean = [0.485f, 0.456f, 0.406f];
-    // rembg isnet-anime uses std (1,1,1), unlike u2netp's ImageNet std.
-    private static readonly float[] StdDev = [1f, 1f, 1f];
+    /// <summary>Matches SkyTNT <c>isnet_is</c> / HF Space default <c>img-size</c>.</summary>
+    public const int ModelSize = 1024;
 
     private readonly HttpClient _httpClient;
     private readonly string _modelPath;
@@ -59,7 +67,7 @@ public sealed class AutoOverFrameArtService : IDisposable
             throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
 
         await EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
-        progress?.Report("Removing background with isnet-anime…");
+        progress?.Report("Removing background with SkyTNT isnetis…");
 
         await Task.Run(() =>
         {
@@ -82,7 +90,7 @@ public sealed class AutoOverFrameArtService : IDisposable
 
     /// <summary>
     /// Loads a user-provided subject image and uses its existing alpha channel as the
-    /// subject mask (no rembg). Caller must dispose both images.
+    /// subject mask (no segmentation). Caller must dispose both images.
     /// </summary>
     public static (Image<Rgba32> Source, Image<L8> Mask) LoadSubjectFromAlpha(
         string sourceImagePath,
@@ -122,9 +130,10 @@ public sealed class AutoOverFrameArtService : IDisposable
     }
 
     /// <summary>
-    /// Runs rembg (isnet-anime) on card art and returns the cleaned illustration +
+    /// Runs SkyTNT anime-segmentation on card art and returns the cleaned illustration +
     /// subject mask for Custom OF Card Art layering. Caller must dispose both images.
     /// Does not compose a frame (unlike <see cref="CreateAsync"/>).
+    /// Kept as <c>PrepareSubjectWithRembgAsync</c> for stable callers.
     /// </summary>
     public async Task<(Image<Rgba32> Source, Image<L8> Mask)> PrepareSubjectWithRembgAsync(
         string sourceImagePath,
@@ -135,7 +144,7 @@ public sealed class AutoOverFrameArtService : IDisposable
             throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
 
         await EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
-        progress?.Report("Removing background with isnet-anime…");
+        progress?.Report("Removing background with SkyTNT isnetis…");
 
         return await Task.Run(() =>
         {
@@ -159,11 +168,11 @@ public sealed class AutoOverFrameArtService : IDisposable
                 if (keep == 0)
                 {
                     throw new InvalidOperationException(
-                        "rembg found no opaque subject in the live card art. " +
+                        "Anime segmentation found no opaque subject in the live card art. " +
                         "Try Select subject… with a PNG that already has alpha.");
                 }
 
-                progress?.Report("Subject rembg mask ready.");
+                progress?.Report("Subject cutout mask ready.");
                 return (source, mask);
             }
             catch
@@ -245,21 +254,21 @@ public sealed class AutoOverFrameArtService : IDisposable
         var loaded = Image.Load<Rgba32>(sourceImagePath);
         var loadedW = loaded.Width;
         var loadedH = loaded.Height;
-        // Crop OF / Pendulum canvases to illustration bounds before rembg.
+        // Crop OF / Pendulum canvases to illustration bounds before segmentation.
         var source = OverFrameAutoArtComposer.RequireCleanIllustrationSource(loaded);
         if (!ReferenceEquals(loaded, source))
             loaded.Dispose();
 
         if (OverFrameAutoArtComposer.IsOverFrameTextureSize(loadedW, loadedH))
         {
-            progress?.Report("Source was 704×1024 — cropped art window before rembg…");
+            progress?.Report("Source was 704×1024 — cropped art window before cutout…");
         }
         else if (CardArtTextureSizes.IsPendulumNativeCanvas(loadedW, loadedH) ||
                  CardArtTextureSizes.IsPendulum(loadedW, loadedH) ||
                  CardArtTextureSizes.HasPendulumAspect(loadedW, loadedH))
         {
             progress?.Report(
-                $"Source was Pendulum {loadedW}×{loadedH} — using 3:4 art for rembg…");
+                $"Source was Pendulum {loadedW}×{loadedH} — using 3:4 art for cutout…");
         }
 
         return new PreparedSource(source);
@@ -275,6 +284,8 @@ public sealed class AutoOverFrameArtService : IDisposable
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
+        TryMigrateLegacyModel();
+
         if (File.Exists(_modelPath) && HasExpectedChecksum(_modelPath))
             return;
 
@@ -282,7 +293,8 @@ public sealed class AutoOverFrameArtService : IDisposable
         var tempPath = _modelPath + "." + Guid.NewGuid().ToString("N") + ".download";
         try
         {
-            progress?.Report("Downloading the rembg isnet-anime model (~168 MB, first use only)…");
+            progress?.Report(
+                "Downloading SkyTNT isnetis model (~168 MB, first use only)…");
             using var response = await _httpClient.GetAsync(
                 ModelUrl,
                 HttpCompletionOption.ResponseHeadersRead,
@@ -307,14 +319,14 @@ public sealed class AutoOverFrameArtService : IDisposable
                 await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
                 downloaded += read;
                 if (total > 0)
-                    progress?.Report($"Downloading isnet-anime model… {downloaded * 100 / total.Value}%");
+                    progress?.Report($"Downloading isnetis model… {downloaded * 100 / total.Value}%");
             }
 
             await output.FlushAsync(cancellationToken).ConfigureAwait(false);
             output.Close();
 
             if (!HasExpectedChecksum(tempPath))
-                throw new InvalidDataException("Downloaded isnet-anime model failed its MD5 integrity check.");
+                throw new InvalidDataException("Downloaded isnetis model failed its MD5 integrity check.");
 
             File.Move(tempPath, _modelPath, overwrite: true);
         }
@@ -324,77 +336,131 @@ public sealed class AutoOverFrameArtService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Reuse a previously downloaded rembg <c>isnet-anime.onnx</c> when it matches
+    /// the SkyTNT <c>isnetis.onnx</c> checksum (byte-identical release).
+    /// </summary>
+    private void TryMigrateLegacyModel()
+    {
+        if (File.Exists(_modelPath) && HasExpectedChecksum(_modelPath))
+            return;
+
+        var legacyPath = Path.Combine(
+            Path.GetDirectoryName(_modelPath)!,
+            LegacyModelName);
+        if (!File.Exists(legacyPath) || !HasExpectedChecksum(legacyPath))
+            return;
+
+        Directory.CreateDirectory(Path.GetDirectoryName(_modelPath)!);
+        File.Copy(legacyPath, _modelPath, overwrite: true);
+    }
+
     private Image<L8> PredictMask(Image<Rgba32> source)
     {
         _session ??= new InferenceSession(_modelPath);
-        using var resized = source.Clone(ctx => ctx.Resize(new ResizeOptions
+
+        // SkyTNT inference.py / HF Space app.py get_mask:
+        //   img/255 → aspect-preserving letterbox into s×s zeros → NCHW → run →
+        //   crop pad → resize to original. Mask values are already ~[0,1].
+        var letterbox = ComputeLetterbox(source.Width, source.Height, ModelSize);
+        using var content = source.Clone(ctx => ctx.Resize(new ResizeOptions
         {
-            Size = new Size(ModelSize, ModelSize),
+            Size = new Size(letterbox.ContentWidth, letterbox.ContentHeight),
             Mode = ResizeMode.Stretch,
-            Sampler = KnownResamplers.Lanczos3
+            // cv2.resize default is bilinear; Triangle is the closest ImageSharp match.
+            Sampler = KnownResamplers.Triangle
         }));
 
-        // rembg: im_ary / max(im_ary) then (x - mean) / std
-        var maximum = 1f;
-        for (var y = 0; y < resized.Height; y++)
-        {
-            var row = resized.DangerousGetPixelRowMemory(y).Span;
-            foreach (var pixel in row)
-                maximum = Math.Max(maximum, Math.Max(pixel.R, Math.Max(pixel.G, pixel.B)));
-        }
-
         var input = new DenseTensor<float>([1, 3, ModelSize, ModelSize]);
-        for (var y = 0; y < ModelSize; y++)
+        for (var y = 0; y < letterbox.ContentHeight; y++)
         {
-            var row = resized.DangerousGetPixelRowMemory(y).Span;
-            for (var x = 0; x < ModelSize; x++)
+            var row = content.DangerousGetPixelRowMemory(y).Span;
+            var destY = letterbox.PadTop + y;
+            for (var x = 0; x < letterbox.ContentWidth; x++)
             {
                 var pixel = row[x];
-                input[0, 0, y, x] = (pixel.R / maximum - Mean[0]) / StdDev[0];
-                input[0, 1, y, x] = (pixel.G / maximum - Mean[1]) / StdDev[1];
-                input[0, 2, y, x] = (pixel.B / maximum - Mean[2]) / StdDev[2];
+                var destX = letterbox.PadLeft + x;
+                input[0, 0, destY, destX] = pixel.R / 255f;
+                input[0, 1, destY, destX] = pixel.G / 255f;
+                input[0, 2, destY, destX] = pixel.B / 255f;
             }
         }
 
-        var inputName = _session.InputMetadata.Keys.First();
+        // Prefer the exported SkyTNT name "img"; fall back to the session's first input.
+        var inputName = _session.InputMetadata.ContainsKey("img")
+            ? "img"
+            : _session.InputMetadata.Keys.First();
         using var results = _session.Run([NamedOnnxValue.CreateFromTensor(inputName, input)]);
-        var prediction = results.First().AsTensor<float>().ToArray();
-        // isnet-anime outputs [1,1,1024,1024]; keep last HxW plane if extra dims exist.
+        var output = results.First().AsTensor<float>();
+        var prediction = output.ToArray();
         if (prediction.Length < ModelSize * ModelSize)
-            throw new InvalidDataException("isnet-anime returned an unexpected output shape.");
+            throw new InvalidDataException("isnetis returned an unexpected output shape.");
 
+        // Exported mask is [1,1,H,W] (or equivalent); use the last HxW plane.
         var offset = prediction.Length - ModelSize * ModelSize;
-        var minimum = float.MaxValue;
-        var maximumPrediction = float.MinValue;
-        for (var i = offset; i < prediction.Length; i++)
-        {
-            minimum = Math.Min(minimum, prediction[i]);
-            maximumPrediction = Math.Max(maximumPrediction, prediction[i]);
-        }
-
-        var range = Math.Max(maximumPrediction - minimum, 1e-6f);
-        var mask = new Image<L8>(ModelSize, ModelSize);
+        using var squareMask = new Image<L8>(ModelSize, ModelSize);
         for (var y = 0; y < ModelSize; y++)
         {
-            var row = mask.DangerousGetPixelRowMemory(y).Span;
+            var row = squareMask.DangerousGetPixelRowMemory(y).Span;
             for (var x = 0; x < ModelSize; x++)
             {
-                var normalized = Math.Clamp(
-                    (prediction[offset + y * ModelSize + x] - minimum) / range,
-                    0f,
-                    1f);
-                row[x] = new L8((byte)MathF.Round(normalized * 255));
+                var value = Math.Clamp(prediction[offset + y * ModelSize + x], 0f, 1f);
+                row[x] = new L8((byte)MathF.Round(value * 255f));
             }
         }
 
-        mask.Mutate(ctx => ctx.Resize(new ResizeOptions
+        // Crop letterbox content, then stretch back to the source size.
+        var cropped = squareMask.Clone(ctx => ctx.Crop(new Rectangle(
+            letterbox.PadLeft,
+            letterbox.PadTop,
+            letterbox.ContentWidth,
+            letterbox.ContentHeight)));
+        cropped.Mutate(ctx => ctx.Resize(new ResizeOptions
         {
             Size = source.Size,
             Mode = ResizeMode.Stretch,
-            Sampler = KnownResamplers.Lanczos3
+            Sampler = KnownResamplers.Triangle
         }));
-        return mask;
+        return cropped;
     }
+
+    /// <summary>
+    /// SkyTNT letterbox geometry: fit the longer side to <paramref name="size"/>,
+    /// pad the shorter axis with zeros (split with floor-half on top/left).
+    /// </summary>
+    public static LetterboxLayout ComputeLetterbox(int width, int height, int size = ModelSize)
+    {
+        if (width <= 0 || height <= 0)
+            throw new ArgumentOutOfRangeException(nameof(width), "Image size must be positive.");
+        if (size <= 0)
+            throw new ArgumentOutOfRangeException(nameof(size));
+
+        int contentH, contentW;
+        if (height > width)
+        {
+            contentH = size;
+            contentW = Math.Max(1, (int)(size * (double)width / height));
+        }
+        else
+        {
+            contentW = size;
+            contentH = Math.Max(1, (int)(size * (double)height / width));
+        }
+
+        var padH = size - contentH;
+        var padW = size - contentW;
+        return new LetterboxLayout(
+            ContentWidth: contentW,
+            ContentHeight: contentH,
+            PadLeft: padW / 2,
+            PadTop: padH / 2);
+    }
+
+    public readonly record struct LetterboxLayout(
+        int ContentWidth,
+        int ContentHeight,
+        int PadLeft,
+        int PadTop);
 
     private static bool HasExpectedChecksum(string path)
     {
