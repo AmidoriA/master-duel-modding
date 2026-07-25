@@ -1698,6 +1698,96 @@ public class OverFrameAutoArtComposerTests
         Assert.NotEqual(baseline[midX, coveredY], shifted[midX, coveredY]);
     }
 
+    [Fact]
+    public void Compose_CustomArtOnly_PunchesBottomChromeBelowLore_WhereSubjectPresent()
+    {
+        // Tall ×2 subject so Card Art reaches the dark strip under Effect lore cream.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        using var custom = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 2f,
+            OverFrameComposeMode.CustomArtOnly);
+        using var auto = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 2f,
+            composeMode: OverFrameComposeMode.AutoFoilAndSubject);
+
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var midX = creamR.Left + creamR.Width / 2;
+        var belowY = creamR.Bottom + 10;
+        Assert.True(belowY < OverFrameConstants.Height);
+
+        var customBelow = custom[midX, belowY];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, customBelow.A);
+        Assert.True(customBelow.R > 100,
+            $"Custom OF must punch subject into bottom chrome, got {customBelow}");
+
+        var autoBelow = auto[midX, belowY];
+        Assert.True(autoBelow.A >= 200,
+            $"Auto-create must keep Effect bottom chrome opaque, got {autoBelow}");
+
+        // Lore rect still paints cream on top of Card Art (soft underlay, not hard punch).
+        var loreY = creamR.Top + 40;
+        Assert.True(custom[midX, loreY].A >= 200,
+            $"lore must stay opaque over art, got {custom[midX, loreY]}");
+    }
+
+    [Fact]
+    public void RenderSubjectDragLayer_CustomArtOnly_IncludesBottomChromePunch()
+    {
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+        {
+            source[x, y] = new Rgba32(40, 200, 255, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var layer = OverFrameAutoArtComposer.RenderSubjectDragLayer(
+            source,
+            mask,
+            CardFrameStyle.Effect,
+            subjectScale: 2f,
+            composeMode: OverFrameComposeMode.CustomArtOnly);
+
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var midX = creamR.Left + creamR.Width / 2;
+        var belowY = creamR.Bottom + 10;
+        var below = layer[midX, belowY];
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, below.A);
+        Assert.True(below.B > 100, $"drag layer must show subject below lore, got {below}");
+
+        // Cream interior stays clear on the drag layer (lore lives on the base).
+        var loreY = creamR.Top + 40;
+        Assert.Equal(0, layer[midX, loreY].A);
+    }
+
     private static Image<Rgba32> CreateSolidFrame() =>
         new(OverFrameConstants.Width, OverFrameConstants.Height, new Rgba32(220, 200, 40, 255));
 
