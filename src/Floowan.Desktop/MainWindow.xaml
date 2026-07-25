@@ -206,9 +206,9 @@
                         ExpandDirection="Down"
                         Foreground="{StaticResource MutedBrush}"
                         Margin="0,8,0,0"
-                        ToolTip="Collapse to hide manual image select and gate tools.">
+                        ToolTip="Collapse to hide custom overframe art and gate tools.">
                 <WrapPanel Margin="0,8,0,0">
-                  <Button Content="Select 704×1024 image…" Click="OfSelectImage_Click"/>
+                  <Button Content="Custom overframe art" Click="OfCustomOverframeArt_Click"/>
                   <Button Content="Enable gate only" Click="OfEnableGate_Click"/>
                 </WrapPanel>
               </Expander>

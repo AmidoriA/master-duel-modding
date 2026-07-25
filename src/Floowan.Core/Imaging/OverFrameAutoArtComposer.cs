@@ -193,7 +193,9 @@ public static class OverFrameAutoArtComposer
         Image<Rgba32> source,
         Image<L8> mask,
         CardFrameStyle frameStyle = CardFrameStyle.Effect,
-        string? frameDirectory = null)
+        string? frameDirectory = null,
+        int subjectOffsetX = 0,
+        int subjectOffsetY = 0)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(mask);
@@ -206,7 +208,9 @@ public static class OverFrameAutoArtComposer
             useSharedEffectLayout: !CardFrameTemplates.IsPendulumStyle(frameStyle),
             pendulumLayout: CardFrameTemplates.IsPendulumStyle(frameStyle)
                 ? GetPendulumLayout(frameStyle)
-                : null);
+                : null,
+            subjectOffsetX,
+            subjectOffsetY);
     }
 
     public static Image<Rgba32> Compose(
@@ -227,7 +231,17 @@ public static class OverFrameAutoArtComposer
         Image<L8> mask,
         Image<Rgba32> frameTemplate,
         bool useSharedEffectLayout,
-        FrameLayout? pendulumLayout)
+        FrameLayout? pendulumLayout) =>
+        Compose(source, mask, frameTemplate, useSharedEffectLayout, pendulumLayout, 0, 0);
+
+    public static Image<Rgba32> Compose(
+        Image<Rgba32> source,
+        Image<L8> mask,
+        Image<Rgba32> frameTemplate,
+        bool useSharedEffectLayout,
+        FrameLayout? pendulumLayout,
+        int subjectOffsetX,
+        int subjectOffsetY)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(mask);
@@ -313,9 +327,10 @@ public static class OverFrameAutoArtComposer
         var artCenterY = artWindow.Top + artWindow.Height / 2f;
         // Pendulum-only: nudge the centered 3:4 cover down so the silhouette sits
         // more naturally in the short art hole (see PendulumVerticalOffset).
+        // subjectOffsetX/Y shifts foil base + rembg subject together (Custom OF dialog drag).
         var verticalOffset = useSharedEffectLayout ? 0 : PendulumVerticalOffset;
-        var bgX = (int)MathF.Round(artCenterX - scaledSourceW / 2f);
-        var bgY = (int)MathF.Round(artCenterY - scaledSourceH / 2f) + verticalOffset;
+        var bgX = (int)MathF.Round(artCenterX - scaledSourceW / 2f) + subjectOffsetX;
+        var bgY = (int)MathF.Round(artCenterY - scaledSourceH / 2f) + verticalOffset + subjectOffsetY;
 
         var targetWidth = Math.Max(1, (int)MathF.Round(subject.Width * scale));
         var targetHeight = Math.Max(1, (int)MathF.Round(subject.Height * scale));
