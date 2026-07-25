@@ -39,8 +39,10 @@ public enum OverFrameComposeMode
 /// chrome unless the rembg subject actually occupies those pixels.
 /// Pendulum faces additionally allow subject punch on the outer green side borders
 /// and bottom green strip (subject-gated only).
-/// If the rembg silhouette does not overframe the art hole on any side, compose
-/// fails with <see cref="CannotDetectSubjectMessage"/> (no flat in-frame OF).
+/// Auto-create (<see cref="OverFrameComposeMode.AutoFoilAndSubject"/>): if the rembg
+/// silhouette does not overframe the art hole on any side, compose fails with
+/// <see cref="CannotDetectSubjectMessage"/> (no flat in-frame OF). Custom OF
+/// (<see cref="OverFrameComposeMode.CustomArtOnly"/>) skips that overflow gate.
 /// Lore cream / outer / cut geometry is always taken from Effect.png so Normal,
 /// Synchro, Link, and other styles share the same punch layout.
 /// <see cref="OverFrameComposeMode.CustomArtOnly"/> skips the Auto foil underlay from
@@ -509,9 +511,15 @@ public static class OverFrameAutoArtComposer
         var xOffset = bgX + (int)MathF.Round(bounds.Left * scale) + subjectOffsetX;
         var yOffset = bgY + (int)MathF.Round(bounds.Top * scale) + subjectOffsetY;
 
-        // Fail closed: rembg must overframe the art hole on at least one side.
-        // No L/R/T/B overflow → abort (do not emit a flat in-frame OF canvas).
-        if (!HasOverframableOverflow(
+        var customArtOnly = composeMode == OverFrameComposeMode.CustomArtOnly;
+        var writeLoreUnderlay = customArtOnly;
+
+        // Fail closed (Auto-create only): rembg must overframe the art hole on at
+        // least one side. No L/R/T/B overflow → abort (do not emit a flat in-frame
+        // OF canvas). CustomArtOnly skips this — user-supplied Card Art may sit
+        // entirely inside the hole.
+        if (!customArtOnly &&
+            !HasOverframableOverflow(
                 artWindow,
                 xOffset,
                 yOffset,
@@ -520,9 +528,6 @@ public static class OverFrameAutoArtComposer
         {
             throw new InvalidOperationException(CannotDetectSubjectMessage);
         }
-
-        var customArtOnly = composeMode == OverFrameComposeMode.CustomArtOnly;
-        var writeLoreUnderlay = customArtOnly;
 
         if (mode == SubjectComposeMode.SubjectLayerOnly)
         {

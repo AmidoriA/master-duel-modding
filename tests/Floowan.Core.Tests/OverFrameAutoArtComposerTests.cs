@@ -397,6 +397,35 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
+    public void Compose_CustomArtOnly_AllowsSubjectWithNoOverframableOverflow()
+    {
+        // Same tiny in-hole subject as Auto reject — Custom OF must still compose.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(10, 40, 80, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 45; y < 55; y++)
+        for (var x = 45; x < 55; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        using var result = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame,
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly);
+
+        Assert.Equal(OverFrameConstants.Width, result.Width);
+        Assert.Equal(OverFrameConstants.Height, result.Height);
+    }
+
+    [Fact]
     public void Compose_AllowsSubjectWithAnySideOverframableOverflow()
     {
         // Tall center strip — Cover×OverflowScale breaks out above/below the art hole.
