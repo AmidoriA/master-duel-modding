@@ -327,11 +327,11 @@ CREATE TABLE card (
     }
 
     [Theory]
-    [InlineData(0x0D, 0x02, "Spell")]
-    [InlineData(0x4E, 0x02, "Trap")]
+    [InlineData(CardPropTypeDecoder.SpellFace, CardPropTypeDecoder.SpellTrapSecondary, "Spell")]
+    [InlineData(CardPropTypeDecoder.TrapFace, CardPropTypeDecoder.SpellTrapSecondary, "Trap")]
     [InlineData(0xAB, 0xD0, "Link")]
     [InlineData(0x6B, 0xC0, "Link")]
-    // Synchro: bit 0x10 + low nibble 1/2/3 (not only legacy 0x92 / 0x12).
+    // Synchro: SynchroXyzBit + family Normal/Effect/Tuner (not only legacy 0x92 / 0x12).
     [InlineData(0x92, 0x61, "Synchro")] // Stardust Dragon
     [InlineData(0x52, 0x60, "Synchro")] // Stardust Spark Dragon (was Effect)
     [InlineData(0xD2, 0x58, "Synchro")] // Brionac (was Effect)
@@ -340,24 +340,24 @@ CREATE TABLE card (
     [InlineData(0x51, 0x59, "Synchro")] // Gaia Knight (was Effect)
     [InlineData(0x12, 0x5D, "Synchro")] // Black Rose / Nitro — plain Synchro, not pendulum
     [InlineData(0xA4, 0x68, "Synchro Pendulum")] // Nirvana High Paladin (was Link)
-    // Xyz: bit 0x10 + low nibble 6/7 (includes previously missed 0x17/0xD7).
+    // Xyz: SynchroXyzBit + family Normal/Effect (includes previously missed 0x17/0xD7).
     [InlineData(0x57, 0x90, "Xyz")]
     [InlineData(0x97, 0x90, "Xyz")]
     [InlineData(0xD7, 0x80, "Xyz")] // Bahamut Shark (was Effect)
     [InlineData(0x17, 0x70, "Xyz")] // Evolzar Laggia (was Effect)
     [InlineData(0x56, 0x90, "Xyz")] // Gem-Knight Pearl (was Effect)
     [InlineData(0xA2, 0x70, "Xyz Pendulum")] // Odd-Eyes Rebellion (was Link)
-    [InlineData(0x42, 0x70, "Fusion")]
-    [InlineData(0x83, 0x5D, "Fusion Pendulum")]
+    [InlineData(CardPropTypeDecoder.FusionFaceA, 0x70, "Fusion")]
+    [InlineData(CardPropTypeDecoder.FusionPendulumFace, 0x5D, "Fusion Pendulum")]
     [InlineData(0xA9, 0x70, "Fusion Pendulum")] // Z-ARC (was Link)
     [InlineData(0x85, 0x44, "Ritual")]
     [InlineData(0x45, 0x50, "Ritual")] // Cyber Angel Benten (was Effect)
     [InlineData(0xC5, 0x50, "Ritual")] // Evigishki (was Effect)
     [InlineData(0xA6, 0x60, "Ritual Pendulum")] // Shinobaron (was Link)
-    [InlineData(0x9A, 0x5C, "Effect Pendulum")]
-    [InlineData(0x59, 0x55, "Normal Pendulum")]
-    [InlineData(0x4A, 0x45, "Token")]
-    [InlineData(0x40, 0x60, "Normal")]
+    [InlineData(CardPropTypeDecoder.EffectPendulumFace, 0x5C, "Effect Pendulum")]
+    [InlineData(CardPropTypeDecoder.NormalPendulumFaceA, 0x55, "Normal Pendulum")]
+    [InlineData(CardPropTypeDecoder.SheepTokenFace, 0x45, "Token")]
+    [InlineData(CardPropTypeDecoder.NormalMonsterFace, 0x60, "Normal")]
     [InlineData(0x80, 0x5C, "Effect")]
     [InlineData(0x10, 0x4D, "Effect")]
     [InlineData(0x50, 0x4D, "Effect")] // Effect Veiler — must not become Synchro
@@ -383,11 +383,11 @@ CREATE TABLE card (
         var prop = new byte[8 + 16];
         prop[8] = 0x39; // 12345
         prop[9] = 0x30;
-        prop[10] = 0x0D;
-        prop[11] = 0x02;
+        prop[10] = CardPropTypeDecoder.SpellFace;
+        prop[11] = CardPropTypeDecoder.SpellTrapSecondary;
         prop[16] = 0x02;
         prop[17] = 0x00;
-        prop[18] = 0x40;
+        prop[18] = CardPropTypeDecoder.NormalMonsterFace;
         prop[19] = 0x60;
         var entries = CardPropTypeDecoder.ParseEntries(prop);
         Assert.Equal(2, entries.Count);
