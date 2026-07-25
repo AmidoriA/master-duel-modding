@@ -347,9 +347,16 @@ CREATE TABLE card (
     [InlineData(0x17, 0x70, "Xyz")] // Evolzar Laggia (was Effect)
     [InlineData(0x56, 0x90, "Xyz")] // Gem-Knight Pearl (was Effect)
     [InlineData(0xA2, 0x70, "Xyz Pendulum")] // Odd-Eyes Rebellion (was Link)
-    [InlineData(CardPropTypeDecoder.FusionFaceA, 0x70, "Fusion")]
-    [InlineData(CardPropTypeDecoder.FusionPendulumFace, 0x5D, "Fusion Pendulum")]
-    [InlineData(0xA9, 0x70, "Fusion Pendulum")] // Z-ARC (was Link)
+    [InlineData(CardPropTypeDecoder.FusionFaceA, 0x70, "Fusion")] // Blue-Eyes Ultimate
+    [InlineData(CardPropTypeDecoder.FusionFaceB, 0x70, "Fusion")] // Neo Blue-Eyes Ultimate
+    [InlineData(CardPropTypeDecoder.FusionFaceC, 0x64, "Fusion")] // Red-Eyes Black Dragon Exceed (was Fusion Pendulum)
+    [InlineData(0x83, 0x59, "Fusion")] // Elemental HERO Flame Wingman (was Fusion Pendulum)
+    [InlineData(CardPropTypeDecoder.FusionFaceToonUltimate, 0x70, "Fusion")] // Blue-Eyes Toon Ultimate (was Effect Pendulum)
+    [InlineData(0x02, 0x55, "Fusion")] // Flame Swordsman (was Effect)
+    [InlineData(0xC3, 0x60, "Fusion")] // Dinoster / Masked HERO Vapor family (was Effect)
+    [InlineData(0xA9, 0x70, "Fusion Pendulum")] // Supreme King Z-ARC
+    [InlineData(0xA9, 0x5C, "Fusion Pendulum")] // Starving Venemy Dragon
+    [InlineData(0x69, 0x71, "Fusion Pendulum")] // Arktos XII
     [InlineData(0x85, 0x44, "Ritual")]
     [InlineData(0x45, 0x50, "Ritual")] // Cyber Angel Benten (was Effect)
     [InlineData(0xC5, 0x50, "Ritual")] // Evigishki (was Effect)
@@ -357,10 +364,17 @@ CREATE TABLE card (
     [InlineData(CardPropTypeDecoder.EffectPendulumFace, 0x5C, "Effect Pendulum")]
     [InlineData(CardPropTypeDecoder.NormalPendulumFaceA, 0x55, "Normal Pendulum")]
     [InlineData(CardPropTypeDecoder.SheepTokenFace, 0x45, "Token")]
+    [InlineData(CardPropTypeDecoder.KuribohTokenFace, 0x44, "Token")]
+    [InlineData(CardPropTypeDecoder.SlimeTokenFace, 0x44, "Token")] // Slime Token (was Effect)
+    [InlineData(CardPropTypeDecoder.SlimeTokenFace, 0x48, "Token")] // Lekunga Token (was Effect)
+    [InlineData(CardPropTypeDecoder.MirageTokenFace, 0x40, "Token")] // Mirage / Clone Token (was Effect)
+    [InlineData(0x0A, 0x45, "Token")] // Bomb Token (was Effect)
     [InlineData(CardPropTypeDecoder.NormalMonsterFace, 0x60, "Normal")]
     [InlineData(0x80, 0x5C, "Effect")]
     [InlineData(0x10, 0x4D, "Effect")]
     [InlineData(0x50, 0x4D, "Effect")] // Effect Veiler — must not become Synchro
+    [InlineData(0x9A, 0x5C, "Effect Pendulum")] // Odd-Eyes — must not become Token (shares nibble A)
+    [InlineData(0xAA, 0xC0, "Link")] // Traffic Ghost — Link nibble A must not become Token
     public void CardPropTypeDecoder_InfersKnownFaces(byte typeByte, byte typeByte2, string expected)
     {
         Assert.Equal(expected, CardPropTypeDecoder.InferLabel(typeByte, typeByte2));
@@ -374,6 +388,8 @@ CREATE TABLE card (
         Assert.Equal("Synchro", CardPropTypeDecoder.InferLabel(0x52, typeByte2));
         Assert.Equal("Xyz", CardPropTypeDecoder.InferLabel(0xD7, typeByte2));
         Assert.Equal("Ritual", CardPropTypeDecoder.InferLabel(0x45, typeByte2));
+        Assert.Equal("Fusion", CardPropTypeDecoder.InferLabel(0x83, typeByte2));
+        Assert.Equal("Token", CardPropTypeDecoder.InferLabel(0xCA, typeByte2));
         Assert.Equal("Effect", CardPropTypeDecoder.InferLabel(0x80, typeByte2));
     }
 
