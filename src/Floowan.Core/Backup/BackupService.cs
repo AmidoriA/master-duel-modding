@@ -28,11 +28,51 @@ public sealed class BackupService
     public string GetOverFrameTextureBackupPath(string cardName) =>
         GetTextureBackupPath(cardName + "-overframe");
 
+    /// <summary>
+    /// Last successfully applied Floowan over-frame canvas (704x1024), used to re-apply after
+    /// an MD patch replaces live art / of_card_asset.
+    /// </summary>
+    public string GetAppliedOverFrameBackupPath(string cardName) =>
+        GetTextureBackupPath(cardName + "-applied-overframe");
+
     public bool HasBundleBackup(string bundleId) =>
         File.Exists(GetBundleBackupPath(bundleId));
 
     public bool HasOverFrameTextureBackup(string cardName) =>
         File.Exists(GetOverFrameTextureBackupPath(cardName));
+
+    public bool HasAppliedOverFrameBackup(string cardName) =>
+        File.Exists(GetAppliedOverFrameBackupPath(cardName));
+
+    /// <summary>
+    /// Copies the applied OF PNG into backups (overwrites). Used on successful Apply.
+    /// </summary>
+    public string SaveAppliedOverFramePng(string cardName, string sourcePngPath)
+    {
+        var dest = GetAppliedOverFrameBackupPath(cardName);
+        Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+        File.Copy(sourcePngPath, dest, overwrite: true);
+        return dest;
+    }
+
+    /// <summary>
+    /// Drops the applied OF canvas backup (e.g. after Restore backups / intentional OF removal).
+    /// </summary>
+    public bool TryDeleteAppliedOverFrameBackup(string cardName)
+    {
+        var path = GetAppliedOverFrameBackupPath(cardName);
+        if (!File.Exists(path))
+            return false;
+        try
+        {
+            File.Delete(path);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// Drops the pre-over-frame PNG snapshot so the next OF run re-reads current live art

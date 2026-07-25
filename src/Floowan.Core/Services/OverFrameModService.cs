@@ -126,7 +126,20 @@ public sealed class OverFrameModService : IDisposable
                     "Without a working gate entry the game keeps the art inside the frame.");
             }
 
-            database?.SetOverframe(card.Id, isOverframe: true, overframeBaseId: baseArtId);
+            database?.SetFloowanOverframe(
+                card.Id,
+                applied: true,
+                overframeBaseId: baseArtId,
+                bundleId: card.Bundle);
+
+            try
+            {
+                _backupService.SaveAppliedOverFramePng(card.Name, replacementImagePath);
+            }
+            catch
+            {
+                /* best-effort canvas snapshot for post-patch restore */
+            }
 
             var msg =
                 $"Applied over-frame for '{card.DisplayName}' ({info.Width}x{info.Height}, RGBA32) and registered gate ({artId},{baseArtId}). " +
@@ -189,7 +202,13 @@ public sealed class OverFrameModService : IDisposable
                     "of_card_asset rewrite verification failed: art id was not present after save.");
             }
 
-            database?.SetOverframe(card.Id, isOverframe: true, overframeBaseId: baseArtId);
+            database?.SetFloowanOverframe(
+                card.Id,
+                applied: true,
+                overframeBaseId: baseArtId,
+                bundleId: card.Bundle);
+
+            TrySnapshotLiveAppliedOverFrame(playerDataPath, card);
 
             return OverFrameResult.Ok(
                 $"Enabled over-frame gate for '{card.DisplayName}' ({artId},{baseArtId}) without changing texture. " +
@@ -245,7 +264,8 @@ public sealed class OverFrameModService : IDisposable
             if (removed)
                 _textAssets.WriteTextAssetBytes(gateLocate.BundlePath, gate.ToBytes(), compression: packer);
 
-            database?.SetOverframe(card.Id, isOverframe: false, overframeBaseId: null);
+            database?.SetFloowanOverframe(card.Id, applied: false);
+            _backupService.TryDeleteAppliedOverFrameBackup(card.Name);
 
             var msg = removed
                 ? $"Removed '{card.DisplayName}' from of_card_asset gate."
@@ -312,8 +332,372 @@ public sealed class OverFrameModService : IDisposable
         if (messages.Count == 0)
             return OverFrameResult.Fail("No over-frame backups found for this card/gate.");
 
-        database?.SetOverframe(card.Id, isOverframe: false, overframeBaseId: null);
+        database?.SetFloowanOverframe(card.Id, applied: false);
+        _backupService.TryDeleteAppliedOverFrameBackup(card.Name);
         return OverFrameResult.Ok($"Restored {string.Join(" + ", messages)} from backup.");
+    }
+
+    /// <summary>
+    /// Re-applies Floowan over-frames after an MD patch replaced <c>of_card_asset</c> / art.
+    /// Reads Floowan-applied cards from <c>user.db</c>, merges gate entries additively
+    /// (official OF rows kept), and writes applied OF canvases from backups when needed.
+    /// </summary>
+    public OverFrameRestoreBatchResult RestoreOverframesAfterPatch(
+        string playerDataPath,
+        CardDatabase database,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default,
+        string packer = "lz4")
+    {
+        if (!GamePathLocator.IsValidGamePath(playerDataPath, out var pathError))
+        {
+            return new OverFrameRestoreBatchResult
+            {
+                Success = false,
+                Message = pathError ?? "Invalid game path."
+            };
+        }
+
+        var cards = database.ListFloowanOverframeCards();
+        if (cards.Count == 0)
+        {
+            return new OverFrameRestoreBatchResult
+            {
+                Success = true,
+                Message = "No Floowan over-frames recorded in user.db. Apply OF first, or run after a patch that wiped the gate.",
+                Total = 0
+            };
+        }
+
+        progress?.Report($"Locating of_card_asset gate ({cards.Count} Floowan OF card(s))…");
+        var gateLocate = _locator.Locate(playerDataPath, database, progress, cancellationToken);
+        if (!gateLocate.Success || gateLocate.BundlePath is null || gateLocate.BundleId is null)
+        {
+            return new OverFrameRestoreBatchResult
+            {
+                Success = false,
+                Message = gateLocate.Message,
+                Total = cards.Count
+            };
+        }
+
+        // One-time vanilla/disaster gate snapshot; never restore it wholesale during this merge.
+        _backupService.BackupGateBundleFile(gateLocate.BundlePath, gateLocate.BundleId);
+
+        OfCardAssetGate gate;
+        try
+        {
+            gate = OfCardAssetGate.Parse(_textAssets.ReadTextAssetBytes(gateLocate.BundlePath));
+        }
+        catch (Exception ex)
+        {
+            return new OverFrameRestoreBatchResult
+            {
+                Success = false,
+                Message = "Could not parse live of_card_asset gate: " + ex.Message,
+                Total = cards.Count
+            };
+        }
+
+        var officialCount = gate.Entries.Count;
+        var restored = 0;
+        var skipped = 0;
+        var failed = 0;
+        var warnings = new List<string>();
+        var gateDirty = false;
+
+        for (var i = 0; i < cards.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var card = cards[i];
+            progress?.Report($"Restoring OF {i + 1}/{cards.Count}: {card.DisplayName}…");
+
+            try
+            {
+                var outcome = RestoreOneOverframeAfterPatch(
+                    playerDataPath,
+                    card,
+                    database,
+                    gate,
+                    packer,
+                    out var warning);
+
+                if (!string.IsNullOrWhiteSpace(warning))
+                    warnings.Add(warning);
+
+                switch (outcome)
+                {
+                    case RestoreOneOutcome.Restored:
+                        restored++;
+                        gateDirty = true;
+                        // Persist gate after each success so a mid-run crash keeps prior merges.
+                        _textAssets.WriteTextAssetBytes(gateLocate.BundlePath, gate.ToBytes(), compression: packer);
+                        gateDirty = false;
+                        break;
+                    case RestoreOneOutcome.Skipped:
+                        skipped++;
+                        break;
+                    default:
+                        failed++;
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                warnings.Add($"{card.DisplayName}: {ex.Message}");
+            }
+        }
+
+        if (gateDirty)
+        {
+            _textAssets.WriteTextAssetBytes(gateLocate.BundlePath, gate.ToBytes(), compression: packer);
+        }
+
+        // Verify gate still parses and still has at least the official entries we started with.
+        try
+        {
+            var verify = OfCardAssetGate.Parse(_textAssets.ReadTextAssetBytes(gateLocate.BundlePath));
+            if (verify.Entries.Count < officialCount)
+            {
+                warnings.Add(
+                    $"Gate entry count after restore ({verify.Entries.Count}) is below the pre-merge count ({officialCount}).");
+            }
+        }
+        catch (Exception ex)
+        {
+            warnings.Add("Gate verify failed: " + ex.Message);
+        }
+
+        progress?.Report($"Done. Restored {restored}, skipped {skipped}, failed {failed}.");
+        var result = OverFrameRestoreBatchResult.Create(
+            cards.Count, restored, skipped, failed, warnings, gateLocate.BundlePath);
+        if (warnings.Count > 0)
+        {
+            return new OverFrameRestoreBatchResult
+            {
+                Success = result.Success,
+                Message = result.Message + " Warnings: " + string.Join("; ", warnings.Take(8)) +
+                          (warnings.Count > 8 ? $" (+{warnings.Count - 8} more)" : ""),
+                Total = result.Total,
+                Restored = result.Restored,
+                Skipped = result.Skipped,
+                Failed = result.Failed,
+                Warnings = warnings
+            };
+        }
+
+        return result;
+    }
+
+    private enum RestoreOneOutcome { Restored, Skipped, Failed }
+
+    private RestoreOneOutcome RestoreOneOverframeAfterPatch(
+        string playerDataPath,
+        CardRecord card,
+        CardDatabase database,
+        OfCardAssetGate gate,
+        string packer,
+        out string? warning)
+    {
+        warning = null;
+        string? tempExtract = null;
+        try
+        {
+            string cardBundlePath;
+            try
+            {
+                cardBundlePath = BundlePathResolver.ResolveExistingBundlePath(playerDataPath, card.Bundle);
+            }
+            catch (Exception ex)
+            {
+                warning = $"{card.DisplayName}: missing live bundle ({ex.Message})";
+                return RestoreOneOutcome.Failed;
+            }
+
+            int artId;
+            try
+            {
+                artId = ResolveAndCacheArtId(playerDataPath, card, database);
+            }
+            catch (Exception ex)
+            {
+                warning = $"{card.DisplayName}: could not resolve art id ({ex.Message})";
+                return RestoreOneOutcome.Failed;
+            }
+
+            var baseArtId = card.OverframeBaseId is int stored && stored > 0
+                ? stored
+                : ResolveGateBaseArtId(gate, artId);
+
+            var liveIsOf = false;
+            try
+            {
+                var info = _bundleService.ReadTextureInfo(cardBundlePath);
+                liveIsOf = info.Width == OverFrameConstants.Width &&
+                           info.Height == OverFrameConstants.Height;
+            }
+            catch
+            {
+                // continue; may still restore from applied PNG
+            }
+
+            var alreadyInGate = gate.Contains(artId);
+            if (alreadyInGate && liveIsOf)
+            {
+                warning = $"{card.DisplayName}: already in gate with OF texture; skipped";
+                return RestoreOneOutcome.Skipped;
+            }
+
+            var needsTextureWrite = !liveIsOf;
+            if (needsTextureWrite)
+            {
+                var imagePath = ResolveAppliedOverFrameImageForRestore(
+                    card, out tempExtract, out var imageWarning);
+                if (imagePath is null)
+                {
+                    warning = imageWarning ?? $"{card.DisplayName}: no applied OF backup";
+                    return RestoreOneOutcome.Failed;
+                }
+
+                var validation = ImagePreparation.Validate(
+                    imagePath, OverFrameConstants.Width, OverFrameConstants.Height);
+                if (!validation.IsValid)
+                {
+                    warning = $"{card.DisplayName}: invalid OF image ({validation.Error})";
+                    return RestoreOneOutcome.Failed;
+                }
+
+                _bundleService.ReplaceTexture(cardBundlePath, imagePath, TextureReplaceOptions.OverFrame with
+                {
+                    Compression = packer
+                });
+
+                var verify = _bundleService.ReadTextureInfo(cardBundlePath);
+                if (verify.Width != OverFrameConstants.Width || verify.Height != OverFrameConstants.Height)
+                {
+                    warning =
+                        $"{card.DisplayName}: texture verify failed ({verify.Width}x{verify.Height})";
+                    return RestoreOneOutcome.Failed;
+                }
+            }
+
+            TryRemoveLegacyPkGateEntry(gate, card.Id, artId, database);
+            gate.Add(artId, baseArtId);
+            database.SetFloowanOverframe(
+                card.Id, applied: true, overframeBaseId: baseArtId, bundleId: card.Bundle);
+            return RestoreOneOutcome.Restored;
+        }
+        finally
+        {
+            if (tempExtract is not null)
+            {
+                try { if (File.Exists(tempExtract)) File.Delete(tempExtract); } catch { /* ignore */ }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Prefer applied OF PNG backup; else OF-sized extract from card bundle backup.
+    /// Pre-OF <c>*-overframe.png</c> is illustration-only and cannot re-apply OF alone.
+    /// </summary>
+    private string? ResolveAppliedOverFrameImageForRestore(
+        CardRecord card,
+        out string? tempExtractPath,
+        out string? warning)
+    {
+        tempExtractPath = null;
+        warning = null;
+        var applied = _backupService.GetAppliedOverFrameBackupPath(card.Name);
+        if (File.Exists(applied) && IsOverFrameSizedPng(applied))
+            return applied;
+
+        var bundleBackup = _backupService.GetBundleBackupPath(card.Bundle);
+        if (File.Exists(bundleBackup))
+        {
+            try
+            {
+                var info = _bundleService.ReadTextureInfo(bundleBackup);
+                if (info.Width == OverFrameConstants.Width && info.Height == OverFrameConstants.Height)
+                {
+                    tempExtractPath = Path.Combine(
+                        Path.GetTempPath(),
+                        $"floowan-of-restore-{card.Id}-{Guid.NewGuid():N}.png");
+                    _bundleService.ExtractTexturePng(bundleBackup, tempExtractPath);
+                    if (IsOverFrameSizedPng(tempExtractPath))
+                    {
+                        warning =
+                            $"{card.DisplayName}: reconstructed OF from bundle backup (no applied PNG)";
+                        return tempExtractPath;
+                    }
+
+                    try { File.Delete(tempExtractPath); } catch { /* ignore */ }
+                    tempExtractPath = null;
+                }
+            }
+            catch
+            {
+                if (tempExtractPath is not null)
+                {
+                    try { File.Delete(tempExtractPath); } catch { /* ignore */ }
+                    tempExtractPath = null;
+                }
+            }
+        }
+
+        var originalArt = _backupService.GetOverFrameTextureBackupPath(card.Name);
+        if (File.Exists(originalArt))
+        {
+            warning =
+                $"{card.DisplayName}: only pre-OF *-overframe.png found (not applied canvas); skip. Re-apply OF manually or keep applied-overframe backups.";
+            return null;
+        }
+
+        warning =
+            $"{card.DisplayName}: no applied OF PNG / OF-sized live art / OF-sized bundle backup";
+        return null;
+    }
+
+    private static bool IsOverFrameSizedPng(string path)
+    {
+        try
+        {
+            using var image = Image.Load<Rgba32>(path);
+            return OverFrameAutoArtComposer.IsOverFrameTextureSize(image.Width, image.Height);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void TrySnapshotLiveAppliedOverFrame(string playerDataPath, CardRecord card)
+    {
+        if (_backupService.HasAppliedOverFrameBackup(card.Name))
+            return;
+
+        try
+        {
+            var bundlePath = BundlePathResolver.ResolveExistingBundlePath(playerDataPath, card.Bundle);
+            var info = _bundleService.ReadTextureInfo(bundlePath);
+            if (info.Width != OverFrameConstants.Width || info.Height != OverFrameConstants.Height)
+                return;
+
+            var temp = Path.Combine(Path.GetTempPath(), $"floowan-of-snap-{Guid.NewGuid():N}.png");
+            try
+            {
+                _bundleService.ExtractTexturePng(bundlePath, temp);
+                _backupService.SaveAppliedOverFramePng(card.Name, temp);
+            }
+            finally
+            {
+                try { if (File.Exists(temp)) File.Delete(temp); } catch { /* ignore */ }
+            }
+        }
+        catch
+        {
+            /* best effort */
+        }
     }
 
     public bool IsInGate(string playerDataPath, CardRecord card, CardDatabase? database = null)
