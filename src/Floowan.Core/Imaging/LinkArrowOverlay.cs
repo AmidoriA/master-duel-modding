@@ -7,17 +7,16 @@ namespace Floowan.Core.Imaging;
 
 /// <summary>
 /// Redraws Master Duel Link arrow markers as the topmost OF layer so subject/frame
-/// punches cannot erase them. <c>Link.png</c> only has inactive flat triangles, so
-/// active directions synthesize a glanceable MD-style marker:
-/// soft dark drop halo → bright silver/white rim → thin black inset → orange/red fill
-/// (Cyberse Witch / Decode Talker Integration look). Inactive directions stay as the
-/// flat dark glyphs already on the frame.
+/// punches cannot erase them. <c>Link.png</c> only has inactive flat triangles; those
+/// silhouettes are aliased, so active markers fit a geometric triangle and render with
+/// an anti-aliased signed-distance field:
+/// soft dark drop halo → bright silver/white rim → thin black inset → orange/red fill.
+/// Inactive directions stay as the flat dark glyphs already on the frame.
 /// </summary>
 public static class LinkArrowOverlay
 {
     /// <summary>
-    /// Crop rectangles on the 704×1024 Link frame for each direction (measured from
-    /// dark arrow pixels on <c>card_frame18</c> / <c>Link.png</c>, padded for AA,
+    /// Crop rectangles on the 704×1024 Link frame for each direction (padded for AA,
     /// bright rim, and drop-shadow halo).
     /// </summary>
     private static readonly (LinkMarkerMask Bit, Rectangle Crop)[] ArrowCrops =
@@ -34,24 +33,33 @@ public static class LinkArrowOverlay
 
     /// <summary>
     /// Near-black fill of the inactive triangle glyph (and thin bevel outlines).
-    /// Used only to locate the glyph; metallic mid-tones are not candidates.
+    /// Used only to locate / fit the glyph; metallic mid-tones are not candidates.
     /// </summary>
     private const int GlyphLuminanceMax = 32;
 
-    /// <summary>Disk radius (px) of the black inset between rim and orange fill.</summary>
-    private const int BlackMarginRadius = 2;
+    /// <summary>SDF radius (px) of the black inset between rim and orange fill.</summary>
+    private const float BlackMarginRadius = 2f;
 
-    /// <summary>Disk radius (px) of the bright silver/white triangular rim.</summary>
-    private const int MetalBevelRadius = 8;
+    /// <summary>SDF radius (px) of the bright silver/white triangular rim.</summary>
+    private const float MetalBevelRadius = 8f;
 
     /// <summary>
-    /// Extra disk radius beyond the rim for the soft dark drop halo
+    /// Extra SDF radius beyond the rim for the soft dark drop halo
     /// (total shadow extent = <see cref="MetalBevelRadius"/> + this).
     /// </summary>
-    private const int ShadowHaloRadius = 5;
+    private const float ShadowHaloRadius = 5f;
 
     /// <summary>Peak alpha at the shadow’s inner edge (against the rim).</summary>
     private const byte ShadowMaxAlpha = 180;
+
+    /// <summary>AA half-width (px) for smooth coverage along SDF iso-contours.</summary>
+    private const float EdgeAa = 0.85f;
+
+    /// <summary>
+    /// Push fitted vertices outward from the centroid so the smooth triangle covers
+    /// the jagged <c>Link.png</c> envelope instead of sitting inside it.
+    /// </summary>
+    private const float TriangleExpandPx = 1.15f;
 
     // Bright red-orange fill (Cyberse Witch glanceability).
     private const byte ActiveCenterR = 255;
@@ -124,8 +132,7 @@ public static class LinkArrowOverlay
     }
 
     /// <summary>
-    /// Locates the inactive triangle glyph, synthesizes drop halo + bright rim + black
-    /// inset by disk dilation, then paints orange fill.
+    /// Fits a geometric triangle to the inactive glyph, then paints AA SDF rings.
     /// Draw order: shadow → bright rim → black inset → glow.
     /// </summary>
     private static void BlitActiveArrow(Image<Rgba32> dst, Image<Rgba32> src, Rectangle crop)
@@ -151,68 +158,102 @@ public static class LinkArrowOverlay
             }
         }
 
-        if (!TryLargestComponent(dark, w, h, out var glyph, out var cx, out var cy, out var maxDistSq))
+        if (!TryLargestComponent(dark, w, h, out var glyph, out var cx, out var cy, out _))
             return;
 
-        var glyphMask = new bool[w * h];
-        foreach (var (lx, ly) in glyph)
-            glyphMask[ly * w + lx] = true;
+        if (!TryFitTriangle(glyph, x0, y0, out var tip, out var baseA, out var baseB))
+            return;
 
-        var blackRing = DilateDisk(glyphMask, w, h, BlackMarginRadius);
-        var metalOuter = DilateDisk(glyphMask, w, h, MetalBevelRadius);
-        var shadowOuterRadius = MetalBevelRadius + ShadowHaloRadius;
-        var shadowOuter = DilateDisk(glyphMask, w, h, shadowOuterRadius);
-        var searchRadius = shadowOuterRadius + 1;
+        ExpandTriangleFromCentroid(ref tip, ref baseA, ref baseB, cx, cy, TriangleExpandPx);
 
-        // Soft dark halo outside the rim (Cyberse Witch–style pop on blue honeycomb).
-        for (var i = 0; i < shadowOuter.Length; i++)
-        {
-            if (!shadowOuter[i] || metalOuter[i])
-                continue;
-            var lx = i % w;
-            var ly = i / w;
-            var dist = MinDistanceToMask(lx, ly, glyphMask, w, h, searchRadius);
-            var shadow = ToShadowPixel(dist);
-            if (shadow.A == 0)
-                continue;
-            dst[x0 + lx, y0 + ly] = AlphaOver(dst[x0 + lx, y0 + ly], shadow);
-        }
-
-        // Bright rim = metal dilate − black dilate; black inset = black dilate − glyph.
-        for (var i = 0; i < metalOuter.Length; i++)
-        {
-            if (!metalOuter[i] || blackRing[i])
-                continue;
-            var lx = i % w;
-            var ly = i / w;
-            var dist = MinDistanceToMask(lx, ly, glyphMask, w, h, MetalBevelRadius + 1);
-            var t = Math.Clamp(
-                (dist - BlackMarginRadius) / (float)(MetalBevelRadius - BlackMarginRadius),
-                0f,
-                1f);
-            var metal = ToMetalPixel(t);
-            dst[x0 + lx, y0 + ly] = AlphaOver(dst[x0 + lx, y0 + ly], metal);
-        }
-
-        for (var i = 0; i < blackRing.Length; i++)
-        {
-            if (!blackRing[i] || glyphMask[i])
-                continue;
-            var lx = i % w;
-            var ly = i / w;
-            dst[x0 + lx, y0 + ly] = AlphaOver(dst[x0 + lx, y0 + ly], BlackInset);
-        }
-
+        var shadowOuter = MetalBevelRadius + ShadowHaloRadius;
+        var maxDistSq = Math.Max(
+            DistSq(tip.X, tip.Y, cx, cy),
+            Math.Max(DistSq(baseA.X, baseA.Y, cx, cy), DistSq(baseB.X, baseB.Y, cx, cy)));
         if (maxDistSq < 1f)
             maxDistSq = 1f;
+        var maxDist = MathF.Sqrt(maxDistSq);
 
-        foreach (var (lx, ly) in glyph)
+        for (var ly = 0; ly < h; ly++)
         {
-            var c = src[x0 + lx, y0 + ly];
-            var dx = lx - cx;
-            var dy = ly - cy;
-            var edgeT = Math.Clamp(MathF.Sqrt(dx * dx + dy * dy) / MathF.Sqrt(maxDistSq), 0f, 1f);
-            dst[x0 + lx, y0 + ly] = AlphaOver(dst[x0 + lx, y0 + ly], ToLitArrowPixel(c, edgeT));
+            for (var lx = 0; lx < w; lx++)
+            {
+                // Pixel-center sampling for AA.
+                var px = lx + 0.5f;
+                var py = ly + 0.5f;
+                var d = SdTriangle(px, py, tip, baseA, baseB);
+                if (d >= shadowOuter + EdgeAa)
+                    continue;
+
+                var dstX = x0 + lx;
+                var dstY = y0 + ly;
+                var under = dst[dstX, dstY];
+
+                // Soft shadow band outside the bright rim.
+                var shadowCov = BandCoverage(d, MetalBevelRadius, shadowOuter);
+                if (shadowCov > 0.004f)
+                {
+                    var t = Math.Clamp(
+                        (d - MetalBevelRadius) / ShadowHaloRadius,
+                        0f,
+                        1f);
+                    var falloff = (1f - t) * (1f - 0.35f * t);
+                    var a = (byte)Math.Clamp(
+                        MathF.Round(ShadowMaxAlpha * falloff * shadowCov),
+                        0,
+                        255);
+                    if (a > 0)
+                        under = AlphaOver(under, new Rgba32(0, 0, 0, a));
+                }
+
+                // Bright rim between black inset and outer metal edge.
+                var metalCov = BandCoverage(d, BlackMarginRadius, MetalBevelRadius);
+                if (metalCov > 0.004f)
+                {
+                    var outerT = Math.Clamp(
+                        (d - BlackMarginRadius) / (MetalBevelRadius - BlackMarginRadius),
+                        0f,
+                        1f);
+                    var metal = ToMetalPixel(outerT);
+                    metal = new Rgba32(
+                        metal.R,
+                        metal.G,
+                        metal.B,
+                        (byte)Math.Clamp(MathF.Round(255f * metalCov), 0, 255));
+                    under = AlphaOver(under, metal);
+                }
+
+                // Thin black inset between orange fill and bright rim.
+                var blackCov = BandCoverage(d, 0f, BlackMarginRadius);
+                if (blackCov > 0.004f)
+                {
+                    var black = new Rgba32(
+                        BlackInset.R,
+                        BlackInset.G,
+                        BlackInset.B,
+                        (byte)Math.Clamp(MathF.Round(255f * blackCov), 0, 255));
+                    under = AlphaOver(under, black);
+                }
+
+                // Orange fill inside the geometric triangle.
+                var fillCov = InsideCoverage(d, 0f);
+                if (fillCov > 0.004f)
+                {
+                    var edgeT = Math.Clamp(
+                        MathF.Sqrt(DistSq(px, py, cx, cy)) / maxDist,
+                        0f,
+                        1f);
+                    var lit = ToLitArrowPixel(new Rgba32(8, 8, 10, 255), edgeT);
+                    lit = new Rgba32(
+                        lit.R,
+                        lit.G,
+                        lit.B,
+                        (byte)Math.Clamp(MathF.Round(255f * fillCov), 0, 255));
+                    under = AlphaOver(under, lit);
+                }
+
+                dst[dstX, dstY] = under;
+            }
         }
     }
 
@@ -260,7 +301,7 @@ public static class LinkArrowOverlay
 
     /// <summary>
     /// Soft dark drop halo outside the rim. <paramref name="distFromGlyph"/> is the
-    /// Euclidean distance from the nearest glyph pixel; alpha peaks at the rim edge
+    /// unsigned distance outside the fitted fill edge; alpha peaks at the rim edge
     /// and falls to 0 at <see cref="MetalBevelRadius"/> + <see cref="ShadowHaloRadius"/>.
     /// </summary>
     public static Rgba32 ToShadowPixel(float distFromGlyph)
@@ -271,7 +312,6 @@ public static class LinkArrowOverlay
             return default;
 
         var t = (distFromGlyph - inner) / ShadowHaloRadius; // 0 at rim, 1 at outer
-        // Mostly linear falloff with a light ease-out so the halo stays readable.
         var falloff = (1f - t) * (1f - 0.35f * t);
         var a = (byte)Math.Clamp(MathF.Round(ShadowMaxAlpha * falloff), 0, 255);
         return a == 0 ? default : new Rgba32(0, 0, 0, a);
@@ -279,52 +319,226 @@ public static class LinkArrowOverlay
 
     private static float Lerp(float a, float b, float t) => a + (b - a) * t;
 
-    private static bool[] DilateDisk(bool[] mask, int w, int h, int radius)
+    private static float DistSq(float ax, float ay, float bx, float by)
     {
-        var r2 = radius * radius;
-        var result = new bool[mask.Length];
-        for (var y = 0; y < h; y++)
-        for (var x = 0; x < w; x++)
+        var dx = ax - bx;
+        var dy = ay - by;
+        return dx * dx + dy * dy;
+    }
+
+    /// <summary>Coverage of band <c>inner ≤ d &lt; outer</c> with AA at both edges.</summary>
+    private static float BandCoverage(float d, float inner, float outer)
+    {
+        var insideOuter = InsideCoverage(d, outer);
+        var insideInner = InsideCoverage(d, inner);
+        return Math.Clamp(insideOuter - insideInner, 0f, 1f);
+    }
+
+    /// <summary>Smooth coverage for the half-plane <c>d &lt; edge</c>.</summary>
+    private static float InsideCoverage(float d, float edge)
+    {
+        // 1 when deeply inside (d << edge), 0 when outside (d >> edge).
+        return SmoothStep(edge + EdgeAa, edge - EdgeAa, d);
+    }
+
+    private static float SmoothStep(float edge0, float edge1, float x)
+    {
+        if (edge0 == edge1)
+            return x < edge0 ? 1f : 0f;
+        var t = Math.Clamp((x - edge0) / (edge1 - edge0), 0f, 1f);
+        return t * t * (3f - 2f * t);
+    }
+
+    /// <summary>
+    /// Fits an isosceles-ish triangle to the jagged glyph: tip = point farthest from
+    /// the shared Effect art-window center (so L/R/SW/SE aim correctly), base = the
+    /// convex-hull pair that maximizes triangle area with that tip.
+    /// </summary>
+    private static bool TryFitTriangle(
+        List<(int X, int Y)> glyph,
+        int absX0,
+        int absY0,
+        out PointF tip,
+        out PointF baseA,
+        out PointF baseB)
+    {
+        tip = baseA = baseB = default;
+        if (glyph.Count < 3)
+            return false;
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var artCx = art.Left + art.Width * 0.5f;
+        var artCy = art.Top + art.Height * 0.5f;
+
+        var tipLocal = glyph[0];
+        var tipDist = -1f;
+        foreach (var p in glyph)
         {
-            if (!mask[y * w + x])
-                continue;
-            var y0 = Math.Max(0, y - radius);
-            var y1 = Math.Min(h - 1, y + radius);
-            var x0 = Math.Max(0, x - radius);
-            var x1 = Math.Min(w - 1, x + radius);
-            for (var yy = y0; yy <= y1; yy++)
-            for (var xx = x0; xx <= x1; xx++)
+            var d = DistSq(absX0 + p.X, absY0 + p.Y, artCx, artCy);
+            if (d > tipDist)
             {
-                var dx = xx - x;
-                var dy = yy - y;
-                if (dx * dx + dy * dy <= r2)
-                    result[yy * w + xx] = true;
+                tipDist = d;
+                tipLocal = p;
             }
         }
 
-        return result;
-    }
+        var hull = ConvexHull(glyph);
+        if (hull.Count < 3)
+            return false;
 
-    private static float MinDistanceToMask(int x, int y, bool[] mask, int w, int h, int searchRadius)
-    {
-        var best = (float)(searchRadius + 1);
-        var y0 = Math.Max(0, y - searchRadius);
-        var y1 = Math.Min(h - 1, y + searchRadius);
-        var x0 = Math.Max(0, x - searchRadius);
-        var x1 = Math.Min(w - 1, x + searchRadius);
-        for (var yy = y0; yy <= y1; yy++)
-        for (var xx = x0; xx <= x1; xx++)
+        var bestArea = -1f;
+        var b1 = hull[0];
+        var b2 = hull[1];
+        for (var i = 0; i < hull.Count; i++)
         {
-            if (!mask[yy * w + xx])
+            var a = hull[i];
+            if (a.X == tipLocal.X && a.Y == tipLocal.Y)
                 continue;
-            var dx = xx - x;
-            var dy = yy - y;
-            var d = MathF.Sqrt(dx * dx + dy * dy);
-            if (d < best)
-                best = d;
+            for (var j = i + 1; j < hull.Count; j++)
+            {
+                var b = hull[j];
+                if (b.X == tipLocal.X && b.Y == tipLocal.Y)
+                    continue;
+                var area = MathF.Abs(Cross(
+                    a.X - tipLocal.X,
+                    a.Y - tipLocal.Y,
+                    b.X - tipLocal.X,
+                    b.Y - tipLocal.Y));
+                if (area > bestArea)
+                {
+                    bestArea = area;
+                    b1 = a;
+                    b2 = b;
+                }
+            }
         }
 
-        return best;
+        if (bestArea < 4f)
+            return false;
+
+        tip = new PointF(tipLocal.X + 0.5f, tipLocal.Y + 0.5f);
+        baseA = new PointF(b1.X + 0.5f, b1.Y + 0.5f);
+        baseB = new PointF(b2.X + 0.5f, b2.Y + 0.5f);
+        return true;
+    }
+
+    private static void ExpandTriangleFromCentroid(
+        ref PointF tip,
+        ref PointF baseA,
+        ref PointF baseB,
+        float cx,
+        float cy,
+        float expand)
+    {
+        tip = PushOut(tip, cx, cy, expand);
+        baseA = PushOut(baseA, cx, cy, expand);
+        baseB = PushOut(baseB, cx, cy, expand);
+    }
+
+    private static PointF PushOut(PointF p, float cx, float cy, float expand)
+    {
+        var dx = p.X - cx;
+        var dy = p.Y - cy;
+        var len = MathF.Sqrt(dx * dx + dy * dy);
+        if (len < 1e-3f)
+            return p;
+        var s = (len + expand) / len;
+        return new PointF(cx + dx * s, cy + dy * s);
+    }
+
+    private static float Cross(float ax, float ay, float bx, float by) => ax * by - ay * bx;
+
+    /// <summary>Andrew’s monotone chain convex hull (integer pixel coords).</summary>
+    private static List<(int X, int Y)> ConvexHull(List<(int X, int Y)> points)
+    {
+        var pts = points
+            .Distinct()
+            .OrderBy(p => p.X)
+            .ThenBy(p => p.Y)
+            .ToList();
+        if (pts.Count <= 1)
+            return pts;
+
+        static long CrossL((int X, int Y) o, (int X, int Y) a, (int X, int Y) b) =>
+            (long)(a.X - o.X) * (b.Y - o.Y) - (long)(a.Y - o.Y) * (b.X - o.X);
+
+        var lower = new List<(int X, int Y)>();
+        foreach (var p in pts)
+        {
+            while (lower.Count >= 2 && CrossL(lower[^2], lower[^1], p) <= 0)
+                lower.RemoveAt(lower.Count - 1);
+            lower.Add(p);
+        }
+
+        var upper = new List<(int X, int Y)>();
+        for (var i = pts.Count - 1; i >= 0; i--)
+        {
+            var p = pts[i];
+            while (upper.Count >= 2 && CrossL(upper[^2], upper[^1], p) <= 0)
+                upper.RemoveAt(upper.Count - 1);
+            upper.Add(p);
+        }
+
+        lower.RemoveAt(lower.Count - 1);
+        upper.RemoveAt(upper.Count - 1);
+        lower.AddRange(upper);
+        return lower;
+    }
+
+    /// <summary>
+    /// Signed distance to a triangle (negative inside). Adapted from Inigo Quilez.
+    /// </summary>
+    private static float SdTriangle(float px, float py, PointF a, PointF b, PointF c)
+    {
+        float DistToEdge(float ex, float ey, float vx, float vy)
+        {
+            var ee = Dot(ex, ey, ex, ey);
+            var t = ee > 1e-8f ? Math.Clamp(Dot(vx, vy, ex, ey) / ee, 0f, 1f) : 0f;
+            var qx = vx - ex * t;
+            var qy = vy - ey * t;
+            return Dot(qx, qy, qx, qy);
+        }
+
+        var e0x = b.X - a.X;
+        var e0y = b.Y - a.Y;
+        var e1x = c.X - b.X;
+        var e1y = c.Y - b.Y;
+        var e2x = a.X - c.X;
+        var e2y = a.Y - c.Y;
+
+        var v0x = px - a.X;
+        var v0y = py - a.Y;
+        var v1x = px - b.X;
+        var v1y = py - b.Y;
+        var v2x = px - c.X;
+        var v2y = py - c.Y;
+
+        var d = Min3(
+            DistToEdge(e0x, e0y, v0x, v0y),
+            DistToEdge(e1x, e1y, v1x, v1y),
+            DistToEdge(e2x, e2y, v2x, v2y));
+
+        var s = MathF.Sign(e0x * e2y - e0y * e2x);
+        var s0 = s * (v0x * e0y - v0y * e0x);
+        var s1 = s * (v1x * e1y - v1y * e1x);
+        var s2 = s * (v2x * e2y - v2y * e2x);
+        return -MathF.Sqrt(d) * MathF.Sign(Math.Min(Math.Min(s0, s1), s2));
+    }
+
+    private static float Dot(float ax, float ay, float bx, float by) => ax * bx + ay * by;
+
+    private static float Min3(float a, float b, float c) => Math.Min(a, Math.Min(b, c));
+
+    private readonly struct PointF
+    {
+        public PointF(float x, float y)
+        {
+            X = x;
+            Y = y;
+        }
+
+        public float X { get; }
+        public float Y { get; }
     }
 
     /// <summary>
@@ -395,9 +609,7 @@ public static class LinkArrowOverlay
         centroidY = (float)(sySum / best.Count);
         foreach (var (x, y) in best)
         {
-            var dx = x - centroidX;
-            var dy = y - centroidY;
-            var d = dx * dx + dy * dy;
+            var d = DistSq(x, y, centroidX, centroidY);
             if (d > maxDistSq)
                 maxDistSq = d;
         }

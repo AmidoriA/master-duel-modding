@@ -166,26 +166,85 @@ public class LinkMarkerAndArrowOverlayTests
             canvas,
             LinkMarkerMask.DownLeft | LinkMarkerMask.DownRight | LinkMarkerMask.Up);
 
-        Assert.True(IsLitOrange(canvas[69, 724]), "DL triangle glyph should be lit");
-        Assert.True(IsLitOrange(canvas[636, 724]), "DR triangle glyph should be lit");
-        Assert.True(IsLitOrange(canvas[352, 168]), "Up triangle glyph should be lit");
+        Assert.True(IsLitOrange(canvas[69, 700]), "DL triangle glyph should be lit");
+        Assert.True(IsLitOrange(canvas[635, 700]), "DR triangle glyph should be lit");
+        Assert.True(IsLitOrange(canvas[351, 159]), "Up triangle glyph should be lit");
 
-        Assert.True(IsBrightRim(canvas[65, 706]), "DL should gain bright silver/white rim");
-        Assert.True(IsBrightRim(canvas[623, 744]), "DR should gain bright silver/white rim");
-        Assert.True(IsBrightRim(canvas[352, 153]), "Up should gain bright silver/white rim");
+        Assert.True(IsBrightRim(canvas[65, 692]), "DL should gain bright silver/white rim");
+        Assert.True(IsBrightRim(canvas[632, 692]), "DR should gain bright silver/white rim");
+        Assert.True(IsBrightRim(canvas[350, 151]), "Up should gain bright silver/white rim");
 
-        Assert.True(IsBlackInset(canvas[79, 709]), "DL black inset between rim and glow");
-        Assert.True(IsBlackInset(canvas[626, 708]), "DR black inset between rim and glow");
+        Assert.True(IsBlackInset(canvas[68, 698]), "DL black inset between rim and glow");
+        Assert.True(IsBlackInset(canvas[635, 698]), "DR black inset between rim and glow");
 
         // Soft drop halo outside the rim darkens the blue background.
-        Assert.True(IsDarkenedByShadow(canvas[66, 746], new Rgba32(80, 120, 180, 255)),
+        Assert.True(IsDarkenedByShadow(canvas[67, 688], new Rgba32(80, 120, 180, 255)),
             "DL should cast a dark drop halo");
-        Assert.True(IsDarkenedByShadow(canvas[355, 152], new Rgba32(80, 120, 180, 255)),
+        Assert.True(IsDarkenedByShadow(canvas[349, 148], new Rgba32(80, 120, 180, 255)),
             "Up should cast a dark drop halo");
 
         // Card L-corner chrome outside the triangular housing must stay non-orange.
         Assert.False(IsLitOrange(canvas[45, 700]), "Far DL L-corner must not be orange");
         Assert.False(IsLitOrange(canvas[660, 700]), "Far DR L-corner must not be orange");
+    }
+
+    [Fact]
+    public void LinkArrowOverlay_Apply_DiagonalRimIsSmooth()
+    {
+        // Integer disk-dilate of jagged Link.png glyphs made L/R/SW rims wobble
+        // (thick-thin stair-steps). Geometric AA SDF should keep SW hypotenuse rim
+        // thickness stable along the long diagonal.
+        using var canvas = new Image<Rgba32>(
+            OverFrameConstants.Width,
+            OverFrameConstants.Height,
+            new Rgba32(40, 50, 70, 255));
+        LinkArrowOverlay.Apply(canvas, LinkMarkerMask.DownLeft | LinkMarkerMask.Left);
+
+        static int RimThicknessAlongRay(
+            Image<Rgba32> img,
+            float x0,
+            float y0,
+            float dx,
+            float dy)
+        {
+            var len = MathF.Sqrt(dx * dx + dy * dy);
+            dx /= len;
+            dy /= len;
+            var first = -1;
+            var last = -1;
+            for (var t = 0; t < 48; t++)
+            {
+                var x = (int)MathF.Round(x0 + dx * t);
+                var y = (int)MathF.Round(y0 + dy * t);
+                if ((uint)x >= (uint)img.Width || (uint)y >= (uint)img.Height)
+                    break;
+                if (IsBrightRim(img[x, y]))
+                {
+                    if (first < 0)
+                        first = t;
+                    last = t;
+                }
+                else if (first >= 0 && t > last + 2)
+                    break;
+            }
+
+            return first < 0 ? 0 : last - first + 1;
+        }
+
+        // Rays roughly perpendicular to the SW hypotenuse (tip ~69,738 → NE).
+        var swA = RimThicknessAlongRay(canvas, 58f, 742f, 0.7f, -0.7f);
+        var swB = RimThicknessAlongRay(canvas, 72f, 728f, 0.7f, -0.7f);
+        var swC = RimThicknessAlongRay(canvas, 86f, 714f, 0.7f, -0.7f);
+        Assert.True(swA is >= 5 and <= 16, $"SW rim thickness A={swA}");
+        Assert.True(swB is >= 5 and <= 16, $"SW rim thickness B={swB}");
+        Assert.True(swC is >= 5 and <= 16, $"SW rim thickness C={swC}");
+        Assert.True(Math.Abs(swA - swB) <= 4 && Math.Abs(swB - swC) <= 4,
+            $"SW rim wobble too high: {swA},{swB},{swC}");
+
+        // Left arrow still lights and keeps a continuous bright rim near the tip.
+        Assert.True(IsLitOrange(canvas[58, 453]), "Left tip fill should be lit");
+        Assert.True(IsBrightRim(canvas[80, 408]) || IsBrightRim(canvas[70, 420]),
+            "Left should gain a bright rim");
     }
 
     [Fact]
