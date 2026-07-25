@@ -156,12 +156,12 @@ public class LinkMarkerAndArrowOverlayTests
     [Fact]
     public void LinkArrowOverlay_Apply_CompositesMetalBorderBlackInsetAndGlow()
     {
-        // Active anatomy: silver triangular housing → black inset → orange fill.
+        // Active anatomy: drop halo → bright silver/white rim → black inset → orange fill.
         // Must NOT flood the card L-corner chrome orange.
         using var canvas = new Image<Rgba32>(
             OverFrameConstants.Width,
             OverFrameConstants.Height,
-            new Rgba32(40, 50, 70, 255));
+            new Rgba32(80, 120, 180, 255)); // bright blue so shadow darkening is obvious
         LinkArrowOverlay.Apply(
             canvas,
             LinkMarkerMask.DownLeft | LinkMarkerMask.DownRight | LinkMarkerMask.Up);
@@ -170,12 +170,18 @@ public class LinkMarkerAndArrowOverlayTests
         Assert.True(IsLitOrange(canvas[636, 724]), "DR triangle glyph should be lit");
         Assert.True(IsLitOrange(canvas[352, 168]), "Up triangle glyph should be lit");
 
-        Assert.True(IsMetallicSilver(canvas[63, 735]), "DL should gain silver housing");
-        Assert.True(IsMetallicSilver(canvas[641, 735]), "DR should gain silver housing");
-        Assert.True(IsMetallicSilver(canvas[352, 154]), "Up should gain silver housing");
+        Assert.True(IsBrightRim(canvas[65, 706]), "DL should gain bright silver/white rim");
+        Assert.True(IsBrightRim(canvas[623, 744]), "DR should gain bright silver/white rim");
+        Assert.True(IsBrightRim(canvas[352, 153]), "Up should gain bright silver/white rim");
 
-        Assert.True(IsBlackInset(canvas[79, 709]), "DL black inset between metal and glow");
-        Assert.True(IsBlackInset(canvas[626, 708]), "DR black inset between metal and glow");
+        Assert.True(IsBlackInset(canvas[79, 709]), "DL black inset between rim and glow");
+        Assert.True(IsBlackInset(canvas[626, 708]), "DR black inset between rim and glow");
+
+        // Soft drop halo outside the rim darkens the blue background.
+        Assert.True(IsDarkenedByShadow(canvas[66, 746], new Rgba32(80, 120, 180, 255)),
+            "DL should cast a dark drop halo");
+        Assert.True(IsDarkenedByShadow(canvas[355, 152], new Rgba32(80, 120, 180, 255)),
+            "Up should cast a dark drop halo");
 
         // Card L-corner chrome outside the triangular housing must stay non-orange.
         Assert.False(IsLitOrange(canvas[45, 700]), "Far DL L-corner must not be orange");
@@ -200,28 +206,48 @@ public class LinkMarkerAndArrowOverlayTests
     {
         var outer = LinkArrowOverlay.ToMetalPixel(1f);
         var inner = LinkArrowOverlay.ToMetalPixel(0f);
-        Assert.True(IsMetallicSilver(outer), $"Outer metal should be silver, got {outer}");
-        Assert.True(IsMetallicSilver(inner), $"Inner metal should be silver, got {inner}");
+        Assert.True(IsBrightRim(outer), $"Outer rim should be bright silver/white, got {outer}");
+        Assert.True(IsBrightRim(inner), $"Inner rim should stay light silver, got {inner}");
         Assert.True(outer.R > inner.R && outer.G > inner.G, "Outer rim should be brighter");
+        Assert.True(outer.R >= 250 && outer.G >= 250, "Outer rim should be nearly white");
+    }
+
+    [Fact]
+    public void LinkArrowOverlay_ToShadowPixel_PeaksNearRimAndFadesOut()
+    {
+        var nearRim = LinkArrowOverlay.ToShadowPixel(8.5f);   // just outside metal r=8
+        var mid = LinkArrowOverlay.ToShadowPixel(10.5f);
+        var outer = LinkArrowOverlay.ToShadowPixel(12.5f);
+        var insideRim = LinkArrowOverlay.ToShadowPixel(6f);   // inside metal — no shadow
+        Assert.True(nearRim.A > mid.A && mid.A > outer.A, "Shadow alpha must fall off outward");
+        Assert.Equal(0, insideRim.A);
+        Assert.True(nearRim.A >= 120, $"Near-rim shadow should be visible, got A={nearRim.A}");
     }
 
     private static bool IsLitOrange(Rgba32 c) =>
         c.A > 180 && c.R > 160 && c.R > c.G + 15 && c.G > c.B;
 
-    private static bool IsMetallicSilver(Rgba32 c)
+    private static bool IsBrightRim(Rgba32 c)
     {
         if (c.A < 180)
             return false;
         var lum = (c.R + c.G + c.B) / 3;
-        // Neutral mid/high grey — not orange, not near-black.
-        return lum is >= 110 and <= 230
+        // Bright neutral silver/white — not orange, not mid-grey dull metal.
+        return lum is >= 180 and <= 255
                && Math.Abs(c.R - c.G) <= 25
                && Math.Abs(c.G - c.B) <= 30
-               && c.R < c.G + 40; // reject warm orange
+               && c.R < c.G + 40;
     }
 
     private static bool IsBlackInset(Rgba32 c) =>
         c.A > 180 && (c.R + c.G + c.B) / 3 <= 28;
+
+    private static bool IsDarkenedByShadow(Rgba32 painted, Rgba32 originalBg)
+    {
+        var paintedLum = (painted.R + painted.G + painted.B) / 3;
+        var bgLum = (originalBg.R + originalBg.G + originalBg.B) / 3;
+        return paintedLum < bgLum - 25 && !IsLitOrange(painted) && !IsBrightRim(painted);
+    }
 
     private static int CountLitOrange(Image<Rgba32> img, Rectangle zone)
     {
