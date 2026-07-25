@@ -9,7 +9,7 @@
         ShowInTaskbar="False">
   <DockPanel Margin="14">
     <TextBlock DockPanel.Dock="Top"
-               Text="Pick a subject PNG with alpha, drag the subject to position, then Apply to the selected card."
+               Text="Pick a subject PNG with alpha, scale/drag the card art, then Apply to the selected card. Layers: Frame → Card Art → Lore."
                Foreground="{StaticResource MutedBrush}"
                TextWrapping="Wrap"
                Margin="0,0,0,10"/>
@@ -36,6 +36,28 @@
         <ComboBoxItem Content="Pendulum Ritual" Tag="PendulumRitual"/>
         <ComboBoxItem Content="Pendulum Token" Tag="PendulumToken"/>
       </ComboBox>
+    </StackPanel>
+
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+      <TextBlock Text="Art scale"
+                 VerticalAlignment="Center"
+                 Foreground="{StaticResource MutedBrush}"
+                 Margin="0,0,8,0"/>
+      <Slider x:Name="ArtScaleSlider"
+              Width="200"
+              Minimum="0.5"
+              Maximum="2"
+              Value="1"
+              TickFrequency="0.1"
+              IsSnapToTickEnabled="False"
+              VerticalAlignment="Center"
+              ValueChanged="ArtScaleSlider_ValueChanged"/>
+      <TextBlock x:Name="ArtScaleValueText"
+                 Text="×1.00"
+                 Width="48"
+                 VerticalAlignment="Center"
+                 Margin="8,0,0,0"
+                 Foreground="{StaticResource FgBrush}"/>
     </StackPanel>
 
     <TextBlock x:Name="StatusText"
