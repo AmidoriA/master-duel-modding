@@ -1492,31 +1492,51 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OfSelectImage_Click(object sender, RoutedEventArgs e)
+    private async void OfCustomOverframeArt_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new OpenFileDialog
+        if (_overFrameService is null || _autoOverFrameArtService is null || _ofSelected is null)
         {
-            Title = "Select 704?1024 over-frame art",
-            Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp|All files|*.*"
-        };
-        if (dlg.ShowDialog(this) != true)
+            MessageBox.Show("Select a card first.", "Floowan");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(GamePathBox.Text))
+        {
+            MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
+            return;
+        }
+
+        if (!_ofGateReady)
+            await EnsureOfGateAsync(showErrors: true);
+        if (!_ofGateReady)
             return;
 
-        _ofReplacementImagePath = dlg.FileName;
-        var validation = ImagePreparation.Validate(
-            dlg.FileName, OverFrameConstants.Width, OverFrameConstants.Height);
-        var sizeNote = validation.IsValid
-            ? CardArtTextureSizes.Describe(validation.Width, validation.Height)
-            : "unreadable";
-        var pendulumNote = validation.IsValid &&
-                           CardArtTextureSizes.Classify(validation.Width, validation.Height) == CardArtSizeKind.Pendulum
-            ? " Pendulum 3:4 source ? prefer Auto-create with the matching Pendulum frame to build 704x1024 before Apply."
-            : "";
-        Status($"Replacement selected ({sizeNote}): {Path.GetFileName(dlg.FileName)}");
-        if (!string.IsNullOrEmpty(pendulumNote))
-            Status("Pendulum-sized image selected for Over-frame. Auto-create maps it into the selected Pendulum frame hole.");
-        OfReplacementImage.Source = LoadOfComposePreview(dlg.FileName);
-        ApplyOfPreviewLayout(hasReplacement: true);
+        var card = _ofSelected;
+        var initialFrame = GetSelectedOfFrameStyle() ?? CardFrameStyle.Effect;
+        var dialog = new CustomOverframeWindow(
+            _autoOverFrameArtService,
+            _overFrameService,
+            card,
+            GamePathBox.Text,
+            _database,
+            initialFrame)
+        {
+            Owner = this
+        };
+
+        var applied = dialog.ShowDialog() == true;
+        if (!applied)
+        {
+            Status("Custom overframe art cancelled.");
+            return;
+        }
+
+        Status(dialog.ResultMessage ?? "Custom overframe art applied.");
+        _ofReplacementImagePath = null;
+        OfReplacementImage.Source = null;
+        ApplyOfPreviewLayout(hasReplacement: false);
+        _thumbnailCache.Invalidate(card);
+        RunOfSearch();
+        ReselectOfCard(card.Id);
     }
 
     private async void OfAutoCreateAndApply_Click(object sender, RoutedEventArgs e)

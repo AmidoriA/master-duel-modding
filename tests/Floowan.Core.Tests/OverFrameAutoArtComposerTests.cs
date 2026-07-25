@@ -8,6 +8,57 @@ namespace Floowan.Core.Tests;
 public class OverFrameAutoArtComposerTests
 {
     [Fact]
+    public void Compose_SubjectOffset_ShiftsFoilAndSubjectTogether()
+    {
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(220, 30, 20, 255));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+            mask[x, y] = new L8(255);
+
+        using var frame = CreateSolidFrame();
+        using var baseline = OverFrameAutoArtComposer.Compose(source, mask, frame);
+        using var shifted = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame,
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 40,
+            subjectOffsetY: 0);
+
+        var overflowY = FindSubjectAboveArtWindow(baseline);
+        Assert.True(overflowY >= 0, "expected baseline overflow above art window");
+
+        var baselineX = -1;
+        for (var x = 0; x < baseline.Width; x++)
+        {
+            var p = baseline[x, overflowY];
+            if (p.A == OverFrameAutoArtComposer.FoilMaskAlpha && p.R > 100)
+            {
+                baselineX = x;
+                break;
+            }
+        }
+
+        Assert.True(baselineX >= 0, "expected baseline subject foil above art window");
+
+        var shiftedX = -1;
+        for (var x = 0; x < shifted.Width; x++)
+        {
+            var p = shifted[x, overflowY];
+            if (p.A == OverFrameAutoArtComposer.FoilMaskAlpha && p.R > 100)
+            {
+                shiftedX = x;
+                break;
+            }
+        }
+
+        Assert.True(shiftedX >= 0, "expected shifted subject foil above art window");
+        Assert.InRange(shiftedX - baselineX, 36, 44);
+    }
+
+    [Fact]
     public void Compose_PunchesFullRectangle_AndSilhouetteOutsideFrame()
     {
         using var source = new Image<Rgba32>(100, 100, new Rgba32(220, 30, 20, 255));
