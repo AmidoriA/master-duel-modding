@@ -104,7 +104,7 @@ public class LinkMarkerAndArrowOverlayTests
     }
 
     [Fact]
-    public void LinkArrowOverlay_Apply_DrawsOnlyActiveDirections()
+    public void LinkArrowOverlay_Apply_DrawsOnlyActiveDirectionsAsLitOrange()
     {
         using var canvas = new Image<Rgba32>(
             OverFrameConstants.Width,
@@ -114,26 +114,69 @@ public class LinkMarkerAndArrowOverlayTests
         // Only Bottom arrow (Link Spider).
         LinkArrowOverlay.Apply(canvas, LinkMarkerMask.Down);
 
-        static int CountDark(Image<Rgba32> img, Rectangle zone)
-        {
-            var n = 0;
-            for (var y = zone.Top; y < zone.Bottom; y++)
-            for (var x = zone.Left; x < zone.Right; x++)
-            {
-                var c = img[x, y];
-                if (c.A > 180 && c.R < 70 && c.G < 70 && c.B < 90)
-                    n++;
-            }
-
-            return n;
-        }
-
-        var bottom = CountDark(canvas, new Rectangle(296, 715, 113, 48));
-        var top = CountDark(canvas, new Rectangle(296, 147, 113, 47));
-        var left = CountDark(canvas, new Rectangle(45, 396, 46, 118));
-        Assert.True(bottom > 200, $"Bottom arrow should be drawn, got {bottom} dark px");
+        var bottom = CountLitOrange(canvas, new Rectangle(296, 715, 113, 48));
+        var top = CountLitOrange(canvas, new Rectangle(296, 147, 113, 47));
+        var left = CountLitOrange(canvas, new Rectangle(45, 396, 46, 118));
+        Assert.True(bottom > 200, $"Bottom arrow should be lit orange, got {bottom} lit px");
         Assert.True(top < 30, $"Top arrow must stay off, got {top}");
         Assert.True(left < 30, $"Left arrow must stay off, got {left}");
+    }
+
+    [Fact]
+    public void LinkArrowOverlay_Apply_MasquerenaMask_LightsOnlyBottomDiagonals()
+    {
+        // I:P Masquerena catalog mask 160 = SW + SE. Start from the real Link frame
+        // (all eight dark inactive markers), then light only the active bits.
+        var masquerena = LinkMarkerMask.DownLeft | LinkMarkerMask.DownRight;
+        Assert.Equal(160, (byte)masquerena);
+
+        using var canvas = CardFrameTemplates.Load(CardFrameStyle.Link);
+        var dlBefore = CountLitOrange(canvas, new Rectangle(41, 656, 108, 107));
+        var drBefore = CountLitOrange(canvas, new Rectangle(551, 656, 108, 107));
+        var upBefore = CountLitOrange(canvas, new Rectangle(296, 147, 113, 47));
+        var leftBefore = CountLitOrange(canvas, new Rectangle(45, 396, 46, 118));
+        var downBefore = CountLitOrange(canvas, new Rectangle(296, 715, 113, 48));
+
+        LinkArrowOverlay.Apply(canvas, masquerena);
+
+        var dlDelta = CountLitOrange(canvas, new Rectangle(41, 656, 108, 107)) - dlBefore;
+        var drDelta = CountLitOrange(canvas, new Rectangle(551, 656, 108, 107)) - drBefore;
+        var upDelta = CountLitOrange(canvas, new Rectangle(296, 147, 113, 47)) - upBefore;
+        var leftDelta = CountLitOrange(canvas, new Rectangle(45, 396, 46, 118)) - leftBefore;
+        var downDelta = CountLitOrange(canvas, new Rectangle(296, 715, 113, 48)) - downBefore;
+
+        Assert.True(dlDelta > 400, $"SW should gain lit orange, delta {dlDelta}");
+        Assert.True(drDelta > 400, $"SE should gain lit orange, delta {drDelta}");
+        Assert.True(Math.Abs(upDelta) < 40, $"Top must stay dark/inactive, delta {upDelta}");
+        Assert.True(Math.Abs(leftDelta) < 40, $"Left must stay dark/inactive, delta {leftDelta}");
+        Assert.True(Math.Abs(downDelta) < 40, $"Bottom must stay dark/inactive, delta {downDelta}");
+    }
+
+    [Fact]
+    public void LinkArrowOverlay_ToLitArrowPixel_IsWarmOrangeRed()
+    {
+        var body = LinkArrowOverlay.ToLitArrowPixel(new Rgba32(10, 10, 12, 255));
+        var fringe = LinkArrowOverlay.ToLitArrowPixel(new Rgba32(110, 110, 115, 255));
+        Assert.True(body.R > 180 && body.R > body.G && body.G > body.B,
+            $"Body should be deep red-orange, got {body}");
+        Assert.True(fringe.R > 200 && fringe.G > 100 && fringe.G > fringe.B,
+            $"Fringe should be brighter amber, got {fringe}");
+        Assert.True(fringe.G > body.G, "Fringe green channel should exceed body");
+    }
+
+    private static int CountLitOrange(Image<Rgba32> img, Rectangle zone)
+    {
+        var n = 0;
+        for (var y = zone.Top; y < zone.Bottom; y++)
+        for (var x = zone.Left; x < zone.Right; x++)
+        {
+            var c = img[x, y];
+            // Lit active: warm orange/red, clearly not dark inactive charcoal.
+            if (c.A > 180 && c.R > 160 && c.R > c.G + 20 && c.G > c.B)
+                n++;
+        }
+
+        return n;
     }
 
     [Fact]
