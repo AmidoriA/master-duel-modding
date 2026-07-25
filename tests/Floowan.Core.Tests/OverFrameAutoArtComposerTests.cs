@@ -1554,6 +1554,33 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
+    public void ClampBackgroundScale_ClampsToOneThroughDouble()
+    {
+        Assert.Equal(1f, OverFrameAutoArtComposer.ClampBackgroundScale(0.1f));
+        Assert.Equal(2f, OverFrameAutoArtComposer.ClampBackgroundScale(9f));
+        Assert.Equal(1f, OverFrameAutoArtComposer.ClampBackgroundScale(1f));
+        Assert.Equal(1.5f, OverFrameAutoArtComposer.ClampBackgroundScale(1.5f));
+    }
+
+    [Fact]
+    public void GetBackgroundPanLimits_GrowsWithBackgroundScale()
+    {
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        // Square source matching hole aspect → Cover has little overflow at ×1.
+        var (max1X, max1Y) = OverFrameAutoArtComposer.GetBackgroundPanLimits(
+            art.Width, art.Height, art, backgroundScale: 1f);
+        var (max2X, max2Y) = OverFrameAutoArtComposer.GetBackgroundPanLimits(
+            art.Width, art.Height, art, backgroundScale: 2f);
+
+        Assert.True(max1X <= 1 && max1Y <= 1,
+            $"×1 Cover on matching aspect should have near-zero pan, got {max1X},{max1Y}");
+        Assert.True(max2X > max1X || max2Y > max1Y,
+            $"×2 Cover must allow more pan than ×1 ({max1X},{max1Y} vs {max2X},{max2Y})");
+        Assert.True(max2X > 50 && max2Y > 50,
+            $"×2 Cover should have substantial pan room, got {max2X},{max2Y}");
+    }
+
+    [Fact]
     public void Compose_CustomArtOnly_DoesNotFillArtHoleWithRectangularFoil()
     {
         // Narrow center strip subject — art-hole corners must stay empty (no full-source foil).
@@ -2064,6 +2091,173 @@ public class OverFrameAutoArtComposerTests
         Assert.Equal(baseline[cornerX, cornerY], moved[cornerX, cornerY]);
         Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, baseline[cornerX, cornerY].A);
         Assert.True(baseline[cornerX, cornerY].G > 150);
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_BackgroundScale_EnlargesCoverCrop()
+    {
+        // Horizontal gradient background — ×2 Cover zooms in so edge samples differ from ×1.
+        using var source = new Image<Rgba32>(40, 40, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(40, 40, new L8(0));
+        // Tiny subject in the far corner so most of the hole stays background-only.
+        source[2, 2] = new Rgba32(255, 0, 0, 255);
+        mask[2, 2] = new L8(255);
+
+        using var background = new Image<Rgba32>(200, 200);
+        for (var y = 0; y < background.Height; y++)
+        for (var x = 0; x < background.Width; x++)
+        {
+            var t = x / (float)(background.Width - 1);
+            background[x, y] = new Rgba32(
+                (byte)Math.Round(20 + 200 * t),
+                40,
+                (byte)Math.Round(220 * (1 - t)),
+                255);
+        }
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+
+        using var at1 = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly,
+            background,
+            backgroundScale: 1f);
+        using var at2 = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly,
+            background,
+            backgroundScale: 2f);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var sampleX = art.Left + 12;
+        var sampleY = art.Top + art.Height / 2;
+        Assert.NotEqual(at1[sampleX, sampleY], at2[sampleX, sampleY]);
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, at1[sampleX, sampleY].A);
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, at2[sampleX, sampleY].A);
+
+        // Still clipped: chrome left of hole must not pick up Cover cyan.
+        var leftOfHole = at2[art.Left - 4, sampleY];
+        Assert.True(leftOfHole.A >= 200);
+        Assert.True(leftOfHole.B < 100,
+            $"×2 Cover must not overflow art window, got {leftOfHole}");
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_BackgroundPan_ShiftsCoverInsideHole()
+    {
+        using var source = new Image<Rgba32>(40, 40, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(40, 40, new L8(0));
+        source[2, 2] = new Rgba32(255, 0, 0, 255);
+        mask[2, 2] = new L8(255);
+
+        using var background = new Image<Rgba32>(200, 200);
+        for (var y = 0; y < background.Height; y++)
+        for (var x = 0; x < background.Width; x++)
+        {
+            var t = x / (float)(background.Width - 1);
+            background[x, y] = new Rgba32(
+                (byte)Math.Round(20 + 200 * t),
+                40,
+                (byte)Math.Round(220 * (1 - t)),
+                255);
+        }
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var (maxPanX, _) = OverFrameAutoArtComposer.GetBackgroundPanLimits(
+            background.Width, background.Height, art, backgroundScale: 2f);
+        Assert.True(maxPanX > 10, $"need pan room for test, got {maxPanX}");
+
+        using var centered = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly,
+            background,
+            backgroundScale: 2f,
+            backgroundOffsetX: 0,
+            backgroundOffsetY: 0);
+        using var panned = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1f,
+            OverFrameComposeMode.CustomArtOnly,
+            background,
+            backgroundScale: 2f,
+            backgroundOffsetX: maxPanX,
+            backgroundOffsetY: 0);
+
+        var sampleX = art.Left + art.Width / 2;
+        var sampleY = art.Top + art.Height / 2;
+        Assert.NotEqual(centered[sampleX, sampleY], panned[sampleX, sampleY]);
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, panned[sampleX, sampleY].A);
+
+        // Pan still clipped to the hole (Cover cyan must not appear above).
+        var above = panned[art.Left + 8, art.Top - 4];
+        Assert.True(above.A >= 200);
+        Assert.True(above.B < 100,
+            $"panned Cover must not spill above art window, got {above}");
+    }
+
+    [Fact]
+    public void ComposeCustomBackgroundOnly_RespectsBackgroundScaleAndPan()
+    {
+        using var background = new Image<Rgba32>(200, 200);
+        for (var y = 0; y < background.Height; y++)
+        for (var x = 0; x < background.Width; x++)
+        {
+            var t = y / (float)(background.Height - 1);
+            background[x, y] = new Rgba32(
+                40,
+                (byte)Math.Round(20 + 200 * t),
+                (byte)Math.Round(220 * (1 - t)),
+                255);
+        }
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var (_, maxPanY) = OverFrameAutoArtComposer.GetBackgroundPanLimits(
+            background.Width, background.Height, art, backgroundScale: 2f);
+
+        using var centered = OverFrameAutoArtComposer.ComposeCustomBackgroundOnly(
+            CardFrameStyle.Effect,
+            background: background,
+            backgroundScale: 2f);
+        using var panned = OverFrameAutoArtComposer.ComposeCustomBackgroundOnly(
+            CardFrameStyle.Effect,
+            background: background,
+            backgroundScale: 2f,
+            backgroundOffsetY: maxPanY);
+
+        var mid = art.Left + art.Width / 2;
+        var sampleY = art.Top + art.Height / 2;
+        Assert.NotEqual(centered[mid, sampleY], panned[mid, sampleY]);
+        Assert.Equal(OverFrameAutoArtComposer.FoilMaskAlpha, panned[mid, sampleY].A);
     }
 
     [Fact]
