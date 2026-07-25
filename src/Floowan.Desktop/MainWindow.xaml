@@ -87,7 +87,7 @@
     </StatusBar>
 
     <TabControl x:Name="MainTabs" Background="{StaticResource BgBrush}" BorderBrush="#3A4652" SelectionChanged="MainTabs_SelectionChanged">
-      <TabItem Header="Card Art">
+      <TabItem x:Name="CardArtTab" Header="Card Art">
         <Grid Margin="0,8,0,0">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="1.2*"/>
@@ -378,6 +378,8 @@
                 <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,12,0,0">
                   <Button Content="Save" Click="DbSave_Click" Background="{StaticResource AccentBrush}"/>
                   <Button Content="Discard" Click="DbDiscard_Click"/>
+                  <Button Content="Open in Card Art" Click="DbOpenInCardArt_Click" Margin="12,0,0,0"/>
+                  <Button Content="Open in Over-frame" Click="DbOpenInOverFrame_Click"/>
                 </StackPanel>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                   <Grid>
