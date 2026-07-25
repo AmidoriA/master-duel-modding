@@ -1187,8 +1187,8 @@ public class OverFrameAutoArtComposerTests
     [Fact]
     public void Compose_Effect_LoreCream_VerticalSoftToSolidFromLoreTop()
     {
-        // Soft→solid falls from the lore box top over LoreArtUnderlayBlendHeight, with
-        // footprint exit feathered over LoreArtUnderlayBlendRadius (no 1px solid cliff).
+        // Soft→solid is mild over the scaled footprint, then stronger past artBottom
+        // (ease-out to cream). Footprint exit stays feathered (no 1px solid cliff).
         using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 255, 255));
         using var mask = new Image<L8>(512, 512, new L8(0));
         for (var y = 20; y < 492; y++)
@@ -1234,6 +1234,88 @@ public class OverFrameAutoArtComposerTests
         Assert.True(earlyFeather.B > cream.B && earlyFeather.B < nearFootprint.B,
             $"early footprint feather should sit between soft and solid ({nearFootprint} vs {earlyFeather})");
         Assert.Equal(cream, lowerLore);
+    }
+
+    [Fact]
+    public void ComputeEffectLoreSolidProgress_StrongerPastArtBottom()
+    {
+        // Upper lore (over art) stays relatively soft; past artBottom eases toward solid
+        // faster than a uniform lore-top smoothstep would.
+        var cream = OverFrameAutoArtComposer.EffectLoreCream;
+        var artBottom = cream.Top + 54; // typical Cover×overflow edge inside cream
+        var blendH = cream.Height;
+
+        var atTop = OverFrameAutoArtComposer.ComputeEffectLoreSolidProgress(
+            cream.Top, cream, artBottom, blendH);
+        var atArtEnd = OverFrameAutoArtComposer.ComputeEffectLoreSolidProgress(
+            artBottom, cream, artBottom, blendH);
+        var midBelow = OverFrameAutoArtComposer.ComputeEffectLoreSolidProgress(
+            artBottom + (cream.Bottom - artBottom) / 2, cream, artBottom, blendH);
+        var atBottom = OverFrameAutoArtComposer.ComputeEffectLoreSolidProgress(
+            cream.Bottom - 1, cream, artBottom, blendH);
+
+        Assert.Equal(0f, atTop, 3);
+        Assert.Equal(OverFrameAutoArtComposer.LoreSolidProgressAtArtBottom, atArtEnd, 3);
+        Assert.True(midBelow > atArtEnd + 0.25f,
+            $"mid-below-art should ramp hard toward solid (mid={midBelow}, atArt={atArtEnd})");
+        Assert.True(atBottom > 0.98f, $"lore bottom should be near solid, got {atBottom}");
+
+        // Continuity at the art/footprint boundary.
+        var justAbove = OverFrameAutoArtComposer.ComputeEffectLoreSolidProgress(
+            artBottom - 1, cream, artBottom, blendH);
+        var justBelow = OverFrameAutoArtComposer.ComputeEffectLoreSolidProgress(
+            artBottom + 1, cream, artBottom, blendH);
+        Assert.True(Math.Abs(justAbove - atArtEnd) < 0.05f, $"justAbove={justAbove} vs atArt={atArtEnd}");
+        Assert.True(justBelow >= atArtEnd - 0.01f && justBelow > justAbove,
+            $"justBelow={justBelow} should continue past atArt={atArtEnd}");
+
+        // Stronger than the old full-height smoothstep at the same mid-below row.
+        var dy = (artBottom + (cream.Bottom - artBottom) / 2) - cream.Top;
+        var tOld = dy / (float)blendH;
+        tOld = tOld * tOld * (3f - 2f * tOld);
+        Assert.True(midBelow > tOld + 0.08f,
+            $"past-art ramp should exceed old smoothstep (mid={midBelow} vs old={tOld})");
+    }
+
+    [Fact]
+    public void Compose_Effect_LoreCream_PastArtBottomCloserToCreamThanUpper()
+    {
+        // Bright cyan underlay: upper lore near art stays see-through; past the scaled
+        // footprint bottom, cream must suppress busy underlay more strongly.
+        using var source = new Image<Rgba32>(512, 512, new Rgba32(40, 200, 255, 255));
+        using var mask = new Image<L8>(512, 512, new L8(0));
+        for (var y = 20; y < 492; y++)
+        for (var x = 40; x < 472; x++)
+            mask[x, y] = new L8(255);
+
+        using var frame = CreateSolidFrame();
+        ClearRect(frame, OverFrameAutoArtComposer.ArtWindow);
+        var cream = new Rgba32(233, 207, 183, 255);
+        PaintEffectStyleLore(frame, cream);
+
+        using var result = OverFrameAutoArtComposer.Compose(source, mask, frame);
+
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        const int size = 512;
+        var scale = Math.Max(art.Width / (float)size, art.Height / (float)size)
+            * OverFrameAutoArtComposer.OverflowScale;
+        var scaledH = Math.Max(1, (int)MathF.Round(size * scale));
+        var bgY = (int)MathF.Round(art.Top + art.Height / 2f - scaledH / 2f);
+        var artBottom = bgY + scaledH;
+        var creamR = OverFrameAutoArtComposer.EffectLoreCream;
+        var midX = creamR.Left + creamR.Width / 2;
+
+        Assert.True(artBottom > creamR.Top && artBottom < creamR.Bottom,
+            $"artBottom={artBottom} should split the lore cream {creamR}");
+
+        var upper = result[midX, creamR.Top + 8];
+        var belowArt = result[midX, Math.Min(creamR.Bottom - 1, artBottom + (creamR.Bottom - artBottom) / 2)];
+        var upperTint = ColorDistance(upper, cream);
+        var belowTint = ColorDistance(belowArt, cream);
+
+        Assert.True(upperTint > 8, $"upper lore should stay soft-tinted, got {upper} tint={upperTint}");
+        Assert.True(belowTint < upperTint * 0.55f,
+            $"below-art lore should be much closer to cream (upperTint={upperTint}, belowTint={belowTint}, below={belowArt})");
     }
 
     [Fact]
