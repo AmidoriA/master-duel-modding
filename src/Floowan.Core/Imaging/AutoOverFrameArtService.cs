@@ -176,8 +176,9 @@ public sealed class AutoOverFrameArtService : IDisposable
     /// Composes a previously prepared subject onto a frame (no model inference).
     /// Defaults to <see cref="OverFrameComposeMode.CustomArtOnly"/> for the Custom OF dialog.
     /// Optional <paramref name="background"/> Cover-fills the art hole under the frame
-    /// (CustomArtOnly only; ignored for Auto-create). Optional background scale (×1–×4)
-    /// and H/V pan move that Cover within the hole without overflowing it.
+    /// (CustomArtOnly only; ignored for Auto-create). Optional background scale
+    /// (shared ×0.5–×4 with Card Art; ×1 = Cover) and H/V pan move that Cover within
+    /// the hole without overflowing it (when scale ≥ ×1).
     /// </summary>
     public static void ComposePreparedSubject(
         Image<Rgba32> source,

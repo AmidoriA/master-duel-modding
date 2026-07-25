@@ -9,7 +9,7 @@
         ShowInTaskbar="False">
   <DockPanel Margin="14">
     <TextBlock DockPanel.Dock="Top"
-               Text="Subject is Card Art with alpha (file or rembg from live art). Background Cover-fills the art hole (defaults to this card's live art); scale ×1–×4 and pan with H/V sliders. Drag/scale Card Art only, then Apply. Layers: Background → Frame → Card Art → Lore."
+               Text="Subject is Card Art with alpha (file or rembg from live art). Background Cover-fills the art hole (defaults to this card's live art). Art scale and Bg scale share ×0.5–×4 where ×1 = Cover fit. Pan background with H/V sliders; Match background to subject copies subject offset+scale. Drag/scale Card Art only, then Apply. Layers: Background → Frame → Card Art → Lore."
                Foreground="{StaticResource MutedBrush}"
                TextWrapping="Wrap"
                Margin="0,0,0,10"/>
@@ -51,7 +51,7 @@
                            FontWeight="SemiBold"
                            Foreground="{StaticResource TextBrush}"
                            Margin="0,0,0,6"/>
-                <TextBlock Text="Card Art layer (alpha cutout). Scale and drag this layer only."
+                <TextBlock Text="Card Art layer (alpha cutout). Scale ×0.5–×4 (×1 = Cover, same as Bg scale) and drag this layer only."
                            Foreground="{StaticResource MutedBrush}"
                            TextWrapping="Wrap"
                            Margin="0,0,0,8"/>
@@ -97,16 +97,18 @@
                              VerticalAlignment="Center"
                              Foreground="{StaticResource MutedBrush}"
                              Width="56"
-                             Margin="0,0,8,0"/>
+                             Margin="0,0,8,0"
+                             ToolTip="Shared with Bg scale: ×1 = Cover fit into the art hole."/>
                   <Slider x:Name="ArtScaleSlider"
                           Width="180"
                           Minimum="0.5"
-                          Maximum="2"
+                          Maximum="4"
                           Value="1.5"
                           TickFrequency="0.1"
                           IsSnapToTickEnabled="False"
                           VerticalAlignment="Center"
-                          ValueChanged="ArtScaleSlider_ValueChanged"/>
+                          ValueChanged="ArtScaleSlider_ValueChanged"
+                          ToolTip="×0.5–×4 relative to Cover (same range as Bg scale)."/>
                   <TextBlock x:Name="ArtScaleValueText"
                              Text="×1.50"
                              Width="48"
@@ -127,7 +129,7 @@
                            FontWeight="SemiBold"
                            Foreground="{StaticResource TextBrush}"
                            Margin="0,0,0,6"/>
-                <TextBlock Text="Cover-fills the art hole only (lowest layer). Scale ×1–×4 and pan with H/V sliders (not drag). Does not move with Card Art. Defaults to this card's live art."
+                <TextBlock Text="Cover-fills the art hole only (lowest layer). Scale ×0.5–×4 (×1 = Cover, same as Art scale) and pan with H/V sliders (not drag). Does not move with Card Art unless you Match. Defaults to this card's live art."
                            Foreground="{StaticResource MutedBrush}"
                            TextWrapping="Wrap"
                            Margin="0,0,0,8"/>
@@ -149,16 +151,18 @@
                              VerticalAlignment="Center"
                              Foreground="{StaticResource MutedBrush}"
                              Width="56"
-                             Margin="0,0,8,0"/>
+                             Margin="0,0,8,0"
+                             ToolTip="Shared with Art scale: ×1 = Cover fit into the art hole."/>
                   <Slider x:Name="BgScaleSlider"
                           Width="180"
-                          Minimum="1"
+                          Minimum="0.5"
                           Maximum="4"
                           Value="1"
                           TickFrequency="0.1"
                           IsSnapToTickEnabled="False"
                           VerticalAlignment="Center"
-                          ValueChanged="BgScaleSlider_ValueChanged"/>
+                          ValueChanged="BgScaleSlider_ValueChanged"
+                          ToolTip="×0.5–×4 relative to Cover (same range as Art scale). Below ×1 may not fill the hole."/>
                   <TextBlock x:Name="BgScaleValueText"
                              Text="×1.00"
                              Width="48"
@@ -188,7 +192,7 @@
                              Margin="8,0,0,0"
                              Foreground="{StaticResource TextBrush}"/>
                 </StackPanel>
-                <StackPanel Orientation="Horizontal">
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                   <TextBlock Text="V pan"
                              VerticalAlignment="Center"
                              Foreground="{StaticResource MutedBrush}"
@@ -210,6 +214,11 @@
                              Margin="8,0,0,0"
                              Foreground="{StaticResource TextBrush}"/>
                 </StackPanel>
+                <Button x:Name="MatchBackgroundToSubjectButton"
+                        Content="Match background to subject"
+                        Click="MatchBackgroundToSubject_Click"
+                        HorizontalAlignment="Left"
+                        ToolTip="Copy subject offset into Bg H/V pan and Art scale into Bg scale so both layers match."/>
               </StackPanel>
             </Border>
           </StackPanel>

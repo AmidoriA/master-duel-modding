@@ -282,6 +282,51 @@ public partial class CustomOverframeWindow : Window
         await ApplyBackgroundTransformChangeAsync();
     }
 
+    private async void MatchBackgroundToSubject_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || _backgroundSource is null)
+            return;
+
+        var subjectScale = GetSubjectScale();
+        _updatingBgPanSliders = true;
+        try
+        {
+            BgScaleSlider.Value = subjectScale;
+        }
+        finally
+        {
+            _updatingBgPanSliders = false;
+        }
+
+        // Pan limits depend on the new shared Cover scale — sync ranges first, then
+        // copy subject offset (clamped to overflow so the hole stays covered when ≥ ×1).
+        // Do not write _backgroundOffset* here; ApplyBackgroundTransformChangeAsync owns that.
+        SyncBackgroundPanSliderRanges();
+        _updatingBgPanSliders = true;
+        try
+        {
+            var panX = OverFrameAutoArtComposer.ClampBackgroundPan(
+                _offsetX, (int)Math.Round(BgPanHSlider.Maximum));
+            var panY = OverFrameAutoArtComposer.ClampBackgroundPan(
+                _offsetY, (int)Math.Round(BgPanVSlider.Maximum));
+            BgPanHSlider.Value = panX;
+            BgPanVSlider.Value = panY;
+        }
+        finally
+        {
+            _updatingBgPanSliders = false;
+        }
+
+        UpdateBackgroundTransformLabels();
+        await ApplyBackgroundTransformChangeAsync();
+        if (!_busy)
+        {
+            StatusText.Text =
+                $"Matched background to subject: scale ×{_backgroundScale:0.00}, " +
+                $"pan {_backgroundOffsetX}, {_backgroundOffsetY}.";
+        }
+    }
+
     private async Task ApplyArtScaleChangeAsync()
     {
         var scale = GetSubjectScale();
@@ -1043,6 +1088,7 @@ public partial class CustomOverframeWindow : Window
         _busy = busy;
         PickBackgroundButton.IsEnabled = !busy;
         UseCardArtBackgroundButton.IsEnabled = !busy;
+        MatchBackgroundToSubjectButton.IsEnabled = !busy && _backgroundSource is not null;
         PickImageButton.IsEnabled = !busy;
         FromCurrentArtRembgButton.IsEnabled = !busy;
         FrameStyleBox.IsEnabled = !busy;
