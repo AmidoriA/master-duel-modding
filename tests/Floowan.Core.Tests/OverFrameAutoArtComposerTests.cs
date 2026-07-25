@@ -1545,22 +1545,29 @@ public class OverFrameAutoArtComposerTests
     }
 
     [Fact]
-    public void ClampSubjectScale_ClampsToHalfThroughDouble()
+    public void ClampSubjectScale_ClampsToSharedCustomArtRange()
     {
         Assert.Equal(0.5f, OverFrameAutoArtComposer.ClampSubjectScale(0.1f));
-        Assert.Equal(2f, OverFrameAutoArtComposer.ClampSubjectScale(9f));
+        Assert.Equal(4f, OverFrameAutoArtComposer.ClampSubjectScale(9f));
         Assert.Equal(1f, OverFrameAutoArtComposer.ClampSubjectScale(1f));
         Assert.Equal(1.5f, OverFrameAutoArtComposer.ClampSubjectScale(1.5f));
+        Assert.Equal(3f, OverFrameAutoArtComposer.ClampSubjectScale(3f));
     }
 
     [Fact]
-    public void ClampBackgroundScale_ClampsToOneThroughQuadruple()
+    public void ClampBackgroundScale_ClampsToSharedCustomArtRange()
     {
-        Assert.Equal(1f, OverFrameAutoArtComposer.ClampBackgroundScale(0.1f));
+        Assert.Equal(0.5f, OverFrameAutoArtComposer.ClampBackgroundScale(0.1f));
         Assert.Equal(4f, OverFrameAutoArtComposer.ClampBackgroundScale(9f));
         Assert.Equal(1f, OverFrameAutoArtComposer.ClampBackgroundScale(1f));
         Assert.Equal(1.5f, OverFrameAutoArtComposer.ClampBackgroundScale(1.5f));
         Assert.Equal(4f, OverFrameAutoArtComposer.ClampBackgroundScale(4f));
+        Assert.Equal(
+            OverFrameAutoArtComposer.CustomArtScaleMin,
+            OverFrameAutoArtComposer.BackgroundScaleMin);
+        Assert.Equal(
+            OverFrameAutoArtComposer.CustomArtScaleMax,
+            OverFrameAutoArtComposer.SubjectScaleMax);
     }
 
     [Fact]
@@ -1645,7 +1652,50 @@ public class OverFrameAutoArtComposerTests
         }
 
         using var frame = CreateSolidFrame();
-        using var at1 = OverFrameAutoArtComposer.Compose(
+        // CustomArtOnly ×1 = Cover (no Auto OverflowScale); use ×1.5 vs ×3 so both overframe.
+        using var at15 = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 1.5f,
+            OverFrameComposeMode.CustomArtOnly);
+        using var at3 = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: 3f,
+            OverFrameComposeMode.CustomArtOnly);
+
+        var y15 = FindSubjectAboveArtWindow(at15);
+        var y3 = FindSubjectAboveArtWindow(at3);
+        Assert.True(y15 >= 0, "scale 1.5 should overframe above art window");
+        Assert.True(y3 >= 0, "scale 3 should overframe above art window");
+        Assert.True(y3 < y15, $"×3 subject should reach higher (y={y3}) than ×1.5 (y={y15})");
+    }
+
+    [Fact]
+    public void Compose_CustomArtOnly_SubjectScale_UsesCoverWithoutOverflowScale()
+    {
+        // Narrow tall strip: Auto (Cover×OverflowScale) overframes at ×1; Custom Cover×1 does not.
+        using var source = new Image<Rgba32>(100, 100, new Rgba32(0, 0, 0, 0));
+        using var mask = new Image<L8>(100, 100, new L8(0));
+        for (var y = 5; y < 95; y++)
+        for (var x = 40; x < 60; x++)
+        {
+            source[x, y] = new Rgba32(220, 30, 20, 255);
+            mask[x, y] = new L8(255);
+        }
+
+        using var frame = CreateSolidFrame();
+        using var custom = OverFrameAutoArtComposer.Compose(
             source,
             mask,
             frame.Clone(),
@@ -1655,7 +1705,7 @@ public class OverFrameAutoArtComposerTests
             subjectOffsetY: 0,
             subjectScale: 1f,
             OverFrameComposeMode.CustomArtOnly);
-        using var at2 = OverFrameAutoArtComposer.Compose(
+        using var auto = OverFrameAutoArtComposer.Compose(
             source,
             mask,
             frame.Clone(),
@@ -1663,14 +1713,30 @@ public class OverFrameAutoArtComposerTests
             pendulumLayout: null,
             subjectOffsetX: 0,
             subjectOffsetY: 0,
-            subjectScale: 2f,
-            OverFrameComposeMode.CustomArtOnly);
+            subjectScale: 1f,
+            OverFrameComposeMode.AutoFoilAndSubject);
 
-        var y1 = FindSubjectAboveArtWindow(at1);
-        var y2 = FindSubjectAboveArtWindow(at2);
-        Assert.True(y1 >= 0, "scale 1 should overframe above art window");
-        Assert.True(y2 >= 0, "scale 2 should overframe above art window");
-        Assert.True(y2 < y1, $"×2 subject should reach higher (y={y2}) than ×1 (y={y1})");
+        Assert.True(
+            FindSubjectAboveArtWindow(custom) < 0,
+            "CustomArtOnly ×1 is Cover fit and should not overframe this strip");
+        Assert.True(
+            FindSubjectAboveArtWindow(auto) >= 0,
+            "Auto ×1 still applies OverflowScale and should overframe");
+
+        // Same Cover multiplier as background: Custom ×OverflowScale matches Auto ×1 reach.
+        using var customMatched = OverFrameAutoArtComposer.Compose(
+            source,
+            mask,
+            frame.Clone(),
+            useSharedEffectLayout: true,
+            pendulumLayout: null,
+            subjectOffsetX: 0,
+            subjectOffsetY: 0,
+            subjectScale: OverFrameAutoArtComposer.OverflowScale,
+            OverFrameComposeMode.CustomArtOnly);
+        Assert.Equal(
+            FindSubjectAboveArtWindow(auto),
+            FindSubjectAboveArtWindow(customMatched));
     }
 
     [Fact]
@@ -1698,7 +1764,8 @@ public class OverFrameAutoArtComposerTests
             pendulumLayout: null,
             subjectOffsetX: 0,
             subjectOffsetY: 0,
-            subjectScale: 1f,
+            // Cover×OverflowScale matches prior Custom ×1 (which baked OverflowScale in).
+            subjectScale: OverFrameAutoArtComposer.OverflowScale,
             OverFrameComposeMode.CustomArtOnly);
 
         var creamR = OverFrameAutoArtComposer.EffectLoreCream;
@@ -1739,7 +1806,7 @@ public class OverFrameAutoArtComposerTests
             pendulumLayout: null,
             subjectOffsetX: 0,
             subjectOffsetY: 0,
-            subjectScale: 1f,
+            subjectScale: OverFrameAutoArtComposer.OverflowScale,
             OverFrameComposeMode.CustomArtOnly);
         using var shifted = OverFrameAutoArtComposer.Compose(
             source,
@@ -1749,7 +1816,7 @@ public class OverFrameAutoArtComposerTests
             pendulumLayout: null,
             subjectOffsetX: 120,
             subjectOffsetY: 0,
-            subjectScale: 1f,
+            subjectScale: OverFrameAutoArtComposer.OverflowScale,
             OverFrameComposeMode.CustomArtOnly);
 
         var creamR = OverFrameAutoArtComposer.EffectLoreCream;
@@ -1891,7 +1958,8 @@ public class OverFrameAutoArtComposerTests
             pendulumLayout: null,
             subjectOffsetX: 0,
             subjectOffsetY: 0,
-            subjectScale: 2f,
+            // Former Custom ×2 included OverflowScale; Cover×(2×Overflow) reaches bottom chrome.
+            subjectScale: 2f * OverFrameAutoArtComposer.OverflowScale,
             OverFrameComposeMode.CustomArtOnly);
         using var auto = OverFrameAutoArtComposer.Compose(
             source,
@@ -2335,7 +2403,7 @@ public class OverFrameAutoArtComposerTests
             source,
             mask,
             CardFrameStyle.Effect,
-            subjectScale: 2f,
+            subjectScale: 2f * OverFrameAutoArtComposer.OverflowScale,
             composeMode: OverFrameComposeMode.CustomArtOnly);
 
         var creamR = OverFrameAutoArtComposer.EffectLoreCream;
