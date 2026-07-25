@@ -543,8 +543,68 @@ public partial class MainWindow : Window
         var gamePath = GamePathBox.Text;
         var card = _selected;
         var image = _replacementImagePath;
+
+        // Fresh live extract for Before; preserve existing OF / Pendulum replace rules.
+        try
+        {
+            LoadCurrentPreview();
+        }
+        catch
+        {
+            // LoadCurrentPreview already surfaces preview errors in DetailText.
+        }
+
+        if (string.IsNullOrWhiteSpace(_previewTempPath) || !File.Exists(_previewTempPath))
+        {
+            MessageBox.Show(
+                "Could not load current live art for comparison. Check the game path and try again.",
+                "Floowan",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var liveIsOverframe = false;
+        var beforeMeta = "Current live art";
+        try
+        {
+            var info = _modService.GetTextureInfo(gamePath, card);
+            liveIsOverframe = CardArtModService.IsLiveOverFrameTexture(card.IsOverframe, info.Width, info.Height);
+            var (exportW, exportH) = CardArtTextureSizes.GetCardArtExportSize(info.Width, info.Height);
+            beforeMeta = liveIsOverframe
+                ? $"{CardArtTextureSizes.Describe(info.Width, info.Height)} (over-frame live)"
+                : CardArtTextureSizes.Describe(exportW, exportH);
+        }
+        catch (Exception ex)
+        {
+            beforeMeta = "Live size unavailable: " + ex.Message;
+        }
+
+        var afterValidation = ImagePreparation.Validate(image);
+        var afterMeta = afterValidation.IsValid
+            ? CardArtTextureSizes.Describe(afterValidation.Width, afterValidation.Height)
+            : "unreadable";
+        if (afterValidation.IsValid && !string.IsNullOrEmpty(afterValidation.Info))
+            afterMeta += " - " + afterValidation.Info;
+
+        var confirm = new CardArtConfirmWindow(
+            card.DisplayName,
+            _previewTempPath,
+            image,
+            beforeMeta,
+            afterMeta,
+            flattenBeforeFoilMask: liveIsOverframe)
+        {
+            Owner = this
+        };
+        if (confirm.ShowDialog() != true)
+        {
+            Status("Card art replace cancelled.");
+            return;
+        }
+
         SetUiBusy(true);
-        Status("Replacing card artโ€ฆ");
+        Status("Replacing card art...");
         try
         {
             // Always backup (same as Over-frame) so Replace stays reversible via Restore.
