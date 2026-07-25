@@ -28,12 +28,11 @@ public enum OverFrameComposeMode
 /// solid black matte. Game illusts are Cover-scaled into the real frame hole, then
 /// overflowed. Auto-create always fills the type-line strip under the art hole with
 /// foil art so it meets the cream lore panel with no chrome gap. Non-Pendulum
-/// (Effect-style) lore fill is vanilla cream cover only: a steep lore-top seam
-/// (<see cref="LoreTopSeamHeight"/>) fades cream in from transparent → 
-/// <see cref="TextBoxFrameOpacity"/>, then cream strengthens to opaque toward the
-/// lore bottom. Underlying art shows through where cream cover is low — no art-pixel
-/// smear, last-row clamp tint, or footprint underlay blend. Pendulum dual-lore keeps
-/// constant Mirrorjade soft transparency (no Effect cream-cover falloff).
+/// (Effect-style) lore fill is vanilla cream cover only: starts at
+/// <see cref="TextBoxFrameOpacity"/> (0.80) at the lore top and eases toward opaque
+/// cream at the lore bottom. Underlying art peeks through the soft cream — no
+/// fade-from-zero seam, art-pixel smear, or last-row clamp tint. Pendulum dual-lore
+/// keeps constant Mirrorjade soft transparency (no Effect cream-cover falloff).
 /// Out-of-bounds underlay samples are skipped (no vertical edge-smear). Overflow is
 /// hard-cut across the lore panel width (gold rim + cream stay clear). Left/right
 /// lore side wings keep frame chrome unless the rembg subject actually occupies
@@ -67,21 +66,12 @@ public static class OverFrameAutoArtComposer
     public const byte FoilMaskAlpha = 4;
 
     /// <summary>
-    /// Soft Mirrorjade cream cover after the lore-top seam fade-in (Effect) / constant
-    /// Pendulum blend. High enough that lore text stays readable; low enough that
-    /// underlying art shows through near the lore top. Effect cream cover then ramps
-    /// to fully opaque vanilla cream toward the lore bottom — cover is cream alpha only,
-    /// never an art-pixel smear / last-row tint.
+    /// Soft Mirrorjade cream cover at the Effect lore panel top (and constant Pendulum
+    /// blend). Lore top starts here immediately — never fades from 0. Effect cream then
+    /// ramps to fully opaque toward the lore bottom. Cover is vanilla cream only, never
+    /// an art-pixel smear / last-row tint.
     /// </summary>
     public const float TextBoxFrameOpacity = 0.80f;
-
-    /// <summary>
-    /// Steep but smooth vanilla-cream fade-in height (px) from the Effect lore panel top.
-    /// Cream cover starts near 0 (box fill transparent — underlying art shows through as-is)
-    /// and eases out to <see cref="TextBoxFrameOpacity"/> so the lore-top seam is not a hard
-    /// horizontal cut. Does not blend or repeat subject edge pixels.
-    /// </summary>
-    public const int LoreTopSeamHeight = 32;
 
     /// <summary>
     /// Soft→solid vanilla cream cover falloff height (px) matching Effect lore cream.
@@ -1677,10 +1667,10 @@ public static class OverFrameAutoArtComposer
     }
 
     /// <summary>
-    /// Effect lore vanilla cream cover at canvas row <paramref name="y"/> (0 = transparent
-    /// box fill, 1 = opaque cream). Steep seam from the lore top to
-    /// <see cref="TextBoxFrameOpacity"/>, then ease-out to solid cream at the lore bottom.
-    /// Independent of scaled-art footprint — not an underlay/smear gradient.
+    /// Effect lore vanilla cream cover at canvas row <paramref name="y"/>.
+    /// Starts at <see cref="TextBoxFrameOpacity"/> (0.80) at the lore top — never 0 —
+    /// then ease-out to opaque cream (1) at the lore bottom. Independent of scaled-art
+    /// footprint; not an underlay/smear gradient.
     /// </summary>
     public static float ComputeEffectLoreCreamCover(int y, Rectangle textBox)
     {
@@ -1688,23 +1678,13 @@ public static class OverFrameAutoArtComposer
             return 1f;
 
         var dy = y - textBox.Top;
-        if (dy < 0)
-            return 0f;
+        if (dy <= 0)
+            return TextBoxFrameOpacity;
         if (dy >= textBox.Height)
             return 1f;
 
-        // Steep cream fade-in at the panel top.
-        if (LoreTopSeamHeight > 0 && dy < LoreTopSeamHeight)
-        {
-            var tSeam = EaseOut01(dy / (float)LoreTopSeamHeight);
-            return TextBoxFrameOpacity * tSeam;
-        }
-
-        // After the seam: strengthen from soft Mirrorjade cover → opaque cream.
-        var afterSeam = Math.Max(0, dy - Math.Max(0, LoreTopSeamHeight));
-        var rest = Math.Max(1, textBox.Height - Math.Max(0, LoreTopSeamHeight));
-        var tRest = EaseOut01(Math.Clamp(afterSeam / (float)rest, 0f, 1f));
-        return TextBoxFrameOpacity + (1f - TextBoxFrameOpacity) * tRest;
+        var t = EaseOut01(dy / (float)textBox.Height);
+        return TextBoxFrameOpacity + (1f - TextBoxFrameOpacity) * t;
     }
 
     /// <summary>
