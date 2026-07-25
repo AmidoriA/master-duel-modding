@@ -327,24 +327,54 @@ CREATE TABLE card (
     }
 
     [Theory]
-    [InlineData(0x0D, 0x02, "Spell")]
-    [InlineData(0x4E, 0x02, "Trap")]
+    [InlineData(CardPropTypeDecoder.SpellFace, CardPropTypeDecoder.SpellTrapSecondary, "Spell")]
+    [InlineData(CardPropTypeDecoder.TrapFace, CardPropTypeDecoder.SpellTrapSecondary, "Trap")]
     [InlineData(0xAB, 0xD0, "Link")]
-    [InlineData(0x92, 0x61, "Synchro")]
-    [InlineData(0x12, 0x5D, "Synchro Pendulum")]
+    [InlineData(0x6B, 0xC0, "Link")]
+    // Synchro: SynchroXyzBit + family Normal/Effect/Tuner (not only legacy 0x92 / 0x12).
+    [InlineData(0x92, 0x61, "Synchro")] // Stardust Dragon
+    [InlineData(0x52, 0x60, "Synchro")] // Stardust Spark Dragon (was Effect)
+    [InlineData(0xD2, 0x58, "Synchro")] // Brionac (was Effect)
+    [InlineData(0x53, 0x48, "Synchro")] // Formula Synchron tuner (was Effect)
+    [InlineData(0x93, 0x54, "Synchro")] // Accel Synchron (was Effect)
+    [InlineData(0x51, 0x59, "Synchro")] // Gaia Knight (was Effect)
+    [InlineData(0x12, 0x5D, "Synchro")] // Black Rose / Nitro — plain Synchro, not pendulum
+    [InlineData(0xA4, 0x68, "Synchro Pendulum")] // Nirvana High Paladin (was Link)
+    // Xyz: SynchroXyzBit + family Normal/Effect (includes previously missed 0x17/0xD7).
     [InlineData(0x57, 0x90, "Xyz")]
-    [InlineData(0x42, 0x70, "Fusion")]
-    [InlineData(0x83, 0x5D, "Fusion Pendulum")]
+    [InlineData(0x97, 0x90, "Xyz")]
+    [InlineData(0xD7, 0x80, "Xyz")] // Bahamut Shark (was Effect)
+    [InlineData(0x17, 0x70, "Xyz")] // Evolzar Laggia (was Effect)
+    [InlineData(0x56, 0x90, "Xyz")] // Gem-Knight Pearl (was Effect)
+    [InlineData(0xA2, 0x70, "Xyz Pendulum")] // Odd-Eyes Rebellion (was Link)
+    [InlineData(CardPropTypeDecoder.FusionFaceA, 0x70, "Fusion")]
+    [InlineData(CardPropTypeDecoder.FusionPendulumFace, 0x5D, "Fusion Pendulum")]
+    [InlineData(0xA9, 0x70, "Fusion Pendulum")] // Z-ARC (was Link)
     [InlineData(0x85, 0x44, "Ritual")]
-    [InlineData(0x9A, 0x5C, "Effect Pendulum")]
-    [InlineData(0x59, 0x55, "Normal Pendulum")]
-    [InlineData(0x4A, 0x45, "Token")]
-    [InlineData(0x40, 0x60, "Normal")]
+    [InlineData(0x45, 0x50, "Ritual")] // Cyber Angel Benten (was Effect)
+    [InlineData(0xC5, 0x50, "Ritual")] // Evigishki (was Effect)
+    [InlineData(0xA6, 0x60, "Ritual Pendulum")] // Shinobaron (was Link)
+    [InlineData(CardPropTypeDecoder.EffectPendulumFace, 0x5C, "Effect Pendulum")]
+    [InlineData(CardPropTypeDecoder.NormalPendulumFaceA, 0x55, "Normal Pendulum")]
+    [InlineData(CardPropTypeDecoder.SheepTokenFace, 0x45, "Token")]
+    [InlineData(CardPropTypeDecoder.NormalMonsterFace, 0x60, "Normal")]
     [InlineData(0x80, 0x5C, "Effect")]
     [InlineData(0x10, 0x4D, "Effect")]
+    [InlineData(0x50, 0x4D, "Effect")] // Effect Veiler — must not become Synchro
     public void CardPropTypeDecoder_InfersKnownFaces(byte typeByte, byte typeByte2, string expected)
     {
         Assert.Equal(expected, CardPropTypeDecoder.InferLabel(typeByte, typeByte2));
+    }
+
+    [Fact]
+    public void CardPropTypeDecoder_SpecialSummonFaces_WinOverEffectFallback()
+    {
+        // Same secondary byte as many Effect monsters — special masks must still win.
+        const byte typeByte2 = 0x5C;
+        Assert.Equal("Synchro", CardPropTypeDecoder.InferLabel(0x52, typeByte2));
+        Assert.Equal("Xyz", CardPropTypeDecoder.InferLabel(0xD7, typeByte2));
+        Assert.Equal("Ritual", CardPropTypeDecoder.InferLabel(0x45, typeByte2));
+        Assert.Equal("Effect", CardPropTypeDecoder.InferLabel(0x80, typeByte2));
     }
 
     [Fact]
@@ -353,11 +383,11 @@ CREATE TABLE card (
         var prop = new byte[8 + 16];
         prop[8] = 0x39; // 12345
         prop[9] = 0x30;
-        prop[10] = 0x0D;
-        prop[11] = 0x02;
+        prop[10] = CardPropTypeDecoder.SpellFace;
+        prop[11] = CardPropTypeDecoder.SpellTrapSecondary;
         prop[16] = 0x02;
         prop[17] = 0x00;
-        prop[18] = 0x40;
+        prop[18] = CardPropTypeDecoder.NormalMonsterFace;
         prop[19] = 0x60;
         var entries = CardPropTypeDecoder.ParseEntries(prop);
         Assert.Equal(2, entries.Count);
