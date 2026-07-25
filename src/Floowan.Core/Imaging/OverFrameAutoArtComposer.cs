@@ -49,7 +49,7 @@ public enum OverFrameComposeMode
 /// the subject source and does <em>not</em> auto-punch or soft-fill the art–lore gap
 /// (type-line strip, side wings, dark margins) — frame chrome stays there unless the
 /// subject silhouette occupies those pixels. Optional <c>background</c> Cover-fills
-/// the art hole only (Cover ×1–×2 with H/V pan; clipped to the frame interior). Stack:
+/// the art hole only (Cover ×1–×4 with H/V pan; clipped to the frame interior). Stack:
 /// Background → Card Frame → Card Art (subject) → Lore (soft where subject covers).
 /// Custom OF also allows subject punch on the dark bottom frame margin below the lore
 /// cream (Effect etc.); Auto-create keeps that strip as opaque chrome.
@@ -226,9 +226,9 @@ public static class OverFrameAutoArtComposer
     public const float BackgroundScaleMin = 1.0f;
 
     /// <summary>
-    /// Maximum Cover background scale for Custom OF (slider ×2).
+    /// Maximum Cover background scale for Custom OF (slider ×4).
     /// </summary>
-    public const float BackgroundScaleMax = 2.0f;
+    public const float BackgroundScaleMax = 4.0f;
 
     /// <summary>
     /// Thrown when rembg finds pixels but the placed silhouette never leaves the
@@ -1355,7 +1355,7 @@ public static class OverFrameAutoArtComposer
     /// <summary>
     /// Custom OF lowest layer: Cover-scale <paramref name="background"/> into the art
     /// hole only (CSS <c>object-fit: cover</c>), then multiply by
-    /// <paramref name="backgroundScale"/> (×1–×2). Optional
+    /// <paramref name="backgroundScale"/> (×1–×4). Optional
     /// <paramref name="backgroundOffsetX"/> / <paramref name="backgroundOffsetY"/> pan
     /// within the overflow of the scaled image vs the hole (clamped so the hole stays
     /// fully covered). Never writes outside <paramref name="artWindow"/> — no type-line,
