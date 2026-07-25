@@ -32,15 +32,14 @@ public enum OverFrameComposeMode
 /// text box; lore past the footprint stays solid frame cream. Soft→solid is mild
 /// while still overlapping the scaled-art footprint (upper lore near art stays
 /// see-through), then eases more aggressively from the footprint bottom to lore
-/// bottom so busy underlay / beams are covered. Footprint exit is also feathered
-/// over <see cref="LoreArtUnderlayBlendRadius"/>. Pendulum dual-lore keeps constant
-/// Mirrorjade soft transparency (no Effect lore-top gradient / falloff).
-/// Out-of-bounds underlay samples are skipped (no vertical edge-smear); Effect
-/// past-footprint tint uses a pre-paint snap. Overflow is hard-cut across the lore
-/// panel width (gold rim + cream stay clear). Left/right lore side wings keep frame
-/// chrome unless the rembg subject actually occupies those pixels. Pendulum faces
-/// additionally allow subject punch on the outer green side borders and bottom
-/// green strip (subject-gated only).
+/// bottom so busy underlay / beams are covered. Past the scaled-art footprint,
+/// lore is exact cream (no clamp-to-edge last-row tint). Pendulum dual-lore keeps
+/// constant Mirrorjade soft transparency (no Effect lore-top gradient / falloff).
+/// Out-of-bounds underlay samples are skipped (no vertical edge-smear). Overflow is
+/// hard-cut across the lore panel width (gold rim + cream stay clear). Left/right
+/// lore side wings keep frame chrome unless the rembg subject actually occupies
+/// those pixels. Pendulum faces additionally allow subject punch on the outer green
+/// side borders and bottom green strip (subject-gated only).
 /// Auto-create (<see cref="OverFrameComposeMode.AutoFoilAndSubject"/>): if the rembg
 /// silhouette does not overframe the art hole on any side, compose fails with
 /// <see cref="CannotDetectSubjectMessage"/> (no flat in-frame OF). Custom OF
@@ -91,19 +90,15 @@ public static class OverFrameAutoArtComposer
     /// Soft→solid lore cream vertical falloff height (px) from the lore box top for
     /// Effect-style cream only (<see cref="EffectLoreCream"/>) when scaled art covers the
     /// full lore (no past-art segment). Soft art shows near the top; cream is solid
-    /// toward the lower lore. Pendulum dual-lore does not use this falloff. Uncovered
-    /// Effect lore farther than <see cref="LoreArtUnderlayBlendRadius"/> past the scaled
-    /// footprint is exact frame cream — no rembg / clamp edge-smear tint outside the
-    /// feather band.
+    /// toward the lower lore. Pendulum dual-lore does not use this falloff. Lore past the
+    /// scaled-art footprint is exact frame cream (no rembg / clamp edge-smear tint).
     /// </summary>
     public const int LoreArtUnderlayBlendHeight = 196;
 
     /// <summary>
-    /// Soft→solid lore cream feather width (px) past the scaled-art footprint.
-    /// Matches Effect cream height so footprint exit cannot form a hard horizontal seam
-    /// inside the box; vertical falloff still drives lower lore to exact cream.
-    /// Edge-art tint for the feather comes from a pre-paint underlay snapshot
-    /// (no foil underlay write / no vertical smear).
+    /// Matches <see cref="EffectLoreCream"/> height. Retained for layout assertions;
+    /// past-footprint lore no longer edge-tints over this radius (clamp sampling caused
+    /// vertical subject-pixel streaks).
     /// </summary>
     public const int LoreArtUnderlayBlendRadius = 196;
 
@@ -1619,10 +1614,11 @@ public static class OverFrameAutoArtComposer
     /// Paints the lore panel. When <paramref name="applyEffectLoreGradient"/> is true
     /// (non-Pendulum), soft Mirrorjade where the scaled art footprint covers the pixel,
     /// with frame opacity from <see cref="ComputeEffectLoreSolidProgress"/> (mild over
-    /// art, stronger cream ramp past the footprint bottom) and footprint presence
-    /// feathered over <see cref="LoreArtUnderlayBlendRadius"/>. When false (Pendulum),
-    /// constant <see cref="TextBoxFrameOpacity"/> Mirrorjade soft where art underlays;
-    /// solid cream where uncovered — no lore-top falloff / footprint feather.
+    /// art, stronger cream ramp past the footprint bottom). Outside the footprint paints
+    /// exact cream — never clamp-samples the last art row/column (that vertically
+    /// smeared subject edge pixels through the lore). When false (Pendulum), constant
+    /// <see cref="TextBoxFrameOpacity"/> Mirrorjade soft where art underlays; solid cream
+    /// where uncovered — no lore-top falloff.
     /// Never uses the rembg cutout (hard sleeve/panel edges caused vertical-line glitches).
     /// Skips <paramref name="occupied"/> pixels so Pendulum green side chrome that sits
     /// inside the lore cream rect can still be punched by the subject silhouette.
@@ -1647,32 +1643,8 @@ public static class OverFrameAutoArtComposer
             return;
         }
 
-        // Soft→solid spans the painted lore rect (Effect cream height).
-        // Footprint feather is at least that tall so underlay presence cannot cliff
-        // mid-box; vertical falloff still reaches exact cream at the lore bottom.
         var blendHeight = Math.Max(1, textBox.Height);
-        var radius = Math.Max(LoreArtUnderlayBlendRadius, blendHeight);
-        var artRight = bgX + scaledSourceW;
         var artBottom = bgY + scaledSourceH;
-
-        // Snapshot foil underlay before overwriting with cream chrome so the
-        // soft→solid feather past the footprint can still tint from edge art.
-        using var underlaySnap = new Image<Rgba32>(textBox.Width, textBox.Height);
-        for (var y = 0; y < textBox.Height; y++)
-        {
-            var srcY = textBox.Top + y;
-            if ((uint)srcY >= (uint)canvas.Height)
-                continue;
-            var srcRow = canvas.DangerousGetPixelRowMemory(srcY).Span;
-            var snapRow = underlaySnap.DangerousGetPixelRowMemory(y).Span;
-            for (var x = 0; x < textBox.Width; x++)
-            {
-                var srcX = textBox.Left + x;
-                if ((uint)srcX >= (uint)canvas.Width)
-                    continue;
-                snapRow[x] = srcRow[srcX];
-            }
-        }
 
         for (var y = textBox.Top; y < textBox.Bottom && y < canvas.Height; y++)
         {
@@ -1685,6 +1657,7 @@ public static class OverFrameAutoArtComposer
             var sy = y - bgY;
             var tVert = ComputeEffectLoreSolidProgress(y, textBox, artBottom, blendHeight);
             var verticalFrameOpacity = TextBoxFrameOpacity + (1f - TextBoxFrameOpacity) * tVert;
+            var rowHasArtUnderlay = (uint)sy < (uint)scaledSourceH;
             for (var x = x0; x < x1; x++)
             {
                 if (occupied != null && occupied[rowOffset + x])
@@ -1695,64 +1668,26 @@ public static class OverFrameAutoArtComposer
                     continue;
 
                 var sx = x - bgX;
-                var inFootprint = (uint)sy < (uint)scaledSourceH && (uint)sx < (uint)scaledSourceW;
-
-                float presence;
-                Rgba32 art;
-                if (inFootprint)
+                var inFootprint = rowHasArtUnderlay && (uint)sx < (uint)scaledSourceW;
+                if (!inFootprint)
                 {
-                    art = dstRow[x];
-                    // Cleared lore / transparent source sample: no Mirrorjade underlay.
-                    if (art.A == 0)
-                    {
-                        dstRow[x] = fp;
-                        continue;
-                    }
-
-                    presence = 1f;
-                }
-                else
-                {
-                    // Chebyshev distance outside the scaled footprint.
-                    var dx = sx < 0 ? -sx : (sx >= scaledSourceW ? sx - (scaledSourceW - 1) : 0);
-                    var dy = sy < 0 ? -sy : (sy >= scaledSourceH ? sy - (scaledSourceH - 1) : 0);
-                    var distOutside = Math.Max(dx, dy);
-                    if (distOutside >= radius)
-                    {
-                        dstRow[x] = fp;
-                        continue;
-                    }
-
-                    var tOut = distOutside / (float)radius;
-                    tOut = Smoothstep01(tOut);
-                    presence = 1f - tOut;
-
-                    // Cream-tint only: nearest in-footprint underlay from the pre-paint snap.
-                    var sampleX = Math.Clamp(x, bgX, artRight - 1);
-                    var sampleY = Math.Clamp(y, bgY, artBottom - 1);
-                    var snapX = sampleX - textBox.Left;
-                    var snapY = sampleY - textBox.Top;
-                    if ((uint)snapX >= (uint)underlaySnap.Width ||
-                        (uint)snapY >= (uint)underlaySnap.Height)
-                    {
-                        dstRow[x] = fp;
-                        continue;
-                    }
-
-                    art = underlaySnap.DangerousGetPixelRowMemory(snapY).Span[snapX];
-                    if (art.A == 0)
-                    {
-                        dstRow[x] = fp;
-                        continue;
-                    }
+                    // Exact cream past the scaled footprint — do not clamp-sample the
+                    // last art row (vertical subject-pixel streaks in the lore box).
+                    dstRow[x] = fp;
+                    continue;
                 }
 
-                // Vertical falloff × footprint presence: underlay flip is continuous.
-                var artOpacity = (1f - verticalFrameOpacity) * presence;
-                var frameOpacity = 1f - artOpacity;
-                dstRow[x] = frameOpacity >= 1f - 1e-5f
+                var art = dstRow[x];
+                // Cleared lore / transparent source sample: no Mirrorjade underlay.
+                if (art.A == 0)
+                {
+                    dstRow[x] = fp;
+                    continue;
+                }
+
+                dstRow[x] = verticalFrameOpacity >= 1f - 1e-5f
                     ? fp
-                    : BlendFrameOverArt(art, fp, frameOpacity);
+                    : BlendFrameOverArt(art, fp, verticalFrameOpacity);
             }
         }
     }
