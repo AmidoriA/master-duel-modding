@@ -10,24 +10,29 @@ namespace Floowan.Core.Imaging;
 /// rim, and lore cream intact so Mirrorjade soft lore compose
 /// (<see cref="OverFrameAutoArtComposer.TextBoxFrameOpacity"/>) continues to work.
 /// <para>
-/// Color intent (user feedback on PR #57): official OF rims are <em>not</em> white
-/// brightness gradients. Linkage is teal/seafoam with rainbow shimmer (pink, yellow,
-/// purple, cyan). Magician of Black Chaos uses cyan/teal corner light. Chaos Soldier
-/// shafts stay chromatic pale blue — never pure white screen.
-/// Multi-hue is produced by sampling a type-specific HSV stop table from the perimeter
-/// angle (atan2 from canvas center) and keeping chroma; no white screen-blend.
+/// Color: Linkage-style teal/seafoam with rainbow shimmer (perimeter-angle HSV stops);
+/// Magician cyan/teal corners; Chaos Soldier chromatic pale-blue shafts — not white glow.
+/// </para>
+/// <para>
+/// Width (PR #57): iridescence is constrained to the solid template's outer chrome band
+/// (~<see cref="OuterRimPx"/> px from the canvas edge, measured ~26–28px on MD
+/// <c>card_frame*</c>). Inner plate chrome (name bar / type body) is left alone so the
+/// visual border footprint matches normal Effect/Spell/etc. frames.
 /// </para>
 /// </summary>
 public static class OfGradientBorderComposer
 {
-    /// <summary>Outer rim band (px from canvas edge) where iridescence is strongest.</summary>
-    public const int OuterRimPx = 64;
+    /// <summary>
+    /// Outer chrome thickness matching solid MD frames (left rim ends ~x=26–28 before
+    /// type-colored plate). Iridescence only applies inside this band from any edge.
+    /// </summary>
+    public const int OuterRimPx = 28;
 
-    /// <summary>Side light-shaft width (Chaos Soldier–style chromatic vertical glow).</summary>
-    public const int LightShaftPx = 78;
+    /// <summary>Side shaft width — capped to the same outer chrome band as the rim.</summary>
+    public const int LightShaftPx = 28;
 
-    /// <summary>Corner radial glow radius (Magician of Black Chaos–style cyan/teal).</summary>
-    public const float CornerRadiusPx = 190f;
+    /// <summary>Corner glow radius — kept tight so corners don't bloom into the plate.</summary>
+    public const float CornerRadiusPx = 56f;
 
     /// <summary>
     /// Builds an OF-gradient frame from a solid template. Caller owns the returned image.
@@ -72,16 +77,23 @@ public static class OfGradientBorderComposer
                 if (LooksLikeGoldRim(src, artWindow, loreCream, x, y))
                     continue;
 
+                // Only recolor the solid template's outer chrome band — same footprint
+                // as normal Effect/Spell borders. Inner plate chrome stays untouched.
                 var edgeDist = MinEdgeDistance(x, y, w, h);
+                if (edgeDist >= OuterRimPx)
+                    continue;
+
                 var rimT = EaseOut01(1f - Math.Clamp(edgeDist / (float)OuterRimPx, 0f, 1f));
                 var shaftT = SideLightShaftStrength(x, w) * palette.ShaftBoost;
                 var cornerT = CornerGlowStrength(x, y, w, h) * palette.CornerBoost;
-                var marginT = Math.Clamp(rimT * 0.55f + shaftT * 0.55f + cornerT * 0.45f, 0f, 1f);
+                // Corners/shafts must not pull pixels outside the outer chrome band.
+                var bandGate = rimT; // 1 at edge → 0 at OuterRimPx
+                shaftT *= bandGate;
+                cornerT *= bandGate;
+                var marginT = Math.Clamp(0.40f * rimT + 0.35f * shaftT + 0.35f * cornerT, 0f, 1f);
 
-                var mix = Math.Clamp(
-                    palette.BodyTint + (1f - palette.BodyTint) * marginT * palette.ReplaceBoost,
-                    0f,
-                    0.97f);
+                // No BodyTint on the plate — mix is purely from outer-band strength.
+                var mix = Math.Clamp(marginT * palette.ReplaceBoost, 0f, 0.95f);
                 if (mix < 0.08f)
                     continue;
 
