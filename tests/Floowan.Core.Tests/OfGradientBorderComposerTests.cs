@@ -89,8 +89,16 @@ public class OfGradientBorderComposerTests
         var derivedCorner = derived[6, 6];
         var solidLum = solidCorner.R + solidCorner.G + solidCorner.B;
         var derivedLum = derivedCorner.R + derivedCorner.G + derivedCorner.B;
-        Assert.True(derivedLum > solidLum + 40,
-            $"outer rim should brighten ({solidLum} → {derivedLum})");
+        Assert.True(derivedLum > solidLum + 80,
+            $"outer rim should brighten substantially ({solidLum} → {derivedLum})");
+
+        // Mid-side margin should also lift (light shafts / teal rim), not stay muddy.
+        var solidSide = solid[18, solid.Height / 2];
+        var derivedSide = derived[18, derived.Height / 2];
+        var solidSideLum = solidSide.R + solidSide.G + solidSide.B;
+        var derivedSideLum = derivedSide.R + derivedSide.G + derivedSide.B;
+        Assert.True(derivedSideLum > solidSideLum + 40,
+            $"side margin should brighten ({solidSideLum} → {derivedSideLum})");
     }
 
     [Fact]
