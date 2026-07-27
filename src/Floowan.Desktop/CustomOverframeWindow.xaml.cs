@@ -131,12 +131,14 @@ public partial class CustomOverframeWindow : Window
 
     private void SelectFrameStyle(CardFrameStyle style)
     {
+        // Dropdown lists solid type names only; OF compose maps to OfGradient*.
+        var solid = CardFrameTemplates.GetSolidBaseStyle(style);
         for (var i = 0; i < FrameStyleBox.Items.Count; i++)
         {
             if (FrameStyleBox.Items[i] is ComboBoxItem item
                 && item.Tag is string tag
                 && Enum.TryParse<CardFrameStyle>(tag, out var parsed)
-                && parsed == style)
+                && parsed == solid)
             {
                 FrameStyleBox.SelectedIndex = i;
                 return;
@@ -154,16 +156,19 @@ public partial class CustomOverframeWindow : Window
         await RefreshLinkMarkersForFrameAsync(GetSelectedFrameStyle());
     }
 
+    /// <summary>
+    /// Frame style for OF compose — always the OfGradient* equivalent of the dropdown selection.
+    /// </summary>
     private CardFrameStyle GetSelectedFrameStyle()
     {
         if (FrameStyleBox.SelectedItem is ComboBoxItem item
             && item.Tag is string tag
             && Enum.TryParse<CardFrameStyle>(tag, out var selected))
         {
-            return selected;
+            return CardFrameTemplates.ToOfGradientStyle(selected);
         }
 
-        return CardFrameStyle.Effect;
+        return CardFrameTemplates.ToOfGradientStyle(CardFrameStyle.Effect);
     }
 
     private async Task RefreshLinkMarkersForFrameAsync(CardFrameStyle frameStyle)
@@ -816,7 +821,7 @@ public partial class CustomOverframeWindow : Window
                 SyncBackgroundPanSliderRanges();
                 await ShowBackgroundOnlyPreviewAsync();
                 StatusText.Text =
-                    $"Background preview ({GetSelectedFrameStyle()}). Pick a subject…";
+                    $"Background preview ({CardTypeLabels.ToLabel(CardFrameTemplates.GetSolidBaseStyle(GetSelectedFrameStyle()))}). Pick a subject…";
             }
             catch (Exception ex)
             {
@@ -842,7 +847,7 @@ public partial class CustomOverframeWindow : Window
             SyncBackgroundPanSliderRanges();
             await RecomposePreviewAsync();
             StatusText.Text =
-                $"Preview updated ({GetSelectedFrameStyle()}). Drag or scale the art, then Apply.";
+                $"Preview updated ({CardTypeLabels.ToLabel(CardFrameTemplates.GetSolidBaseStyle(GetSelectedFrameStyle()))}). Drag or scale the art, then Apply.";
         }
         catch (Exception ex)
         {
