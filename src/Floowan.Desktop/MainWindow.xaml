@@ -211,6 +211,9 @@
                 <WrapPanel Margin="0,8,0,0">
                   <Button Content="Custom overframe art" Click="OfCustomOverframeArt_Click"/>
                   <Button Content="Enable gate only" Click="OfEnableGate_Click"/>
+                  <Button Content="Force disable gate"
+                          Click="OfForceDisableGate_Click"
+                          ToolTip="Remove this card's art-id from of_card_asset so the game no longer treats it as over-framed. Does not restore the card texture — use Restore backups for that."/>
                 </WrapPanel>
               </Expander>
               <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
