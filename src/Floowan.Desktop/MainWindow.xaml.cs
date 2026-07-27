@@ -1889,6 +1889,59 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void OfForceDisableGate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_overFrameService is null || _ofSelected is null)
+        {
+            MessageBox.Show("Select a card first.", "Floowan");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(GamePathBox.Text))
+        {
+            MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
+            return;
+        }
+
+        if (!_ofGateReady)
+            await EnsureOfGateAsync(showErrors: true);
+        if (!_ofGateReady)
+            return;
+
+        var card = _ofSelected;
+        var confirm = MessageBox.Show(
+            $"Force-disable the of_card_asset gate for '{card.DisplayName}'?\n\n" +
+            "This removes the card's art-id from the gate so Master Duel no longer treats it as over-framed. " +
+            "It does not restore the card texture — use Restore backups for that.\n\n" +
+            "Other cards' gate entries are left alone.",
+            "Floowan",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes)
+            return;
+
+        var gamePath = GamePathBox.Text;
+        SetUiBusy(true);
+        Status("Force-disabling of_card_asset gate…");
+        try
+        {
+            var result = await Task.Run(() =>
+                _overFrameService.RemoveFromGate(gamePath, card, createBackup: true, _database));
+            Status(result.Message);
+            MessageBox.Show(result.Message, "Floowan",
+                MessageBoxButton.OK,
+                result.Success ? MessageBoxImage.Information : MessageBoxImage.Error);
+            if (result.Success)
+            {
+                RunOfSearch();
+                ReselectOfCard(card.Id);
+            }
+        }
+        finally
+        {
+            SetUiBusy(false);
+        }
+    }
+
     private async void OfRestore_Click(object sender, RoutedEventArgs e)
     {
         if (_overFrameService is null || _ofSelected is null || string.IsNullOrWhiteSpace(GamePathBox.Text))
