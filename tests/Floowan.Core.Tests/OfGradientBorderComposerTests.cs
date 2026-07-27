@@ -152,4 +152,50 @@ public class OfGradientBorderComposerTests
         Assert.True(p.A > OverFrameAutoArtComposer.VisibleAlphaThreshold);
         Assert.NotEqual(OverFrameAutoArtComposer.FoilMaskAlpha, p.A);
     }
+
+    [Fact]
+    public void NonEffectTypes_MatchEffectRimLuminosityIntensity()
+    {
+        Assert.Equal(28, OfGradientBorderComposer.OuterRimPx);
+        Assert.Equal(28, OfGradientBorderComposer.LightShaftPx);
+
+        using var effect = CardFrameTemplates.Load(CardFrameStyle.OfGradientEffect);
+        using var spell = CardFrameTemplates.Load(CardFrameStyle.OfGradientSpell);
+        using var trap = CardFrameTemplates.Load(CardFrameStyle.OfGradientTrap);
+        using var ritual = CardFrameTemplates.Load(CardFrameStyle.OfGradientRitual);
+
+        static double MeanRimV(Image<Rgba32> img)
+        {
+            double sum = 0;
+            var n = 0;
+            for (var y = 0; y < img.Height; y++)
+            for (var x = 0; x < img.Width; x++)
+            {
+                var d = Math.Min(Math.Min(x, img.Width - 1 - x), Math.Min(y, img.Height - 1 - y));
+                if (d >= OfGradientBorderComposer.OuterRimPx)
+                    continue;
+                var p = img[x, y];
+                if (p.A < 200)
+                    continue;
+                sum += Math.Max(p.R, Math.Max(p.G, p.B)) / 255.0;
+                n++;
+            }
+
+            return sum / Math.Max(1, n);
+        }
+
+        var effectV = MeanRimV(effect);
+        foreach (var (name, frame) in new (string, Image<Rgba32>)[]
+                 {
+                     ("Spell", spell),
+                     ("Trap", trap),
+                     ("Ritual", ritual),
+                 })
+        {
+            var v = MeanRimV(frame);
+            Assert.True(
+                v >= effectV - 0.08,
+                $"{name} rim V mean {v:F3} should match Effect intensity ({effectV:F3})");
+        }
+    }
 }
