@@ -5,25 +5,28 @@ using SixLabors.ImageSharp.PixelFormats;
 namespace Floowan.Core.Imaging;
 
 /// <summary>
-/// Derives official-OF-style frame templates with a bright gradient / light-leak outer
-/// rim from the solid <c>card_frame*</c> PNGs. Keeps the transparent art window, gold art
+/// Derives official-OF-style frame templates with <b>multi-hue iridescent</b> outer
+/// borders from solid <c>card_frame*</c> PNGs. Keeps the transparent art window, gold art
 /// rim, and lore cream intact so Mirrorjade soft lore compose
 /// (<see cref="OverFrameAutoArtComposer.TextBoxFrameOpacity"/>) continues to work.
 /// <para>
-/// Visual target (sampled from official OF screenshots): Linkage teal/seafoam + holo grid
-/// + iridescent shimmer; Magician of Black Chaos cyan corner leaks over deeper blue-grey
-/// edges; Chaos Soldier pale blue/white vertical light shafts on the L/R margins.
+/// Color intent (user feedback on PR #57): official OF rims are <em>not</em> white
+/// brightness gradients. Linkage is teal/seafoam with rainbow shimmer (pink, yellow,
+/// purple, cyan). Magician of Black Chaos uses cyan/teal corner light. Chaos Soldier
+/// shafts stay chromatic pale blue — never pure white screen.
+/// Multi-hue is produced by sampling a type-specific HSV stop table from the perimeter
+/// angle (atan2 from canvas center) and keeping chroma; no white screen-blend.
 /// </para>
 /// </summary>
 public static class OfGradientBorderComposer
 {
-    /// <summary>Outer rim band (px from canvas edge) with strongest light leak.</summary>
+    /// <summary>Outer rim band (px from canvas edge) where iridescence is strongest.</summary>
     public const int OuterRimPx = 64;
 
-    /// <summary>Side light-shaft width (Chaos Soldier–style pale vertical glow).</summary>
+    /// <summary>Side light-shaft width (Chaos Soldier–style chromatic vertical glow).</summary>
     public const int LightShaftPx = 78;
 
-    /// <summary>Corner radial glow radius (Magician of Black Chaos–style).</summary>
+    /// <summary>Corner radial glow radius (Magician of Black Chaos–style cyan/teal).</summary>
     public const float CornerRadiusPx = 190f;
 
     /// <summary>
@@ -48,6 +51,8 @@ public static class OfGradientBorderComposer
         var result = solidFrame.Clone();
         var w = result.Width;
         var h = result.Height;
+        var cx = (w - 1) * 0.5f;
+        var cy = (h - 1) * 0.5f;
 
         for (var y = 0; y < h; y++)
         {
@@ -61,11 +66,9 @@ public static class OfGradientBorderComposer
                 if (artWindow.Contains(x, y))
                     continue;
 
-                // Lore cream / mint stay vanilla for Mirrorjade soft underlay.
                 if (loreCream.Contains(x, y) && LooksLikeLoreCream(src))
                     continue;
 
-                // Preserve warm gold art-window / lore rims.
                 if (LooksLikeGoldRim(src, artWindow, loreCream, x, y))
                     continue;
 
@@ -73,31 +76,23 @@ public static class OfGradientBorderComposer
                 var rimT = EaseOut01(1f - Math.Clamp(edgeDist / (float)OuterRimPx, 0f, 1f));
                 var shaftT = SideLightShaftStrength(x, w) * palette.ShaftBoost;
                 var cornerT = CornerGlowStrength(x, y, w, h) * palette.CornerBoost;
-                // How "outer margin" this chrome is (vs recessed name-bar plate).
                 var marginT = Math.Clamp(rimT * 0.55f + shaftT * 0.55f + cornerT * 0.45f, 0f, 1f);
-                var bodyTint = palette.BodyTint;
 
-                // Near-full replacement on the outer rim / shafts / corners; milder on
-                // inner plate chrome so name-bar structure stays readable.
                 var mix = Math.Clamp(
-                    bodyTint + (1f - bodyTint) * marginT * palette.ReplaceBoost,
+                    palette.BodyTint + (1f - palette.BodyTint) * marginT * palette.ReplaceBoost,
                     0f,
                     0.97f);
                 if (mix < 0.08f)
                     continue;
 
-                var target = SampleLuminousColor(palette, x, y, w, h, rimT, shaftT, cornerT);
+                // Perimeter angle drives multi-hue (Linkage rainbow along the rim).
+                var angle01 = PerimeterAngle01(x, y, cx, cy);
+                var target = SampleIridescentColor(palette, angle01, rimT, shaftT, cornerT, x, y);
+
                 var outPix = LerpRgb(src, target, mix);
 
-                // Soft screen-style glow (capped) — brightens without clipping to pure white.
-                var glow = 0.06f * rimT + 0.10f * Math.Clamp(cornerT, 0f, 1f) + 0.07f * Math.Clamp(shaftT, 0f, 1f);
-                outPix = ScreenTowardWhite(outPix, glow);
-
                 if (palette.UseHoloGrid)
-                    outPix = ApplyHoloGrid(outPix, x, y, marginT);
-
-                if (palette.UseIridescence)
-                    outPix = ApplyIridescence(outPix, x, y, w, h, marginT);
+                    outPix = ApplyHoloGrid(outPix, x, y, marginT, angle01);
 
                 row[x] = outPix;
             }
@@ -132,235 +127,321 @@ public static class OfGradientBorderComposer
         return written;
     }
 
-    /// <param name="BodyTint">Minimum mix toward OF color even on inner plate chrome.</param>
-    /// <param name="ReplaceBoost">Scales margin replacement (1 = full; &gt;1 clamps).</param>
-    /// <param name="ShaftBoost">Emphasize Chaos Soldier–style L/R shafts.</param>
-    /// <param name="CornerBoost">Emphasize Magician of Black Chaos corner leaks.</param>
+    /// <summary>HSV stop: H in degrees [0,360), S/V in [0,1].</summary>
+    private readonly record struct HueStop(float H, float S, float V);
+
+    /// <param name="BodyTint">Minimum mix toward OF color on inner plate chrome.</param>
+    /// <param name="ReplaceBoost">Scales margin replacement.</param>
+    /// <param name="ShaftBoost">Emphasize L/R chromatic shafts.</param>
+    /// <param name="CornerBoost">Emphasize corner chromatic leaks.</param>
+    /// <param name="ShimmerAmount">How hard perimeter angle hues mix onto the rim (Spell high).</param>
     private readonly record struct BorderPalette(
-        Rgba32 Edge,
         Rgba32 Mid,
-        Rgba32 HotCorner,
-        Rgba32 Shaft,
-        Rgba32 IridescentA,
-        Rgba32 IridescentB,
+        HueStop[] Stops,
         bool UseHoloGrid,
-        bool UseIridescence,
         float BodyTint,
         float ReplaceBoost,
         float ShaftBoost,
-        float CornerBoost);
+        float CornerBoost,
+        float ShimmerAmount);
 
     private static BorderPalette ResolvePalette(CardFrameStyle baseStyle) => baseStyle switch
     {
-        // Linkage OF — bright seafoam/teal rim, warm iridescent corners, fine holo grid.
-        // Rim samples from official screenshot lean ~ (160–220, 170–220, 160–200).
+        // Linkage — teal/seafoam base + full rainbow shimmer (sampled perimeter hues).
         CardFrameStyle.Spell => new(
-            Edge: new Rgba32(168, 235, 220, 255),
-            Mid: new Rgba32(36, 150, 155, 255),
-            HotCorner: new Rgba32(255, 210, 175, 255),
-            Shaft: new Rgba32(200, 250, 240, 255),
-            IridescentA: new Rgba32(255, 190, 210, 255),
-            IridescentB: new Rgba32(210, 230, 120, 255),
+            Mid: new Rgba32(28, 130, 135, 255),
+            Stops:
+            [
+                new(175f, 0.72f, 0.78f), // cyan-teal
+                new(155f, 0.65f, 0.82f), // seafoam
+                new(195f, 0.45f, 0.80f), // soft cyan
+                new(280f, 0.35f, 0.78f), // purple shimmer
+                new(330f, 0.40f, 0.85f), // pink
+                new(45f, 0.45f, 0.88f),  // warm yellow
+                new(150f, 0.70f, 0.70f), // green-teal
+                new(185f, 0.55f, 0.75f), // aqua
+            ],
             UseHoloGrid: true,
-            UseIridescence: true,
-            BodyTint: 0.38f,
-            ReplaceBoost: 1.10f,
-            ShaftBoost: 1.00f,
-            CornerBoost: 1.10f),
+            BodyTint: 0.36f,
+            ReplaceBoost: 1.08f,
+            ShaftBoost: 0.95f,
+            CornerBoost: 1.05f,
+            ShimmerAmount: 0.92f),
 
-        // Magician of Black Chaos OF — luminous cyan corners over deeper blue-grey edges.
+        // Magician of Black Chaos — cyan/teal corners, deeper blue mid (colored, not white).
         CardFrameStyle.Ritual or CardFrameStyle.PendulumRitual => new(
-            Edge: new Rgba32(90, 150, 175, 255),
-            Mid: new Rgba32(28, 48, 72, 255),
-            HotCorner: new Rgba32(160, 255, 250, 255),
-            Shaft: new Rgba32(120, 220, 235, 255),
-            IridescentA: new Rgba32(180, 255, 255, 255),
-            IridescentB: new Rgba32(120, 180, 255, 255),
+            Mid: new Rgba32(28, 48, 78, 255),
+            Stops:
+            [
+                new(195f, 0.55f, 0.55f), // blue-grey edge
+                new(185f, 0.70f, 0.85f), // bright cyan
+                new(170f, 0.65f, 0.80f), // teal
+                new(210f, 0.40f, 0.70f), // periwinkle
+                new(160f, 0.50f, 0.75f), // seafoam corner
+                new(200f, 0.60f, 0.78f), // electric cyan
+            ],
             UseHoloGrid: false,
-            UseIridescence: false,
-            BodyTint: 0.28f,
-            ReplaceBoost: 1.20f,
-            ShaftBoost: 0.85f,
-            CornerBoost: 1.45f),
+            BodyTint: 0.26f,
+            ReplaceBoost: 1.12f,
+            ShaftBoost: 0.80f,
+            CornerBoost: 1.40f,
+            ShimmerAmount: 0.70f),
 
-        // Chaos Soldier OF — pale blue/white vertical light shafts on L/R margins.
-        // Keep mid blue-grey structure; avoid clipping shafts to pure white.
+        // Chaos Soldier — chromatic pale blue/cyan shafts (not pure white).
         CardFrameStyle.Effect or CardFrameStyle.PendulumEffect => new(
-            Edge: new Rgba32(185, 210, 235, 255),
-            Mid: new Rgba32(70, 85, 115, 255),
-            HotCorner: new Rgba32(230, 245, 255, 255),
-            Shaft: new Rgba32(200, 225, 245, 255),
-            IridescentA: new Rgba32(190, 220, 245, 255),
-            IridescentB: new Rgba32(255, 235, 200, 255),
+            Mid: new Rgba32(75, 70, 95, 255),
+            Stops:
+            [
+                new(210f, 0.35f, 0.70f), // pale blue
+                new(190f, 0.45f, 0.78f), // cyan
+                new(175f, 0.40f, 0.72f), // teal-blue
+                new(40f, 0.30f, 0.75f),  // warm gold leak (art-integrated)
+                new(220f, 0.30f, 0.68f), // periwinkle
+                new(185f, 0.50f, 0.82f), // bright cyan shaft
+            ],
             UseHoloGrid: false,
-            UseIridescence: false,
-            BodyTint: 0.18f,
-            ReplaceBoost: 1.15f,
-            ShaftBoost: 1.35f,
-            CornerBoost: 1.10f),
+            BodyTint: 0.16f,
+            ReplaceBoost: 1.10f,
+            ShaftBoost: 1.25f,
+            CornerBoost: 1.05f,
+            ShimmerAmount: 0.65f),
 
         CardFrameStyle.Trap or CardFrameStyle.Token or CardFrameStyle.PendulumToken => new(
-            Edge: new Rgba32(235, 170, 220, 255),
             Mid: new Rgba32(95, 35, 105, 255),
-            HotCorner: new Rgba32(255, 220, 240, 255),
-            Shaft: new Rgba32(245, 195, 235, 255),
-            IridescentA: new Rgba32(255, 180, 220, 255),
-            IridescentB: new Rgba32(200, 160, 255, 255),
+            Stops:
+            [
+                new(310f, 0.55f, 0.75f), // magenta
+                new(280f, 0.50f, 0.70f), // purple
+                new(330f, 0.45f, 0.82f), // pink
+                new(200f, 0.30f, 0.70f), // cool cyan leak
+                new(340f, 0.40f, 0.78f),
+            ],
             UseHoloGrid: false,
-            UseIridescence: true,
+            BodyTint: 0.30f,
+            ReplaceBoost: 1.08f,
+            ShaftBoost: 1.00f,
+            CornerBoost: 1.15f,
+            ShimmerAmount: 0.75f),
+
+        CardFrameStyle.Fusion or CardFrameStyle.PendulumFusion => new(
+            Mid: new Rgba32(85, 40, 125, 255),
+            Stops:
+            [
+                new(280f, 0.55f, 0.75f),
+                new(300f, 0.45f, 0.80f),
+                new(260f, 0.40f, 0.70f),
+                new(320f, 0.35f, 0.82f),
+                new(200f, 0.25f, 0.72f),
+            ],
+            UseHoloGrid: false,
+            BodyTint: 0.28f,
+            ReplaceBoost: 1.08f,
+            ShaftBoost: 1.00f,
+            CornerBoost: 1.20f,
+            ShimmerAmount: 0.70f),
+
+        CardFrameStyle.Synchro or CardFrameStyle.PendulumSynchro => new(
+            Mid: new Rgba32(140, 145, 160, 255),
+            Stops:
+            [
+                new(210f, 0.25f, 0.85f), // cool silver-blue
+                new(45f, 0.20f, 0.88f),  // warm silver
+                new(280f, 0.15f, 0.82f), // lilac shimmer
+                new(180f, 0.22f, 0.86f), // aqua silver
+                new(0f, 0.12f, 0.90f),   // soft rose-silver
+            ],
+            UseHoloGrid: false,
+            BodyTint: 0.26f,
+            ReplaceBoost: 1.05f,
+            ShaftBoost: 1.00f,
+            CornerBoost: 1.10f,
+            ShimmerAmount: 0.60f),
+
+        CardFrameStyle.Xyz or CardFrameStyle.PendulumXyz => new(
+            Mid: new Rgba32(18, 20, 32, 255),
+            Stops:
+            [
+                new(210f, 0.55f, 0.75f),
+                new(190f, 0.50f, 0.80f),
+                new(260f, 0.35f, 0.70f),
+                new(175f, 0.45f, 0.72f),
+                new(220f, 0.40f, 0.78f),
+            ],
+            UseHoloGrid: true,
+            BodyTint: 0.24f,
+            ReplaceBoost: 1.10f,
+            ShaftBoost: 1.10f,
+            CornerBoost: 1.20f,
+            ShimmerAmount: 0.68f),
+
+        CardFrameStyle.Link => new(
+            Mid: new Rgba32(22, 48, 72, 255),
+            Stops:
+            [
+                new(185f, 0.70f, 0.80f),
+                new(170f, 0.60f, 0.75f),
+                new(200f, 0.50f, 0.78f),
+                new(280f, 0.30f, 0.72f),
+                new(150f, 0.55f, 0.70f),
+                new(45f, 0.25f, 0.80f),
+            ],
+            UseHoloGrid: true,
             BodyTint: 0.32f,
             ReplaceBoost: 1.10f,
             ShaftBoost: 1.05f,
-            CornerBoost: 1.20f),
-
-        CardFrameStyle.Fusion or CardFrameStyle.PendulumFusion => new(
-            Edge: new Rgba32(220, 175, 255, 255),
-            Mid: new Rgba32(85, 40, 125, 255),
-            HotCorner: new Rgba32(255, 230, 255, 255),
-            Shaft: new Rgba32(235, 200, 255, 255),
-            IridescentA: new Rgba32(255, 200, 255, 255),
-            IridescentB: new Rgba32(180, 160, 255, 255),
-            UseHoloGrid: false,
-            UseIridescence: false,
-            BodyTint: 0.30f,
-            ReplaceBoost: 1.10f,
-            ShaftBoost: 1.05f,
-            CornerBoost: 1.25f),
-
-        CardFrameStyle.Synchro or CardFrameStyle.PendulumSynchro => new(
-            Edge: new Rgba32(245, 248, 255, 255),
-            Mid: new Rgba32(150, 155, 165, 255),
-            HotCorner: new Rgba32(255, 255, 255, 255),
-            Shaft: new Rgba32(250, 252, 255, 255),
-            IridescentA: new Rgba32(255, 255, 255, 255),
-            IridescentB: new Rgba32(220, 230, 255, 255),
-            UseHoloGrid: false,
-            UseIridescence: false,
-            BodyTint: 0.28f,
-            ReplaceBoost: 1.10f,
-            ShaftBoost: 1.10f,
-            CornerBoost: 1.15f),
-
-        CardFrameStyle.Xyz or CardFrameStyle.PendulumXyz => new(
-            Edge: new Rgba32(170, 210, 255, 255),
-            Mid: new Rgba32(18, 20, 32, 255),
-            HotCorner: new Rgba32(235, 245, 255, 255),
-            Shaft: new Rgba32(190, 220, 255, 255),
-            IridescentA: new Rgba32(200, 230, 255, 255),
-            IridescentB: new Rgba32(160, 180, 255, 255),
-            UseHoloGrid: true,
-            UseIridescence: false,
-            BodyTint: 0.25f,
-            ReplaceBoost: 1.15f,
-            ShaftBoost: 1.20f,
-            CornerBoost: 1.25f),
-
-        CardFrameStyle.Link => new(
-            Edge: new Rgba32(120, 230, 245, 255),
-            Mid: new Rgba32(22, 48, 72, 255),
-            HotCorner: new Rgba32(210, 250, 255, 255),
-            Shaft: new Rgba32(160, 240, 250, 255),
-            IridescentA: new Rgba32(180, 255, 255, 255),
-            IridescentB: new Rgba32(140, 200, 255, 255),
-            UseHoloGrid: true,
-            UseIridescence: true,
-            BodyTint: 0.35f,
-            ReplaceBoost: 1.15f,
-            ShaftBoost: 1.10f,
-            CornerBoost: 1.20f),
+            CornerBoost: 1.15f,
+            ShimmerAmount: 0.80f),
 
         CardFrameStyle.Normal or CardFrameStyle.PendulumNormal => new(
-            Edge: new Rgba32(255, 235, 175, 255),
-            Mid: new Rgba32(175, 145, 70, 255),
-            HotCorner: new Rgba32(255, 252, 230, 255),
-            Shaft: new Rgba32(255, 245, 200, 255),
-            IridescentA: new Rgba32(255, 240, 200, 255),
-            IridescentB: new Rgba32(255, 220, 160, 255),
+            Mid: new Rgba32(170, 135, 55, 255),
+            Stops:
+            [
+                new(45f, 0.65f, 0.88f),  // gold
+                new(35f, 0.55f, 0.85f),  // amber
+                new(55f, 0.40f, 0.90f),  // yellow
+                new(20f, 0.45f, 0.82f),  // peach
+                new(200f, 0.20f, 0.75f), // cool leak
+            ],
             UseHoloGrid: false,
-            UseIridescence: false,
-            BodyTint: 0.28f,
-            ReplaceBoost: 1.10f,
-            ShaftBoost: 1.05f,
-            CornerBoost: 1.15f),
+            BodyTint: 0.26f,
+            ReplaceBoost: 1.05f,
+            ShaftBoost: 1.00f,
+            CornerBoost: 1.10f,
+            ShimmerAmount: 0.65f),
 
         _ => new(
-            Edge: new Rgba32(210, 225, 245, 255),
             Mid: new Rgba32(55, 70, 100, 255),
-            HotCorner: new Rgba32(245, 252, 255, 255),
-            Shaft: new Rgba32(230, 240, 255, 255),
-            IridescentA: new Rgba32(200, 230, 255, 255),
-            IridescentB: new Rgba32(255, 240, 210, 255),
+            Stops:
+            [
+                new(190f, 0.45f, 0.75f),
+                new(175f, 0.40f, 0.70f),
+                new(210f, 0.35f, 0.72f),
+                new(40f, 0.25f, 0.75f),
+            ],
             UseHoloGrid: false,
-            UseIridescence: false,
-            BodyTint: 0.25f,
-            ReplaceBoost: 1.15f,
-            ShaftBoost: 1.20f,
-            CornerBoost: 1.20f),
+            BodyTint: 0.22f,
+            ReplaceBoost: 1.08f,
+            ShaftBoost: 1.10f,
+            CornerBoost: 1.10f,
+            ShimmerAmount: 0.65f),
     };
 
-    private static Rgba32 SampleLuminousColor(
+    /// <summary>
+    /// Multi-hue OF rim color: mid chrome → angle-sampled chromatic stop, with shaft/corner
+    /// boosting the same hue family (never toward white).
+    /// </summary>
+    private static Rgba32 SampleIridescentColor(
         BorderPalette palette,
-        int x,
-        int y,
-        int w,
-        int h,
+        float angle01,
         float rimT,
         float shaftT,
-        float cornerT)
+        float cornerT,
+        int x,
+        int y)
     {
-        // Deeper mid on straight edges; luminous edge toward the rim.
-        var edgeMix = Math.Clamp(0.20f + 0.70f * rimT, 0f, 1f);
-        var c = LerpRgb(palette.Mid, palette.Edge, edgeMix);
+        var shimmer = SampleHueStops(palette.Stops, angle01);
+        // Secondary phase so adjacent rim pixels don't look banded.
+        var shimmer2 = SampleHueStops(palette.Stops, Fract(angle01 + 0.17f + SoftMottle(x, y) * 0.08f));
+        var iri = LerpRgb(shimmer, shimmer2, 0.35f);
 
-        // Chaos Soldier vertical shafts — lift L/R margins without erasing mid tone.
-        c = LerpRgb(c, palette.Shaft, Math.Clamp(shaftT * 0.62f, 0f, 0.85f));
+        // Body mid stays type-colored; rim pulls strongly toward multi-hue.
+        var rimPull = Math.Clamp(palette.ShimmerAmount * (0.35f + 0.65f * rimT), 0f, 1f);
+        var c = LerpRgb(palette.Mid, iri, rimPull);
 
-        // Magician of Black Chaos corner leaks — brightest at corners, not full replace.
-        c = LerpRgb(c, palette.HotCorner, Math.Clamp(cornerT * 0.55f, 0f, 0.80f));
+        // Shafts: same hue family, slightly higher value, keep saturation (chromatic, not white).
+        if (shaftT > 0.05f)
+        {
+            var shaftHue = SampleHueStops(palette.Stops, Fract(angle01 + 0.08f));
+            shaftHue = BoostChroma(shaftHue, satMul: 1.05f, valMul: 1.08f);
+            c = LerpRgb(c, shaftHue, Math.Clamp(shaftT * 0.55f, 0f, 0.75f));
+        }
 
-        // Soft top/bottom rim emphasis (official OFs glow along the card silhouette).
-        var yNorm = y / (float)Math.Max(1, h - 1);
-        var topBottom = MathF.Pow(1f - MathF.Abs(yNorm - 0.5f) * 2f, 1.6f);
-        if (rimT > 0.2f)
-            c = LerpRgb(c, palette.Edge, topBottom * rimT * 0.28f);
+        // Corners: Magician-style cyan/teal (or type stop) — colored light leak.
+        if (cornerT > 0.05f)
+        {
+            var cornerHue = SampleHueStops(palette.Stops, Fract(angle01 * 0.5f + 0.25f));
+            cornerHue = BoostChroma(cornerHue, satMul: 1.12f, valMul: 1.10f);
+            c = LerpRgb(c, cornerHue, Math.Clamp(cornerT * 0.50f, 0f, 0.70f));
+        }
 
-        // Soft procedural mottle so the rim isn't a flat fill.
+        // Soft mottle for premium foil grain (value only, chroma preserved via HSV).
         var mottle = SoftMottle(x, y);
-        c = ScaleRgb(c, 0.94f + 0.12f * mottle);
-
+        c = BoostChroma(c, satMul: 1f, valMul: 0.94f + 0.10f * mottle);
         return c;
     }
 
-    private static Rgba32 ApplyHoloGrid(Rgba32 c, int x, int y, float marginT)
+    private static Rgba32 SampleHueStops(HueStop[] stops, float t01)
     {
-        // Fine square mesh (~8px) — Linkage digital holo feel.
+        if (stops.Length == 0)
+            return new Rgba32(128, 128, 128, 255);
+        if (stops.Length == 1)
+            return HsvToRgb(stops[0].H, stops[0].S, stops[0].V);
+
+        t01 = Fract(t01);
+        var scaled = t01 * stops.Length;
+        var i0 = (int)scaled % stops.Length;
+        var i1 = (i0 + 1) % stops.Length;
+        var local = scaled - MathF.Floor(scaled);
+        // Smoothstep for softer rainbow bands.
+        local = local * local * (3f - 2f * local);
+
+        var a = stops[i0];
+        var b = stops[i1];
+        // Lerp hue on shortest arc so pink↔teal transitions don't spin the long way.
+        var h = LerpHue(a.H, b.H, local);
+        var s = a.S + (b.S - a.S) * local;
+        var v = a.V + (b.V - a.V) * local;
+        return HsvToRgb(h, s, v);
+    }
+
+    private static float LerpHue(float a, float b, float t)
+    {
+        var d = b - a;
+        while (d > 180f) d -= 360f;
+        while (d < -180f) d += 360f;
+        return FractDegrees(a + d * t);
+    }
+
+    private static Rgba32 BoostChroma(Rgba32 c, float satMul, float valMul)
+    {
+        RgbToHsv(c, out var h, out var s, out var v);
+        s = Math.Clamp(s * satMul, 0f, 1f);
+        v = Math.Clamp(v * valMul, 0f, 1f);
+        // Floor saturation so we never collapse to grey/white glow.
+        if (s < 0.12f)
+            s = 0.12f;
+        return HsvToRgb(h, s, v);
+    }
+
+    private static Rgba32 ApplyHoloGrid(Rgba32 c, int x, int y, float marginT, float angle01)
+    {
         const int cell = 8;
         var onV = x % cell == 0;
         var onH = y % cell == 0;
         if (!onV && !onH)
             return c;
 
-        var strength = (0.28f + 0.45f * marginT) * (onV && onH ? 1f : 0.75f);
-        var gridTint = new Rgba32(210, 255, 245, 255);
-        return LerpRgb(c, gridTint, strength);
+        // Grid lines pick up the same multi-hue (brighter, still chromatic).
+        var grid = SampleHueStops(
+            [
+                new(175f, 0.35f, 0.92f),
+                new(330f, 0.30f, 0.90f),
+                new(50f, 0.30f, 0.92f),
+                new(200f, 0.28f, 0.90f),
+            ],
+            angle01);
+        var strength = (0.22f + 0.40f * marginT) * (onV && onH ? 1f : 0.70f);
+        return LerpRgb(c, grid, strength);
     }
 
-    private static Rgba32 ApplyIridescence(Rgba32 c, int x, int y, int w, int h, float marginT)
+    private static float PerimeterAngle01(int x, int y, float cx, float cy)
     {
-        // Slow rainbow shimmer along the rim (pink ↔ yellow-green), Linkage-style.
-        var ang = (x * 0.017f) + (y * 0.011f);
-        var wave = 0.5f + 0.5f * MathF.Sin(ang);
-        var a = new Rgba32(255, 185, 205, 255);
-        var b = new Rgba32(215, 235, 130, 255);
-        var shimmer = LerpRgb(a, b, wave);
-        var amount = 0.12f + 0.28f * marginT;
-        // Bias shimmer toward brighter channels without crushing teal mid.
-        return LerpRgb(c, shimmer, amount * 0.55f);
+        var ang = MathF.Atan2(y - cy, x - cx); // -π..π
+        return Fract((ang + MathF.PI) / (MathF.PI * 2f));
     }
 
     private static float SoftMottle(int x, int y)
     {
-        // Cheap value-noise stand-in (no allocations).
         var n = Hash2(x, y) * 0.55f + Hash2(x / 3, y / 3) * 0.30f + Hash2(x / 7, y / 7) * 0.15f;
         return n;
     }
@@ -380,9 +461,7 @@ public static class OfGradientBorderComposer
     {
         var left = 1f - Math.Clamp(x / (float)LightShaftPx, 0f, 1f);
         var right = 1f - Math.Clamp((w - 1 - x) / (float)LightShaftPx, 0f, 1f);
-        var s = Math.Max(left, right);
-        // Keep shafts strong through most of the band, then fall off.
-        return EaseOut01(s);
+        return EaseOut01(Math.Max(left, right));
     }
 
     private static float CornerGlowStrength(int x, int y, int w, int h)
@@ -406,6 +485,15 @@ public static class OfGradientBorderComposer
         t = Math.Clamp(t, 0f, 1f);
         var u = 1f - t;
         return 1f - u * u;
+    }
+
+    private static float Fract(float v) => v - MathF.Floor(v);
+
+    private static float FractDegrees(float deg)
+    {
+        deg %= 360f;
+        if (deg < 0f) deg += 360f;
+        return deg;
     }
 
     private static int MinEdgeDistance(int x, int y, int w, int h) =>
@@ -460,24 +548,53 @@ public static class OfGradientBorderComposer
         return new Rgba32(r, g, bl, a.A);
     }
 
-    private static Rgba32 ScaleRgb(Rgba32 c, float scale)
+    private static void RgbToHsv(Rgba32 c, out float h, out float s, out float v)
     {
-        scale = Math.Clamp(scale, 0.70f, 1.28f);
-        var r = (byte)Math.Clamp((int)MathF.Round(c.R * scale), 0, 255);
-        var g = (byte)Math.Clamp((int)MathF.Round(c.G * scale), 0, 255);
-        var b = (byte)Math.Clamp((int)MathF.Round(c.B * scale), 0, 255);
-        return new Rgba32(r, g, b, c.A);
+        var r = c.R / 255f;
+        var g = c.G / 255f;
+        var b = c.B / 255f;
+        var max = MathF.Max(r, MathF.Max(g, b));
+        var min = MathF.Min(r, MathF.Min(g, b));
+        v = max;
+        var d = max - min;
+        s = max <= 1e-6f ? 0f : d / max;
+        if (d <= 1e-6f)
+        {
+            h = 0f;
+            return;
+        }
+
+        if (max == r)
+            h = 60f * (((g - b) / d) % 6f);
+        else if (max == g)
+            h = 60f * (((b - r) / d) + 2f);
+        else
+            h = 60f * (((r - g) / d) + 4f);
+
+        if (h < 0f)
+            h += 360f;
     }
 
-    /// <summary>Screen-blend toward white by <paramref name="amount"/> (0–1), preserving hue.</summary>
-    private static Rgba32 ScreenTowardWhite(Rgba32 c, float amount)
+    private static Rgba32 HsvToRgb(float h, float s, float v)
     {
-        amount = Math.Clamp(amount, 0f, 0.32f);
-        if (amount <= 1e-5f)
-            return c;
-        var r = (byte)Math.Clamp((int)MathF.Round(c.R + (255 - c.R) * amount), 0, 255);
-        var g = (byte)Math.Clamp((int)MathF.Round(c.G + (255 - c.G) * amount), 0, 255);
-        var b = (byte)Math.Clamp((int)MathF.Round(c.B + (255 - c.B) * amount), 0, 255);
-        return new Rgba32(r, g, b, c.A);
+        h = FractDegrees(h);
+        s = Math.Clamp(s, 0f, 1f);
+        v = Math.Clamp(v, 0f, 1f);
+        var c = v * s;
+        var x = c * (1f - MathF.Abs((h / 60f) % 2f - 1f));
+        var m = v - c;
+        float r1, g1, b1;
+        if (h < 60f) { r1 = c; g1 = x; b1 = 0; }
+        else if (h < 120f) { r1 = x; g1 = c; b1 = 0; }
+        else if (h < 180f) { r1 = 0; g1 = c; b1 = x; }
+        else if (h < 240f) { r1 = 0; g1 = x; b1 = c; }
+        else if (h < 300f) { r1 = x; g1 = 0; b1 = c; }
+        else { r1 = c; g1 = 0; b1 = x; }
+
+        return new Rgba32(
+            (byte)Math.Clamp((int)MathF.Round((r1 + m) * 255f), 0, 255),
+            (byte)Math.Clamp((int)MathF.Round((g1 + m) * 255f), 0, 255),
+            (byte)Math.Clamp((int)MathF.Round((b1 + m) * 255f), 0, 255),
+            255);
     }
 }
