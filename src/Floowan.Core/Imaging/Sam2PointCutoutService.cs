@@ -58,6 +58,7 @@ public sealed class Sam2PointCutoutService : IDisposable
     private readonly string _modelDirectory;
     private readonly string _encoderPath;
     private readonly string _decoderPath;
+    private readonly object _sessionLock = new();
     private InferenceSession? _encoder;
     private InferenceSession? _decoder;
     private int _encoderHeight = 1024;
@@ -215,98 +216,128 @@ public sealed class Sam2PointCutoutService : IDisposable
         IProgress<string>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        if (File.Exists(_encoderPath) && File.Exists(_decoderPath))
-            return;
+        // Existence, SHA-256 (~155 MB zip), extract, and ONNX session load must never
+        // run on a WPF UI thread — all of that sync work is Task.Run'd below.
+        var modelsReady = await Task.Run(
+            () => File.Exists(_encoderPath) && File.Exists(_decoderPath),
+            cancellationToken).ConfigureAwait(false);
 
-        Directory.CreateDirectory(_modelDirectory);
-        var zipPath = Path.Combine(_modelDirectory, BundleZipName);
-        var tempZip = zipPath + "." + Guid.NewGuid().ToString("N") + ".download";
-        try
+        if (!modelsReady)
         {
-            if (!File.Exists(zipPath) || !HasExpectedZipChecksum(zipPath))
-            {
-                progress?.Report(
-                    $"Downloading SAM 2 Tiny ONNX (~{BundleZipExpectedBytes / (1024 * 1024)} MB, first use only)…");
-                using var response = await _httpClient.GetAsync(
-                    BundleZipUrl,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    cancellationToken).ConfigureAwait(false);
-                response.EnsureSuccessStatusCode();
-
-                var total = response.Content.Headers.ContentLength ?? BundleZipExpectedBytes;
-                await using var input = await response.Content.ReadAsStreamAsync(cancellationToken)
-                    .ConfigureAwait(false);
-                await using (var output = new FileStream(
-                                 tempZip,
-                                 FileMode.Create,
-                                 FileAccess.Write,
-                                 FileShare.None,
-                                 81920,
-                                 useAsync: true))
-                {
-                    var buffer = new byte[81920];
-                    long downloaded = 0;
-                    int read;
-                    while ((read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
-                    {
-                        await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken)
-                            .ConfigureAwait(false);
-                        downloaded += read;
-                        if (total > 0)
-                        {
-                            progress?.Report(
-                                $"Downloading SAM 2 Tiny… {downloaded * 100 / total}%");
-                        }
-                    }
-
-                    await output.FlushAsync(cancellationToken).ConfigureAwait(false);
-                }
-
-                if (!HasExpectedZipChecksum(tempZip))
-                {
-                    throw new InvalidDataException(
-                        "Downloaded SAM 2 model zip failed its SHA-256 integrity check.");
-                }
-
-                File.Move(tempZip, zipPath, overwrite: true);
-            }
-
-            progress?.Report("Extracting SAM 2 encoder/decoder ONNX…");
-            ZipFile.ExtractToDirectory(zipPath, _modelDirectory, overwriteFiles: true);
-
-            if (!File.Exists(_encoderPath) || !File.Exists(_decoderPath))
-            {
-                throw new FileNotFoundException(
-                    $"SAM 2 zip did not contain {EncoderFileName} and {DecoderFileName}.");
-            }
-        }
-        finally
-        {
+            Directory.CreateDirectory(_modelDirectory);
+            var zipPath = Path.Combine(_modelDirectory, BundleZipName);
+            var tempZip = zipPath + "." + Guid.NewGuid().ToString("N") + ".download";
             try
             {
-                if (File.Exists(tempZip))
-                    File.Delete(tempZip);
+                var needsDownload = await Task.Run(
+                    () => !File.Exists(zipPath) || !HasExpectedZipChecksum(zipPath),
+                    cancellationToken).ConfigureAwait(false);
+
+                if (needsDownload)
+                {
+                    progress?.Report(
+                        $"Downloading SAM 2 Tiny ONNX (~{BundleZipExpectedBytes / (1024 * 1024)} MB, first use only)…");
+                    using var response = await _httpClient.GetAsync(
+                        BundleZipUrl,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        cancellationToken).ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
+
+                    var total = response.Content.Headers.ContentLength ?? BundleZipExpectedBytes;
+                    await using var input = await response.Content.ReadAsStreamAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                    await using (var output = new FileStream(
+                                     tempZip,
+                                     FileMode.Create,
+                                     FileAccess.Write,
+                                     FileShare.None,
+                                     81920,
+                                     useAsync: true))
+                    {
+                        var buffer = new byte[81920];
+                        long downloaded = 0;
+                        int read;
+                        while ((read = await input.ReadAsync(buffer, cancellationToken)
+                                       .ConfigureAwait(false)) > 0)
+                        {
+                            await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken)
+                                .ConfigureAwait(false);
+                            downloaded += read;
+                            if (total > 0)
+                            {
+                                progress?.Report(
+                                    $"Downloading SAM 2 Tiny… {downloaded * 100 / total}%");
+                            }
+                        }
+
+                        await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+                    }
+
+                    await Task.Run(
+                        () =>
+                        {
+                            if (!HasExpectedZipChecksum(tempZip))
+                            {
+                                throw new InvalidDataException(
+                                    "Downloaded SAM 2 model zip failed its SHA-256 integrity check.");
+                            }
+
+                            File.Move(tempZip, zipPath, overwrite: true);
+                        },
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                progress?.Report("Extracting SAM 2 encoder/decoder ONNX…");
+                await Task.Run(
+                    () =>
+                    {
+                        ZipFile.ExtractToDirectory(zipPath, _modelDirectory, overwriteFiles: true);
+                        if (!File.Exists(_encoderPath) || !File.Exists(_decoderPath))
+                        {
+                            throw new FileNotFoundException(
+                                $"SAM 2 zip did not contain {EncoderFileName} and {DecoderFileName}.");
+                        }
+                    },
+                    cancellationToken).ConfigureAwait(false);
             }
-            catch
+            finally
             {
-                /* best effort */
+                try
+                {
+                    if (File.Exists(tempZip))
+                        File.Delete(tempZip);
+                }
+                catch
+                {
+                    /* best effort */
+                }
             }
+        }
+
+        // Warm encoder/decoder sessions during prepare (not on first preview click).
+        if (_encoder is null || _decoder is null)
+        {
+            progress?.Report("Loading SAM 2 ONNX sessions…");
+            await Task.Run(() => EnsureSessions(), cancellationToken).ConfigureAwait(false);
         }
     }
 
     private void EnsureSessions()
     {
-        if (_encoder is not null && _decoder is not null)
-            return;
-
-        _encoder = new InferenceSession(_encoderPath);
-        _decoder = new InferenceSession(_decoderPath);
-
-        var shape = _encoder.InputMetadata.Values.First().Dimensions;
-        if (shape.Length >= 4 && shape[2] > 0 && shape[3] > 0)
+        lock (_sessionLock)
         {
-            _encoderHeight = shape[2];
-            _encoderWidth = shape[3];
+            if (_encoder is not null && _decoder is not null)
+                return;
+
+            _encoder = new InferenceSession(_encoderPath);
+            _decoder = new InferenceSession(_decoderPath);
+
+            var shape = _encoder.InputMetadata.Values.First().Dimensions;
+            if (shape.Length >= 4 && shape[2] > 0 && shape[3] > 0)
+            {
+                _encoderHeight = shape[2];
+                _encoderWidth = shape[3];
+            }
         }
     }
 
@@ -613,8 +644,14 @@ public sealed class Sam2PointCutoutService : IDisposable
 
     public void Dispose()
     {
-        _encoder?.Dispose();
-        _decoder?.Dispose();
+        lock (_sessionLock)
+        {
+            _encoder?.Dispose();
+            _decoder?.Dispose();
+            _encoder = null;
+            _decoder = null;
+        }
+
         _httpClient.Dispose();
     }
 

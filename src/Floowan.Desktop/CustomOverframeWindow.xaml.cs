@@ -721,17 +721,25 @@ public partial class CustomOverframeWindow : Window
             await Task.Run(() => _overFrameService.ExtractCardArt(gamePath, card, outputPath));
 
             var progress = new Progress<string>(msg => StatusText.Text = msg);
+            // Download / SHA-256 / extract / ONNX session load — all off UI (Core).
             await _sam2Cutout.EnsureModelsAsync(progress);
 
-            using var loaded = ImageSharpImage.Load<Rgba32>(liveTemp);
-            var clean = OverFrameAutoArtComposer.RequireCleanIllustrationSource(loaded);
+            var imagePath = liveTemp;
+            var pickSource = await Task.Run(() =>
+            {
+                using var loaded = ImageSharpImage.Load<Rgba32>(imagePath);
+                var clean = OverFrameAutoArtComposer.RequireCleanIllustrationSource(loaded);
+                var clone = clean.Clone();
+                if (!ReferenceEquals(loaded, clean))
+                    clean.Dispose();
+                return clone;
+            });
+
             _samPickSource?.Dispose();
-            _samPickSource = clean.Clone();
-            if (!ReferenceEquals(loaded, clean))
-                clean.Dispose();
+            _samPickSource = pickSource;
 
             ClearSubjectOverlay();
-            PreviewImage.Source = ToPreviewBitmap(_samPickSource);
+            PreviewImage.Source = await Task.Run(() => ToPreviewBitmap(pickSource));
             PreviewImage.Cursor = Cursors.Cross;
             PreviewHintText.Visibility = Visibility.Collapsed;
             ApplyButton.IsEnabled = false;
@@ -800,7 +808,10 @@ public partial class CustomOverframeWindow : Window
             tempPath = Path.Combine(
                 Path.GetTempPath(),
                 $"floowan-sam2-src-{Guid.NewGuid():N}.png");
-            _samPickSource.Save(tempPath, new SixLabors.ImageSharp.Formats.Png.PngEncoder());
+            var savePath = tempPath;
+            var pickSource = _samPickSource;
+            await Task.Run(() =>
+                pickSource.Save(savePath, new SixLabors.ImageSharp.Formats.Png.PngEncoder()));
 
             var progress = new Progress<string>(msg => StatusText.Text = msg);
             var prepared = await _sam2Cutout.PrepareSubjectWithPointAsync(
@@ -825,8 +836,9 @@ public partial class CustomOverframeWindow : Window
             await FailSubjectPrepareAsync(ex);
             if (_samPickSource is not null)
             {
+                var retrySource = _samPickSource;
                 _samPointPickMode = true;
-                PreviewImage.Source = ToPreviewBitmap(_samPickSource);
+                PreviewImage.Source = await Task.Run(() => ToPreviewBitmap(retrySource));
                 PreviewImage.Cursor = Cursors.Cross;
                 StatusText.Text =
                     "SAM 2 failed — click another point, or Esc to cancel. " + ex.Message;
