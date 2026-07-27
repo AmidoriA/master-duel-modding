@@ -29,6 +29,10 @@ public class CardFrameStyleFromTypeTests
     [InlineData("link", CardFrameStyle.Link)]
     [InlineData("Pendulum Effect", CardFrameStyle.PendulumEffect)]
     [InlineData("PendulumNormal", CardFrameStyle.PendulumNormal)]
+    [InlineData("OF Gradient Effect", CardFrameStyle.OfGradientEffect)]
+    [InlineData("OF Gradient Spell", CardFrameStyle.OfGradientSpell)]
+    [InlineData("OF Gradient Pendulum Effect", CardFrameStyle.OfGradientPendulumEffect)]
+    [InlineData("OfGradientLink", CardFrameStyle.OfGradientLink)]
     public void TryParseStyle_MapsKnownLabels(string label, CardFrameStyle expected)
     {
         Assert.True(CardTypeLabels.TryParseStyle(label, out var style));

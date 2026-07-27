@@ -72,7 +72,7 @@
                              VerticalAlignment="Center"
                              Foreground="{StaticResource MutedBrush}"
                              Margin="0,0,8,0"/>
-                  <ComboBox x:Name="FrameStyleBox" Width="170" SelectionChanged="FrameStyleBox_SelectionChanged">
+                  <ComboBox x:Name="FrameStyleBox" Width="220" SelectionChanged="FrameStyleBox_SelectionChanged">
                     <ComboBoxItem Content="Effect" Tag="Effect" IsSelected="True"/>
                     <ComboBoxItem Content="Normal" Tag="Normal"/>
                     <ComboBoxItem Content="Fusion" Tag="Fusion"/>
@@ -90,6 +90,23 @@
                     <ComboBoxItem Content="Pendulum Xyz" Tag="PendulumXyz"/>
                     <ComboBoxItem Content="Pendulum Ritual" Tag="PendulumRitual"/>
                     <ComboBoxItem Content="Pendulum Token" Tag="PendulumToken"/>
+                    <ComboBoxItem Content="OF Gradient Effect" Tag="OfGradientEffect"/>
+                    <ComboBoxItem Content="OF Gradient Normal" Tag="OfGradientNormal"/>
+                    <ComboBoxItem Content="OF Gradient Fusion" Tag="OfGradientFusion"/>
+                    <ComboBoxItem Content="OF Gradient Synchro" Tag="OfGradientSynchro"/>
+                    <ComboBoxItem Content="OF Gradient Xyz" Tag="OfGradientXyz"/>
+                    <ComboBoxItem Content="OF Gradient Ritual" Tag="OfGradientRitual"/>
+                    <ComboBoxItem Content="OF Gradient Spell" Tag="OfGradientSpell"/>
+                    <ComboBoxItem Content="OF Gradient Trap" Tag="OfGradientTrap"/>
+                    <ComboBoxItem Content="OF Gradient Link" Tag="OfGradientLink"/>
+                    <ComboBoxItem Content="OF Gradient Token" Tag="OfGradientToken"/>
+                    <ComboBoxItem Content="OF Gradient Pendulum Normal" Tag="OfGradientPendulumNormal"/>
+                    <ComboBoxItem Content="OF Gradient Pendulum Effect" Tag="OfGradientPendulumEffect"/>
+                    <ComboBoxItem Content="OF Gradient Pendulum Fusion" Tag="OfGradientPendulumFusion"/>
+                    <ComboBoxItem Content="OF Gradient Pendulum Synchro" Tag="OfGradientPendulumSynchro"/>
+                    <ComboBoxItem Content="OF Gradient Pendulum Xyz" Tag="OfGradientPendulumXyz"/>
+                    <ComboBoxItem Content="OF Gradient Pendulum Ritual" Tag="OfGradientPendulumRitual"/>
+                    <ComboBoxItem Content="OF Gradient Pendulum Token" Tag="OfGradientPendulumToken"/>
                   </ComboBox>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal">
