@@ -22,6 +22,39 @@ public class OfGradientBorderComposerTests
         Assert.Equal(expected, CardFrameTemplates.GetSolidBaseStyle(expected));
     }
 
+    [Theory]
+    [InlineData(CardFrameStyle.Effect, CardFrameStyle.OfGradientEffect)]
+    [InlineData(CardFrameStyle.Spell, CardFrameStyle.OfGradientSpell)]
+    [InlineData(CardFrameStyle.Ritual, CardFrameStyle.OfGradientRitual)]
+    [InlineData(CardFrameStyle.Link, CardFrameStyle.OfGradientLink)]
+    [InlineData(CardFrameStyle.PendulumEffect, CardFrameStyle.OfGradientPendulumEffect)]
+    [InlineData(CardFrameStyle.PendulumFusion, CardFrameStyle.OfGradientPendulumFusion)]
+    public void ToOfGradientStyle_MapsSolidToOfGradient(CardFrameStyle solid, CardFrameStyle expected)
+    {
+        Assert.False(CardFrameTemplates.IsOfGradientStyle(solid));
+        Assert.True(CardFrameTemplates.IsOfGradientStyle(expected));
+        Assert.Equal(expected, CardFrameTemplates.ToOfGradientStyle(solid));
+        Assert.Equal(expected, CardFrameTemplates.ToOfGradientStyle(expected));
+        Assert.Equal(solid, CardFrameTemplates.GetSolidBaseStyle(CardFrameTemplates.ToOfGradientStyle(solid)));
+    }
+
+    [Fact]
+    public void ToOfGradientStyle_CoversEverySolidRegisteredStyle()
+    {
+        foreach (CardFrameStyle style in Enum.GetValues<CardFrameStyle>())
+        {
+            if (CardFrameTemplates.IsOfGradientStyle(style))
+            {
+                Assert.Equal(style, CardFrameTemplates.ToOfGradientStyle(style));
+                continue;
+            }
+
+            var gradient = CardFrameTemplates.ToOfGradientStyle(style);
+            Assert.True(CardFrameTemplates.IsOfGradientStyle(gradient), style.ToString());
+            Assert.Equal(style, CardFrameTemplates.GetSolidBaseStyle(gradient));
+        }
+    }
+
     [Fact]
     public void FileNames_Registered_ForAllOfGradientStyles()
     {
