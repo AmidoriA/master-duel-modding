@@ -107,6 +107,11 @@ public class OfGradientBorderComposerTests
             $"rim must stay multi-hue/chromatic, got {derivedCorner} (range {maxC - minC})");
         Assert.False(derivedCorner.R > 245 && derivedCorner.G > 245 && derivedCorner.B > 245,
             $"rim must not clip to white, got {derivedCorner}");
+
+        // Inner plate (beyond solid outer chrome ~28px) must stay the solid template color.
+        var plateX = OfGradientBorderComposer.OuterRimPx + 12;
+        var plateY = solid.Height / 2;
+        Assert.Equal(solid[plateX, plateY], derived[plateX, plateY]);
     }
 
     [Fact]
