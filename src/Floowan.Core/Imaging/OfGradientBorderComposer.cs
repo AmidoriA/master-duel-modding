@@ -160,7 +160,7 @@ public static class OfGradientBorderComposer
     /// <param name="ReplaceBoost">Scales margin replacement.</param>
     /// <param name="ShaftBoost">Emphasize L/R chromatic shafts.</param>
     /// <param name="CornerBoost">Emphasize corner chromatic leaks.</param>
-    /// <param name="ShimmerAmount">How hard perimeter angle hues mix onto the rim (Spell high).</param>
+    /// <param name="ShimmerAmount">How hard perimeter angle hues mix onto the rim.</param>
     private readonly record struct BorderPalette(
         Rgba32 Mid,
         HueStop[] Stops,
@@ -171,186 +171,90 @@ public static class OfGradientBorderComposer
         float CornerBoost,
         float ShimmerAmount);
 
+    // Effect OF Gradient is the reference recipe (user: "perfect"). All other types
+    // share these intensity knobs; only hue-family stops differ.
+    private const float EffectReplaceBoost = 1.15f;
+    private const float EffectShaftBoost = 1.25f;
+    private const float EffectCornerBoost = 1.10f;
+    private const float EffectShimmerAmount = 0.88f;
+
+    /// <summary>
+    /// Effect-perfect S/V slots (7 stops). Types only swap hue degrees.
+    /// </summary>
+    private static HueStop[] EffectStyleStops(float h0, float h1, float h2, float h3, float h4, float h5, float h6) =>
+    [
+        new(h0, 0.28f, 0.90f),
+        new(h1, 0.38f, 0.95f),
+        new(h2, 0.35f, 0.92f),
+        new(h3, 0.28f, 0.93f),
+        new(h4, 0.25f, 0.90f),
+        new(h5, 0.42f, 0.96f),
+        new(h6, 0.28f, 0.92f),
+    ];
+
+    private static BorderPalette EffectRecipe(Rgba32 mid, HueStop[] stops, bool useHoloGrid = false) =>
+        new(
+            Mid: mid,
+            Stops: stops,
+            UseHoloGrid: useHoloGrid,
+            BodyTint: 0f,
+            ReplaceBoost: EffectReplaceBoost,
+            ShaftBoost: EffectShaftBoost,
+            CornerBoost: EffectCornerBoost,
+            ShimmerAmount: EffectShimmerAmount);
+
     private static BorderPalette ResolvePalette(CardFrameStyle baseStyle) => baseStyle switch
     {
-        // Linkage — teal/seafoam base + full rainbow shimmer (hot, luminous stops).
-        CardFrameStyle.Spell => new(
-            Mid: new Rgba32(48, 165, 170, 255),
-            Stops:
-            [
-                new(175f, 0.55f, 0.92f), // cyan-teal hot
-                new(155f, 0.50f, 0.94f), // seafoam
-                new(195f, 0.35f, 0.95f), // soft cyan flash
-                new(280f, 0.30f, 0.90f), // purple shimmer
-                new(330f, 0.35f, 0.93f), // pink
-                new(45f, 0.40f, 0.95f),  // warm yellow
-                new(150f, 0.55f, 0.88f), // green-teal
-                new(185f, 0.40f, 0.94f), // aqua
-            ],
-            UseHoloGrid: true,
-            BodyTint: 0f,
-            ReplaceBoost: 1.12f,
-            ShaftBoost: 0.95f,
-            CornerBoost: 1.05f,
-            ShimmerAmount: 0.95f),
+        // Canonical Effect / Pendulum Effect — do not change (user-approved).
+        CardFrameStyle.Effect or CardFrameStyle.PendulumEffect => EffectRecipe(
+            mid: new Rgba32(95, 100, 130, 255),
+            stops: EffectStyleStops(210f, 190f, 175f, 40f, 220f, 185f, 320f)),
 
-        // Magician of Black Chaos — luminous cyan/teal corners (colored, not white).
-        CardFrameStyle.Ritual or CardFrameStyle.PendulumRitual => new(
-            Mid: new Rgba32(40, 70, 105, 255),
-            Stops:
-            [
-                new(195f, 0.40f, 0.82f), // blue edge (brighter midtones)
-                new(185f, 0.55f, 0.96f), // bright cyan hot
-                new(170f, 0.50f, 0.93f), // teal
-                new(210f, 0.30f, 0.88f), // periwinkle
-                new(160f, 0.40f, 0.94f), // seafoam corner
-                new(200f, 0.45f, 0.95f), // electric cyan
-            ],
-            UseHoloGrid: false,
-            BodyTint: 0f,
-            ReplaceBoost: 1.15f,
-            ShaftBoost: 0.80f,
-            CornerBoost: 1.40f,
-            ShimmerAmount: 0.85f),
+        // Spell — teal/green family, same luminosity recipe (+ holo grid like Linkage foil).
+        CardFrameStyle.Spell => EffectRecipe(
+            mid: new Rgba32(70, 120, 125, 255),
+            stops: EffectStyleStops(165f, 150f, 175f, 45f, 185f, 155f, 320f),
+            useHoloGrid: true),
 
-        // Chaos Soldier / Effect — luminous cyan shafts + prismatic flashes.
-        CardFrameStyle.Effect or CardFrameStyle.PendulumEffect => new(
-            Mid: new Rgba32(95, 100, 130, 255),
-            Stops:
-            [
-                new(210f, 0.28f, 0.90f), // pale blue
-                new(190f, 0.38f, 0.95f), // cyan hot
-                new(175f, 0.35f, 0.92f), // teal-blue
-                new(40f, 0.28f, 0.93f),  // warm gold leak
-                new(220f, 0.25f, 0.90f), // periwinkle
-                new(185f, 0.42f, 0.96f), // bright cyan shaft flash
-                new(320f, 0.28f, 0.92f), // pink prismatic
-            ],
-            UseHoloGrid: false,
-            BodyTint: 0f,
-            ReplaceBoost: 1.15f,
-            ShaftBoost: 1.25f,
-            CornerBoost: 1.10f,
-            ShimmerAmount: 0.88f),
+        // Ritual — blue/cyan family.
+        CardFrameStyle.Ritual or CardFrameStyle.PendulumRitual => EffectRecipe(
+            mid: new Rgba32(80, 95, 130, 255),
+            stops: EffectStyleStops(215f, 200f, 185f, 40f, 225f, 195f, 310f)),
 
-        CardFrameStyle.Trap or CardFrameStyle.Token or CardFrameStyle.PendulumToken => new(
-            Mid: new Rgba32(120, 55, 130, 255),
-            Stops:
-            [
-                new(310f, 0.45f, 0.90f),
-                new(280f, 0.40f, 0.88f),
-                new(330f, 0.38f, 0.94f),
-                new(200f, 0.28f, 0.90f),
-                new(340f, 0.35f, 0.92f),
-            ],
-            UseHoloGrid: false,
-            BodyTint: 0f,
-            ReplaceBoost: 1.12f,
-            ShaftBoost: 1.00f,
-            CornerBoost: 1.15f,
-            ShimmerAmount: 0.85f),
+        // Trap / Token — magenta/pink family.
+        CardFrameStyle.Trap or CardFrameStyle.Token or CardFrameStyle.PendulumToken => EffectRecipe(
+            mid: new Rgba32(115, 75, 120, 255),
+            stops: EffectStyleStops(310f, 290f, 330f, 40f, 280f, 320f, 200f)),
 
-        CardFrameStyle.Fusion or CardFrameStyle.PendulumFusion => new(
-            Mid: new Rgba32(110, 60, 150, 255),
-            Stops:
-            [
-                new(280f, 0.45f, 0.90f),
-                new(300f, 0.38f, 0.93f),
-                new(260f, 0.35f, 0.88f),
-                new(320f, 0.30f, 0.94f),
-                new(200f, 0.25f, 0.90f),
-            ],
-            UseHoloGrid: false,
-            BodyTint: 0f,
-            ReplaceBoost: 1.12f,
-            ShaftBoost: 1.00f,
-            CornerBoost: 1.20f,
-            ShimmerAmount: 0.82f),
+        // Fusion — violet family.
+        CardFrameStyle.Fusion or CardFrameStyle.PendulumFusion => EffectRecipe(
+            mid: new Rgba32(105, 80, 130, 255),
+            stops: EffectStyleStops(280f, 265f, 295f, 40f, 250f, 290f, 200f)),
 
-        CardFrameStyle.Synchro or CardFrameStyle.PendulumSynchro => new(
-            Mid: new Rgba32(165, 170, 185, 255),
-            Stops:
-            [
-                new(210f, 0.22f, 0.95f),
-                new(45f, 0.18f, 0.96f),
-                new(280f, 0.15f, 0.93f),
-                new(180f, 0.20f, 0.95f),
-                new(0f, 0.12f, 0.96f),
-            ],
-            UseHoloGrid: false,
-            BodyTint: 0f,
-            ReplaceBoost: 1.10f,
-            ShaftBoost: 1.00f,
-            CornerBoost: 1.10f,
-            ShimmerAmount: 0.75f),
+        // Synchro — cool silver / soft multi-hue (same S/V intensity).
+        CardFrameStyle.Synchro or CardFrameStyle.PendulumSynchro => EffectRecipe(
+            mid: new Rgba32(120, 125, 140, 255),
+            stops: EffectStyleStops(210f, 200f, 45f, 280f, 180f, 0f, 220f)),
 
-        CardFrameStyle.Xyz or CardFrameStyle.PendulumXyz => new(
-            Mid: new Rgba32(35, 40, 55, 255),
-            Stops:
-            [
-                new(210f, 0.45f, 0.90f),
-                new(190f, 0.40f, 0.94f),
-                new(260f, 0.30f, 0.88f),
-                new(175f, 0.38f, 0.90f),
-                new(220f, 0.35f, 0.93f),
-            ],
-            UseHoloGrid: true,
-            BodyTint: 0f,
-            ReplaceBoost: 1.15f,
-            ShaftBoost: 1.10f,
-            CornerBoost: 1.20f,
-            ShimmerAmount: 0.82f),
+        // Xyz — deep cyan / blue family.
+        CardFrameStyle.Xyz or CardFrameStyle.PendulumXyz => EffectRecipe(
+            mid: new Rgba32(85, 90, 120, 255),
+            stops: EffectStyleStops(210f, 195f, 180f, 40f, 230f, 185f, 280f)),
 
-        CardFrameStyle.Link => new(
-            Mid: new Rgba32(35, 70, 100, 255),
-            Stops:
-            [
-                new(185f, 0.55f, 0.94f),
-                new(170f, 0.48f, 0.90f),
-                new(200f, 0.40f, 0.93f),
-                new(280f, 0.28f, 0.88f),
-                new(150f, 0.45f, 0.88f),
-                new(45f, 0.25f, 0.92f),
-            ],
-            UseHoloGrid: true,
-            BodyTint: 0f,
-            ReplaceBoost: 1.12f,
-            ShaftBoost: 1.05f,
-            CornerBoost: 1.15f,
-            ShimmerAmount: 0.90f),
+        // Link — cyan tech family (+ holo grid).
+        CardFrameStyle.Link => EffectRecipe(
+            mid: new Rgba32(75, 100, 125, 255),
+            stops: EffectStyleStops(185f, 170f, 200f, 45f, 210f, 155f, 320f),
+            useHoloGrid: true),
 
-        CardFrameStyle.Normal or CardFrameStyle.PendulumNormal => new(
-            Mid: new Rgba32(190, 155, 75, 255),
-            Stops:
-            [
-                new(45f, 0.55f, 0.95f),
-                new(35f, 0.45f, 0.93f),
-                new(55f, 0.35f, 0.96f),
-                new(20f, 0.40f, 0.92f),
-                new(200f, 0.20f, 0.90f),
-            ],
-            UseHoloGrid: false,
-            BodyTint: 0f,
-            ReplaceBoost: 1.10f,
-            ShaftBoost: 1.00f,
-            CornerBoost: 1.10f,
-            ShimmerAmount: 0.80f),
+        // Normal — warm gold family.
+        CardFrameStyle.Normal or CardFrameStyle.PendulumNormal => EffectRecipe(
+            mid: new Rgba32(130, 115, 90, 255),
+            stops: EffectStyleStops(45f, 35f, 55f, 200f, 25f, 50f, 320f)),
 
-        _ => new(
-            Mid: new Rgba32(80, 95, 125, 255),
-            Stops:
-            [
-                new(190f, 0.38f, 0.92f),
-                new(175f, 0.35f, 0.90f),
-                new(210f, 0.30f, 0.90f),
-                new(40f, 0.25f, 0.92f),
-            ],
-            UseHoloGrid: false,
-            BodyTint: 0f,
-            ReplaceBoost: 1.12f,
-            ShaftBoost: 1.10f,
-            CornerBoost: 1.10f,
-            ShimmerAmount: 0.82f),
+        _ => EffectRecipe(
+            mid: new Rgba32(95, 100, 130, 255),
+            stops: EffectStyleStops(210f, 190f, 175f, 40f, 220f, 185f, 320f)),
     };
 
     /// <summary>
