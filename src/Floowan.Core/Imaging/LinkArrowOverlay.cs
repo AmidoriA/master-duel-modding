@@ -84,7 +84,7 @@ public static class LinkArrowOverlay
     /// Floowan has no separate Link Pendulum template today — only <see cref="CardFrameStyle.Link"/>.
     /// </summary>
     public static bool NeedsArrowOverlay(CardFrameStyle frameStyle) =>
-        frameStyle == CardFrameStyle.Link;
+        frameStyle is CardFrameStyle.Link or CardFrameStyle.OfGradientLink;
 
     /// <summary>
     /// Composites active Link arrows (drop shadow + bright rim + black inset + lit fill)

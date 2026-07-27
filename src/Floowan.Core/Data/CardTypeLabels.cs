@@ -34,6 +34,23 @@ public static class CardTypeLabels
         CardFrameStyle.PendulumXyz => "Xyz Pendulum",
         CardFrameStyle.PendulumRitual => "Ritual Pendulum",
         CardFrameStyle.PendulumToken => "Token Pendulum",
+        CardFrameStyle.OfGradientEffect => "OF Gradient Effect",
+        CardFrameStyle.OfGradientNormal => "OF Gradient Normal",
+        CardFrameStyle.OfGradientFusion => "OF Gradient Fusion",
+        CardFrameStyle.OfGradientSynchro => "OF Gradient Synchro",
+        CardFrameStyle.OfGradientXyz => "OF Gradient Xyz",
+        CardFrameStyle.OfGradientRitual => "OF Gradient Ritual",
+        CardFrameStyle.OfGradientSpell => "OF Gradient Spell",
+        CardFrameStyle.OfGradientTrap => "OF Gradient Trap",
+        CardFrameStyle.OfGradientLink => "OF Gradient Link",
+        CardFrameStyle.OfGradientToken => "OF Gradient Token",
+        CardFrameStyle.OfGradientPendulumNormal => "OF Gradient Normal Pendulum",
+        CardFrameStyle.OfGradientPendulumEffect => "OF Gradient Effect Pendulum",
+        CardFrameStyle.OfGradientPendulumFusion => "OF Gradient Fusion Pendulum",
+        CardFrameStyle.OfGradientPendulumSynchro => "OF Gradient Synchro Pendulum",
+        CardFrameStyle.OfGradientPendulumXyz => "OF Gradient Xyz Pendulum",
+        CardFrameStyle.OfGradientPendulumRitual => "OF Gradient Ritual Pendulum",
+        CardFrameStyle.OfGradientPendulumToken => "OF Gradient Token Pendulum",
         _ => style.ToString()
     };
 

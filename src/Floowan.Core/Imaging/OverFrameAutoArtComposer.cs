@@ -175,17 +175,9 @@ public static class OverFrameAutoArtComposer
     /// Per-style Pendulum layout fallbacks (art hole + monster lore + cut). Values are
     /// measured from each <c>card_frame*</c> PNG; current MD builds share the same hole.
     /// </summary>
-    public static FrameLayout GetPendulumLayout(CardFrameStyle style) => style switch
-    {
-        CardFrameStyle.PendulumNormal => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
-        CardFrameStyle.PendulumEffect => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
-        CardFrameStyle.PendulumFusion => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
-        CardFrameStyle.PendulumSynchro => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
-        CardFrameStyle.PendulumXyz => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
-        CardFrameStyle.PendulumRitual => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
-        CardFrameStyle.PendulumToken => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
-        _ => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop)
-    };
+    public static FrameLayout GetPendulumLayout(CardFrameStyle style) =>
+        // Solid + OF-gradient Pendulum presets share the same measured hole / dual-lore.
+        new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop);
 
     public readonly record struct FrameLayout(Rectangle ArtWindow, Rectangle LoreCream, int LoreCutTop);
 
