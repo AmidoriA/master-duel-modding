@@ -60,7 +60,7 @@ public static class CardFrameTemplates
         style is >= CardFrameStyle.OfGradientEffect and <= CardFrameStyle.OfGradientPendulumToken;
 
     /// <summary>
-    /// Maps an OF-gradient preset back to its solid MD base style (layout / inference base).
+    /// Maps an OF-gradient preset back to its solid MD base style (layout / inference base / UI).
     /// Solid styles return themselves.
     /// </summary>
     public static CardFrameStyle GetSolidBaseStyle(CardFrameStyle style) => style switch
@@ -82,6 +82,33 @@ public static class CardFrameTemplates
         CardFrameStyle.OfGradientPendulumXyz => CardFrameStyle.PendulumXyz,
         CardFrameStyle.OfGradientPendulumRitual => CardFrameStyle.PendulumRitual,
         CardFrameStyle.OfGradientPendulumToken => CardFrameStyle.PendulumToken,
+        _ => style,
+    };
+
+    /// <summary>
+    /// Maps a solid MD frame style to its OF-gradient chrome preset.
+    /// Already-gradient styles return themselves. Used by all Over-frame compose paths —
+    /// card-art replace continues to use solid templates via <see cref="Load"/> directly.
+    /// </summary>
+    public static CardFrameStyle ToOfGradientStyle(CardFrameStyle style) => style switch
+    {
+        CardFrameStyle.Effect => CardFrameStyle.OfGradientEffect,
+        CardFrameStyle.Normal => CardFrameStyle.OfGradientNormal,
+        CardFrameStyle.Fusion => CardFrameStyle.OfGradientFusion,
+        CardFrameStyle.Synchro => CardFrameStyle.OfGradientSynchro,
+        CardFrameStyle.Xyz => CardFrameStyle.OfGradientXyz,
+        CardFrameStyle.Ritual => CardFrameStyle.OfGradientRitual,
+        CardFrameStyle.Spell => CardFrameStyle.OfGradientSpell,
+        CardFrameStyle.Trap => CardFrameStyle.OfGradientTrap,
+        CardFrameStyle.Link => CardFrameStyle.OfGradientLink,
+        CardFrameStyle.Token => CardFrameStyle.OfGradientToken,
+        CardFrameStyle.PendulumNormal => CardFrameStyle.OfGradientPendulumNormal,
+        CardFrameStyle.PendulumEffect => CardFrameStyle.OfGradientPendulumEffect,
+        CardFrameStyle.PendulumFusion => CardFrameStyle.OfGradientPendulumFusion,
+        CardFrameStyle.PendulumSynchro => CardFrameStyle.OfGradientPendulumSynchro,
+        CardFrameStyle.PendulumXyz => CardFrameStyle.OfGradientPendulumXyz,
+        CardFrameStyle.PendulumRitual => CardFrameStyle.OfGradientPendulumRitual,
+        CardFrameStyle.PendulumToken => CardFrameStyle.OfGradientPendulumToken,
         _ => style,
     };
 

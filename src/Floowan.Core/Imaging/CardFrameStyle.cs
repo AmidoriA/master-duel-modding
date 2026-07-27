@@ -4,7 +4,8 @@ namespace Floowan.Core.Imaging;
 /// Master Duel card-face styles used when baking a frame-with-hole into over-frame art.
 /// Texture templates are the game's <c>card_frame*</c> 704×1024 assets (art window already A=0).
 /// <see cref="OfGradientEffect"/> and siblings are Floowan-derived OF premium presets
-/// (brighter gradient outer rim) — additive, never returned by type-line inference.
+/// (brighter gradient outer rim). Over-frame compose always maps solid styles to these via
+/// <see cref="CardFrameTemplates.ToOfGradientStyle"/>; type-line inference still returns solids.
 /// </summary>
 public enum CardFrameStyle
 {
