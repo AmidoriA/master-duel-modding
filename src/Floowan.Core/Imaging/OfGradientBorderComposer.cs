@@ -35,6 +35,18 @@ public static class OfGradientBorderComposer
     public const float CornerRadiusPx = 56f;
 
     /// <summary>
+    /// HSV Value multiplier applied to finished rim pixels so multi-hue chrome reads
+    /// closer to genuine OF luminosity (ref rim V≈0.75+) without desaturating to white.
+    /// </summary>
+    public const float RimValueLift = 1.22f;
+
+    /// <summary>
+    /// Minimum replace mix inside the outer chrome band (avoids dark solid chrome
+    /// showing through mid-band and muting the iridescence).
+    /// </summary>
+    public const float RimMixFloor = 0.58f;
+
+    /// <summary>
     /// Builds an OF-gradient frame from a solid template. Caller owns the returned image.
     /// </summary>
     public static Image<Rgba32> Apply(Image<Rgba32> solidFrame, CardFrameStyle ofGradientStyle)
@@ -92,8 +104,8 @@ public static class OfGradientBorderComposer
                 cornerT *= bandGate;
                 var marginT = Math.Clamp(0.40f * rimT + 0.35f * shaftT + 0.35f * cornerT, 0f, 1f);
 
-                // No BodyTint on the plate — mix is purely from outer-band strength.
-                var mix = Math.Clamp(marginT * palette.ReplaceBoost, 0f, 0.95f);
+                // High floor so dark solid chrome doesn't mute the luminous multi-hue rim.
+                var mix = Math.Clamp(RimMixFloor + (1f - RimMixFloor) * marginT * palette.ReplaceBoost, 0f, 0.96f);
                 if (mix < 0.08f)
                     continue;
 
@@ -102,6 +114,8 @@ public static class OfGradientBorderComposer
                 var target = SampleIridescentColor(palette, angle01, rimT, shaftT, cornerT, x, y);
 
                 var outPix = LerpRgb(src, target, mix);
+                // Final luminous lift — chroma kept via HSV (sat floor in BoostChroma).
+                outPix = BoostChroma(outPix, satMul: 0.96f, valMul: RimValueLift);
 
                 if (palette.UseHoloGrid)
                     outPix = ApplyHoloGrid(outPix, x, y, marginT, angle01);
@@ -159,183 +173,184 @@ public static class OfGradientBorderComposer
 
     private static BorderPalette ResolvePalette(CardFrameStyle baseStyle) => baseStyle switch
     {
-        // Linkage — teal/seafoam base + full rainbow shimmer (sampled perimeter hues).
+        // Linkage — teal/seafoam base + full rainbow shimmer (hot, luminous stops).
         CardFrameStyle.Spell => new(
-            Mid: new Rgba32(28, 130, 135, 255),
+            Mid: new Rgba32(48, 165, 170, 255),
             Stops:
             [
-                new(175f, 0.72f, 0.78f), // cyan-teal
-                new(155f, 0.65f, 0.82f), // seafoam
-                new(195f, 0.45f, 0.80f), // soft cyan
-                new(280f, 0.35f, 0.78f), // purple shimmer
-                new(330f, 0.40f, 0.85f), // pink
-                new(45f, 0.45f, 0.88f),  // warm yellow
-                new(150f, 0.70f, 0.70f), // green-teal
-                new(185f, 0.55f, 0.75f), // aqua
+                new(175f, 0.55f, 0.92f), // cyan-teal hot
+                new(155f, 0.50f, 0.94f), // seafoam
+                new(195f, 0.35f, 0.95f), // soft cyan flash
+                new(280f, 0.30f, 0.90f), // purple shimmer
+                new(330f, 0.35f, 0.93f), // pink
+                new(45f, 0.40f, 0.95f),  // warm yellow
+                new(150f, 0.55f, 0.88f), // green-teal
+                new(185f, 0.40f, 0.94f), // aqua
             ],
             UseHoloGrid: true,
-            BodyTint: 0.36f,
-            ReplaceBoost: 1.08f,
+            BodyTint: 0f,
+            ReplaceBoost: 1.12f,
             ShaftBoost: 0.95f,
             CornerBoost: 1.05f,
-            ShimmerAmount: 0.92f),
+            ShimmerAmount: 0.95f),
 
-        // Magician of Black Chaos — cyan/teal corners, deeper blue mid (colored, not white).
+        // Magician of Black Chaos — luminous cyan/teal corners (colored, not white).
         CardFrameStyle.Ritual or CardFrameStyle.PendulumRitual => new(
-            Mid: new Rgba32(28, 48, 78, 255),
+            Mid: new Rgba32(40, 70, 105, 255),
             Stops:
             [
-                new(195f, 0.55f, 0.55f), // blue-grey edge
-                new(185f, 0.70f, 0.85f), // bright cyan
-                new(170f, 0.65f, 0.80f), // teal
-                new(210f, 0.40f, 0.70f), // periwinkle
-                new(160f, 0.50f, 0.75f), // seafoam corner
-                new(200f, 0.60f, 0.78f), // electric cyan
+                new(195f, 0.40f, 0.82f), // blue edge (brighter midtones)
+                new(185f, 0.55f, 0.96f), // bright cyan hot
+                new(170f, 0.50f, 0.93f), // teal
+                new(210f, 0.30f, 0.88f), // periwinkle
+                new(160f, 0.40f, 0.94f), // seafoam corner
+                new(200f, 0.45f, 0.95f), // electric cyan
             ],
             UseHoloGrid: false,
-            BodyTint: 0.26f,
-            ReplaceBoost: 1.12f,
+            BodyTint: 0f,
+            ReplaceBoost: 1.15f,
             ShaftBoost: 0.80f,
             CornerBoost: 1.40f,
-            ShimmerAmount: 0.70f),
+            ShimmerAmount: 0.85f),
 
-        // Chaos Soldier — chromatic pale blue/cyan shafts (not pure white).
+        // Chaos Soldier / Effect — luminous cyan shafts + prismatic flashes.
         CardFrameStyle.Effect or CardFrameStyle.PendulumEffect => new(
-            Mid: new Rgba32(75, 70, 95, 255),
+            Mid: new Rgba32(95, 100, 130, 255),
             Stops:
             [
-                new(210f, 0.35f, 0.70f), // pale blue
-                new(190f, 0.45f, 0.78f), // cyan
-                new(175f, 0.40f, 0.72f), // teal-blue
-                new(40f, 0.30f, 0.75f),  // warm gold leak (art-integrated)
-                new(220f, 0.30f, 0.68f), // periwinkle
-                new(185f, 0.50f, 0.82f), // bright cyan shaft
+                new(210f, 0.28f, 0.90f), // pale blue
+                new(190f, 0.38f, 0.95f), // cyan hot
+                new(175f, 0.35f, 0.92f), // teal-blue
+                new(40f, 0.28f, 0.93f),  // warm gold leak
+                new(220f, 0.25f, 0.90f), // periwinkle
+                new(185f, 0.42f, 0.96f), // bright cyan shaft flash
+                new(320f, 0.28f, 0.92f), // pink prismatic
             ],
             UseHoloGrid: false,
-            BodyTint: 0.16f,
-            ReplaceBoost: 1.10f,
+            BodyTint: 0f,
+            ReplaceBoost: 1.15f,
             ShaftBoost: 1.25f,
-            CornerBoost: 1.05f,
-            ShimmerAmount: 0.65f),
+            CornerBoost: 1.10f,
+            ShimmerAmount: 0.88f),
 
         CardFrameStyle.Trap or CardFrameStyle.Token or CardFrameStyle.PendulumToken => new(
-            Mid: new Rgba32(95, 35, 105, 255),
+            Mid: new Rgba32(120, 55, 130, 255),
             Stops:
             [
-                new(310f, 0.55f, 0.75f), // magenta
-                new(280f, 0.50f, 0.70f), // purple
-                new(330f, 0.45f, 0.82f), // pink
-                new(200f, 0.30f, 0.70f), // cool cyan leak
-                new(340f, 0.40f, 0.78f),
+                new(310f, 0.45f, 0.90f),
+                new(280f, 0.40f, 0.88f),
+                new(330f, 0.38f, 0.94f),
+                new(200f, 0.28f, 0.90f),
+                new(340f, 0.35f, 0.92f),
             ],
             UseHoloGrid: false,
-            BodyTint: 0.30f,
-            ReplaceBoost: 1.08f,
+            BodyTint: 0f,
+            ReplaceBoost: 1.12f,
             ShaftBoost: 1.00f,
             CornerBoost: 1.15f,
-            ShimmerAmount: 0.75f),
+            ShimmerAmount: 0.85f),
 
         CardFrameStyle.Fusion or CardFrameStyle.PendulumFusion => new(
-            Mid: new Rgba32(85, 40, 125, 255),
+            Mid: new Rgba32(110, 60, 150, 255),
             Stops:
             [
-                new(280f, 0.55f, 0.75f),
-                new(300f, 0.45f, 0.80f),
-                new(260f, 0.40f, 0.70f),
-                new(320f, 0.35f, 0.82f),
-                new(200f, 0.25f, 0.72f),
+                new(280f, 0.45f, 0.90f),
+                new(300f, 0.38f, 0.93f),
+                new(260f, 0.35f, 0.88f),
+                new(320f, 0.30f, 0.94f),
+                new(200f, 0.25f, 0.90f),
             ],
             UseHoloGrid: false,
-            BodyTint: 0.28f,
-            ReplaceBoost: 1.08f,
+            BodyTint: 0f,
+            ReplaceBoost: 1.12f,
             ShaftBoost: 1.00f,
             CornerBoost: 1.20f,
-            ShimmerAmount: 0.70f),
+            ShimmerAmount: 0.82f),
 
         CardFrameStyle.Synchro or CardFrameStyle.PendulumSynchro => new(
-            Mid: new Rgba32(140, 145, 160, 255),
+            Mid: new Rgba32(165, 170, 185, 255),
             Stops:
             [
-                new(210f, 0.25f, 0.85f), // cool silver-blue
-                new(45f, 0.20f, 0.88f),  // warm silver
-                new(280f, 0.15f, 0.82f), // lilac shimmer
-                new(180f, 0.22f, 0.86f), // aqua silver
-                new(0f, 0.12f, 0.90f),   // soft rose-silver
+                new(210f, 0.22f, 0.95f),
+                new(45f, 0.18f, 0.96f),
+                new(280f, 0.15f, 0.93f),
+                new(180f, 0.20f, 0.95f),
+                new(0f, 0.12f, 0.96f),
             ],
             UseHoloGrid: false,
-            BodyTint: 0.26f,
-            ReplaceBoost: 1.05f,
+            BodyTint: 0f,
+            ReplaceBoost: 1.10f,
             ShaftBoost: 1.00f,
             CornerBoost: 1.10f,
-            ShimmerAmount: 0.60f),
+            ShimmerAmount: 0.75f),
 
         CardFrameStyle.Xyz or CardFrameStyle.PendulumXyz => new(
-            Mid: new Rgba32(18, 20, 32, 255),
+            Mid: new Rgba32(35, 40, 55, 255),
             Stops:
             [
-                new(210f, 0.55f, 0.75f),
-                new(190f, 0.50f, 0.80f),
-                new(260f, 0.35f, 0.70f),
-                new(175f, 0.45f, 0.72f),
-                new(220f, 0.40f, 0.78f),
+                new(210f, 0.45f, 0.90f),
+                new(190f, 0.40f, 0.94f),
+                new(260f, 0.30f, 0.88f),
+                new(175f, 0.38f, 0.90f),
+                new(220f, 0.35f, 0.93f),
             ],
             UseHoloGrid: true,
-            BodyTint: 0.24f,
-            ReplaceBoost: 1.10f,
+            BodyTint: 0f,
+            ReplaceBoost: 1.15f,
             ShaftBoost: 1.10f,
             CornerBoost: 1.20f,
-            ShimmerAmount: 0.68f),
+            ShimmerAmount: 0.82f),
 
         CardFrameStyle.Link => new(
-            Mid: new Rgba32(22, 48, 72, 255),
+            Mid: new Rgba32(35, 70, 100, 255),
             Stops:
             [
-                new(185f, 0.70f, 0.80f),
-                new(170f, 0.60f, 0.75f),
-                new(200f, 0.50f, 0.78f),
-                new(280f, 0.30f, 0.72f),
-                new(150f, 0.55f, 0.70f),
-                new(45f, 0.25f, 0.80f),
+                new(185f, 0.55f, 0.94f),
+                new(170f, 0.48f, 0.90f),
+                new(200f, 0.40f, 0.93f),
+                new(280f, 0.28f, 0.88f),
+                new(150f, 0.45f, 0.88f),
+                new(45f, 0.25f, 0.92f),
             ],
             UseHoloGrid: true,
-            BodyTint: 0.32f,
-            ReplaceBoost: 1.10f,
+            BodyTint: 0f,
+            ReplaceBoost: 1.12f,
             ShaftBoost: 1.05f,
             CornerBoost: 1.15f,
-            ShimmerAmount: 0.80f),
+            ShimmerAmount: 0.90f),
 
         CardFrameStyle.Normal or CardFrameStyle.PendulumNormal => new(
-            Mid: new Rgba32(170, 135, 55, 255),
+            Mid: new Rgba32(190, 155, 75, 255),
             Stops:
             [
-                new(45f, 0.65f, 0.88f),  // gold
-                new(35f, 0.55f, 0.85f),  // amber
-                new(55f, 0.40f, 0.90f),  // yellow
-                new(20f, 0.45f, 0.82f),  // peach
-                new(200f, 0.20f, 0.75f), // cool leak
+                new(45f, 0.55f, 0.95f),
+                new(35f, 0.45f, 0.93f),
+                new(55f, 0.35f, 0.96f),
+                new(20f, 0.40f, 0.92f),
+                new(200f, 0.20f, 0.90f),
             ],
             UseHoloGrid: false,
-            BodyTint: 0.26f,
-            ReplaceBoost: 1.05f,
+            BodyTint: 0f,
+            ReplaceBoost: 1.10f,
             ShaftBoost: 1.00f,
             CornerBoost: 1.10f,
-            ShimmerAmount: 0.65f),
+            ShimmerAmount: 0.80f),
 
         _ => new(
-            Mid: new Rgba32(55, 70, 100, 255),
+            Mid: new Rgba32(80, 95, 125, 255),
             Stops:
             [
-                new(190f, 0.45f, 0.75f),
-                new(175f, 0.40f, 0.70f),
-                new(210f, 0.35f, 0.72f),
-                new(40f, 0.25f, 0.75f),
+                new(190f, 0.38f, 0.92f),
+                new(175f, 0.35f, 0.90f),
+                new(210f, 0.30f, 0.90f),
+                new(40f, 0.25f, 0.92f),
             ],
             UseHoloGrid: false,
-            BodyTint: 0.22f,
-            ReplaceBoost: 1.08f,
+            BodyTint: 0f,
+            ReplaceBoost: 1.12f,
             ShaftBoost: 1.10f,
             CornerBoost: 1.10f,
-            ShimmerAmount: 0.65f),
+            ShimmerAmount: 0.82f),
     };
 
     /// <summary>
@@ -357,14 +372,14 @@ public static class OfGradientBorderComposer
         var iri = LerpRgb(shimmer, shimmer2, 0.35f);
 
         // Body mid stays type-colored; rim pulls strongly toward multi-hue.
-        var rimPull = Math.Clamp(palette.ShimmerAmount * (0.35f + 0.65f * rimT), 0f, 1f);
+        var rimPull = Math.Clamp(palette.ShimmerAmount * (0.55f + 0.45f * rimT), 0f, 1f);
         var c = LerpRgb(palette.Mid, iri, rimPull);
 
-        // Shafts: same hue family, slightly higher value, keep saturation (chromatic, not white).
+        // Shafts: same hue family, higher value, keep saturation (chromatic, not white).
         if (shaftT > 0.05f)
         {
             var shaftHue = SampleHueStops(palette.Stops, Fract(angle01 + 0.08f));
-            shaftHue = BoostChroma(shaftHue, satMul: 1.05f, valMul: 1.08f);
+            shaftHue = BoostChroma(shaftHue, satMul: 1.02f, valMul: 1.14f);
             c = LerpRgb(c, shaftHue, Math.Clamp(shaftT * 0.55f, 0f, 0.75f));
         }
 
@@ -372,13 +387,13 @@ public static class OfGradientBorderComposer
         if (cornerT > 0.05f)
         {
             var cornerHue = SampleHueStops(palette.Stops, Fract(angle01 * 0.5f + 0.25f));
-            cornerHue = BoostChroma(cornerHue, satMul: 1.12f, valMul: 1.10f);
+            cornerHue = BoostChroma(cornerHue, satMul: 1.05f, valMul: 1.16f);
             c = LerpRgb(c, cornerHue, Math.Clamp(cornerT * 0.50f, 0f, 0.70f));
         }
 
-        // Soft mottle for premium foil grain (value only, chroma preserved via HSV).
+        // Soft mottle for premium foil grain — bias brighter (genuine OF hot flashes).
         var mottle = SoftMottle(x, y);
-        c = BoostChroma(c, satMul: 1f, valMul: 0.94f + 0.10f * mottle);
+        c = BoostChroma(c, satMul: 1f, valMul: 1.06f + 0.10f * mottle);
         return c;
     }
 
@@ -419,9 +434,10 @@ public static class OfGradientBorderComposer
         RgbToHsv(c, out var h, out var s, out var v);
         s = Math.Clamp(s * satMul, 0f, 1f);
         v = Math.Clamp(v * valMul, 0f, 1f);
-        // Floor saturation so we never collapse to grey/white glow.
-        if (s < 0.12f)
-            s = 0.12f;
+        // Floor saturation so we never collapse to grey/white glow — but allow
+        // slightly lower sat on hot high-V flashes (genuine OF prismatic highlights).
+        if (s < 0.10f)
+            s = 0.10f;
         return HsvToRgb(h, s, v);
     }
 
@@ -436,10 +452,10 @@ public static class OfGradientBorderComposer
         // Grid lines pick up the same multi-hue (brighter, still chromatic).
         var grid = SampleHueStops(
             [
-                new(175f, 0.35f, 0.92f),
-                new(330f, 0.30f, 0.90f),
-                new(50f, 0.30f, 0.92f),
-                new(200f, 0.28f, 0.90f),
+                new(175f, 0.30f, 0.98f),
+                new(330f, 0.28f, 0.96f),
+                new(50f, 0.28f, 0.98f),
+                new(200f, 0.25f, 0.96f),
             ],
             angle01);
         var strength = (0.22f + 0.40f * marginT) * (onV && onH ? 1f : 0.70f);
