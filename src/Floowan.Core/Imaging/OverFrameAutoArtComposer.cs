@@ -297,6 +297,50 @@ public static class OverFrameAutoArtComposer
     public static Rectangle ResolveCustomBackgroundArtWindow(CardFrameStyle frameStyle) =>
         CardFrameTemplates.IsPendulumStyle(frameStyle) ? PendulumArtWindow : ArtWindow;
 
+    /// <summary>
+    /// Canvas-Y bias baked into Custom/Auto subject placement for the frame style.
+    /// Pendulum subjects are shifted down by <see cref="PendulumVerticalOffset"/> while
+    /// Cover background stays hole-centered — Match must add this bias on Y.
+    /// </summary>
+    public static int GetSubjectPlacementBiasY(CardFrameStyle frameStyle) =>
+        CardFrameTemplates.IsPendulumStyle(frameStyle) ? PendulumVerticalOffset : 0;
+
+    /// <summary>
+    /// Converts Custom OF subject drag offsets into Cover background pan so the art-hole
+    /// crop tracks Card Art. Effect: 1:1 copy. Pendulum: Y += <see cref="PendulumVerticalOffset"/>
+    /// because subject placement includes that nudge and Cover fill does not.
+    /// Caller should clamp with <see cref="ClampBackgroundPan"/> / pan limits.
+    /// </summary>
+    public static (int PanX, int PanY) ResolveMatchedBackgroundPan(
+        int subjectOffsetX,
+        int subjectOffsetY,
+        CardFrameStyle frameStyle) =>
+        (subjectOffsetX, subjectOffsetY + GetSubjectPlacementBiasY(frameStyle));
+
+    /// <summary>
+    /// Shared Match-background-to-subject transform: copy subject Cover scale, then pan
+    /// (with Pendulum Y bias) clamped so the hole stays covered.
+    /// </summary>
+    public static (float BackgroundScale, int PanX, int PanY) MatchBackgroundToSubject(
+        float subjectScale,
+        int subjectOffsetX,
+        int subjectOffsetY,
+        CardFrameStyle frameStyle,
+        int backgroundWidth,
+        int backgroundHeight)
+    {
+        var scale = ClampBackgroundScale(subjectScale);
+        var artWindow = ResolveCustomBackgroundArtWindow(frameStyle);
+        var (maxPanX, maxPanY) = GetBackgroundPanLimits(
+            backgroundWidth, backgroundHeight, artWindow, scale);
+        var (rawX, rawY) = ResolveMatchedBackgroundPan(
+            subjectOffsetX, subjectOffsetY, frameStyle);
+        return (
+            scale,
+            ClampBackgroundPan(rawX, maxPanX),
+            ClampBackgroundPan(rawY, maxPanY));
+    }
+
     public static Image<Rgba32> Compose(
         Image<Rgba32> source,
         Image<L8> mask,

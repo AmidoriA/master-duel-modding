@@ -344,28 +344,38 @@ public partial class CustomOverframeWindow : Window
         if (_busy || _backgroundSource is null)
             return;
 
-        var subjectScale = GetSubjectScale();
+        // Core Match accounts for PendulumVerticalOffset: subject Cover is nudged +200 on
+        // Pendulum while hole-only Cover background is not — copying offset 1:1 misaligns.
+        var (matchedScale, matchedPanX, matchedPanY) =
+            OverFrameAutoArtComposer.MatchBackgroundToSubject(
+                GetSubjectScale(),
+                _offsetX,
+                _offsetY,
+                GetSelectedFrameStyle(),
+                _backgroundSource.Width,
+                _backgroundSource.Height);
+
         _updatingBgPanSliders = true;
         try
         {
-            BgScaleSlider.Value = subjectScale;
+            BgScaleSlider.Value = matchedScale;
         }
         finally
         {
             _updatingBgPanSliders = false;
         }
 
-        // Pan limits depend on the new shared Cover scale — sync ranges first, then
-        // copy subject offset (clamped to overflow so the hole stays covered when ≥ ×1).
+        // Pan limits depend on the new shared Cover scale — sync ranges first, then apply
+        // matched pan (already clamped in Core; re-clamp to live slider max for safety).
         // Do not write _backgroundOffset* here; ApplyBackgroundTransformChangeAsync owns that.
         SyncBackgroundPanSliderRanges();
         _updatingBgPanSliders = true;
         try
         {
             var panX = OverFrameAutoArtComposer.ClampBackgroundPan(
-                _offsetX, (int)Math.Round(BgPanHSlider.Maximum));
+                matchedPanX, (int)Math.Round(BgPanHSlider.Maximum));
             var panY = OverFrameAutoArtComposer.ClampBackgroundPan(
-                _offsetY, (int)Math.Round(BgPanVSlider.Maximum));
+                matchedPanY, (int)Math.Round(BgPanVSlider.Maximum));
             BgPanHSlider.Value = panX;
             BgPanVSlider.Value = panY;
         }

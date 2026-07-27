@@ -1646,6 +1646,84 @@ public class OverFrameAutoArtComposerTests
             $"×4 Cover must allow more pan than ×2 ({max2X},{max2Y} vs {max4X},{max4Y})");
     }
 
+    [Theory]
+    [InlineData(CardFrameStyle.Effect, 12, -34, 12, -34)]
+    [InlineData(CardFrameStyle.Normal, 0, 0, 0, 0)]
+    [InlineData(CardFrameStyle.PendulumEffect, 12, -34, 12, -34 + 200)]
+    [InlineData(CardFrameStyle.PendulumNormal, 0, 0, 0, 200)]
+    [InlineData(CardFrameStyle.OfGradientPendulumEffect, 5, 10, 5, 10 + 200)]
+    [InlineData(CardFrameStyle.OfGradientEffect, 5, 10, 5, 10)]
+    public void ResolveMatchedBackgroundPan_AddsPendulumVerticalBiasOnly(
+        CardFrameStyle style,
+        int subjectX,
+        int subjectY,
+        int expectedPanX,
+        int expectedPanY)
+    {
+        Assert.Equal(
+            OverFrameAutoArtComposer.PendulumVerticalOffset,
+            200);
+
+        var (panX, panY) = OverFrameAutoArtComposer.ResolveMatchedBackgroundPan(
+            subjectX, subjectY, style);
+        Assert.Equal(expectedPanX, panX);
+        Assert.Equal(expectedPanY, panY);
+
+        var bias = OverFrameAutoArtComposer.GetSubjectPlacementBiasY(style);
+        Assert.Equal(
+            CardFrameTemplates.IsPendulumStyle(style)
+                ? OverFrameAutoArtComposer.PendulumVerticalOffset
+                : 0,
+            bias);
+    }
+
+    [Fact]
+    public void MatchBackgroundToSubject_Pendulum_AppliesBiasWithinPanLimits()
+    {
+        // Typical MD Pendulum illust into PendulumArtWindow — ×1.5 leaves room for +200 Y.
+        const int bgW = 512;
+        const int bgH = 683;
+        var hole = OverFrameAutoArtComposer.PendulumArtWindow;
+        var (maxX, maxY) = OverFrameAutoArtComposer.GetBackgroundPanLimits(
+            bgW, bgH, hole, backgroundScale: 1.5f);
+        Assert.True(maxY >= OverFrameAutoArtComposer.PendulumVerticalOffset,
+            $"test needs pan room ≥ {OverFrameAutoArtComposer.PendulumVerticalOffset}, got {maxY}");
+
+        var (scale, panX, panY) = OverFrameAutoArtComposer.MatchBackgroundToSubject(
+            subjectScale: 1.5f,
+            subjectOffsetX: 18,
+            subjectOffsetY: -40,
+            CardFrameStyle.PendulumEffect,
+            bgW,
+            bgH);
+
+        Assert.Equal(1.5f, scale);
+        Assert.Equal(OverFrameAutoArtComposer.ClampBackgroundPan(18, maxX), panX);
+        Assert.Equal(
+            OverFrameAutoArtComposer.ClampBackgroundPan(
+                -40 + OverFrameAutoArtComposer.PendulumVerticalOffset, maxY),
+            panY);
+    }
+
+    [Fact]
+    public void MatchBackgroundToSubject_Effect_CopiesOffsetWithoutBias()
+    {
+        var art = OverFrameAutoArtComposer.ArtWindow;
+        var (scale, panX, panY) = OverFrameAutoArtComposer.MatchBackgroundToSubject(
+            subjectScale: 2f,
+            subjectOffsetX: -30,
+            subjectOffsetY: 45,
+            CardFrameStyle.Effect,
+            backgroundWidth: art.Width,
+            backgroundHeight: art.Height);
+
+        Assert.Equal(2f, scale);
+        var (maxX, maxY) = OverFrameAutoArtComposer.GetBackgroundPanLimits(
+            art.Width, art.Height, art, backgroundScale: 2f);
+        Assert.Equal(OverFrameAutoArtComposer.ClampBackgroundPan(-30, maxX), panX);
+        Assert.Equal(OverFrameAutoArtComposer.ClampBackgroundPan(45, maxY), panY);
+    }
+
     [Fact]
     public void Compose_CustomArtOnly_DoesNotFillArtHoleWithRectangularFoil()
     {
