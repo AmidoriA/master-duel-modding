@@ -692,6 +692,7 @@ LIMIT $limit;";
         ArgumentNullException.ThrowIfNull(filters);
         var limit = Math.Clamp(filters.Limit, 1, 500);
         var offset = Math.Max(0, filters.Offset);
+        var orderBy = BuildOrderBy(filters);
 
         using var cmd = _connection.CreateCommand();
         var where = BuildFilterWhere(filters, cmd);
@@ -699,7 +700,7 @@ LIMIT $limit;";
 SELECT {_cardSelectList}
 {CardFromJoin}
 {where}
-ORDER BY c.id
+{orderBy}
 LIMIT $limit OFFSET $offset;";
         cmd.Parameters.AddWithValue("$limit", limit);
         cmd.Parameters.AddWithValue("$offset", offset);
@@ -709,6 +710,38 @@ LIMIT $limit OFFSET $offset;";
         while (reader.Read())
             results.Add(ReadCard(reader));
         return results;
+    }
+
+    /// <summary>
+    /// Whitelisted ORDER BY for the Database browser. Always sorts the full filtered set
+    /// before LIMIT/OFFSET so page N continues the same global order.
+    /// </summary>
+    private string BuildOrderBy(CardQueryFilters filters)
+    {
+        var expr = filters.SortBy switch
+        {
+            CardSortColumn.Name => "c.name COLLATE NOCASE",
+            CardSortColumn.Description => "c.description COLLATE NOCASE",
+            CardSortColumn.Bundle => "c.bundle COLLATE NOCASE",
+            CardSortColumn.DataIndex => "c.data_index",
+            CardSortColumn.CardType => HasCardTypeColumn
+                ? "IFNULL(c.card_type,'') COLLATE NOCASE"
+                : "c.id",
+            CardSortColumn.CreatedAt => HasCreatedAtColumn
+                ? "IFNULL(c.created_at,'')"
+                : "c.id",
+            CardSortColumn.ModdedName => "IFNULL(u.modded_name,'') COLLATE NOCASE",
+            CardSortColumn.ModdedDescription => "IFNULL(u.modded_description,'') COLLATE NOCASE",
+            CardSortColumn.Favorite => "IFNULL(u.favorite, 0)",
+            CardSortColumn.HasBackup => "IFNULL(u.has_backup, 0)",
+            _ => "c.id"
+        };
+
+        var dir = filters.SortDescending ? "DESC" : "ASC";
+        // Stable tie-break so OFFSET pages do not reshuffle equal keys.
+        return expr == "c.id"
+            ? $"ORDER BY c.id {dir}"
+            : $"ORDER BY {expr} {dir}, c.id {dir}";
     }
 
     public int CountCards(CardQueryFilters filters)
