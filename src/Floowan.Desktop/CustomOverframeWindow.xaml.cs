@@ -36,8 +36,12 @@ public partial class CustomOverframeWindow : Window
     private int _offsetY;
     /// <summary>True when Cover background is live card art (default / "Use card art").</summary>
     private bool _backgroundIsCardArt;
-    /// <summary>True when subject is rembg cutout from this card's live art.</summary>
-    private bool _subjectIsCardArtRembg;
+    /// <summary>
+    /// True when the Card Art subject came from this card's live art (rembg Auto detect
+    /// or SAM Add more selection). Used with <see cref="_backgroundIsCardArt"/> to
+    /// auto-match background scale/pan on drag/scale. False for Pick manually… PNGs.
+    /// </summary>
+    private bool _subjectIsFromCardArt;
     private const float DefaultSubjectScale = 1.5f;
     private const float DefaultBackgroundScale = 1.0f;
 
@@ -349,12 +353,12 @@ public partial class CustomOverframeWindow : Window
 
     /// <summary>
     /// Auto-match Cover background to subject only when both come from card art
-    /// (live-art rembg subject + card-art background). Re-applies on subject drag/scale
-    /// while that pairing holds; skipped for custom BG/subject / Cover-only.
+    /// (live-art rembg/SAM subject + card-art background). Re-applies on subject drag/scale
+    /// while that pairing holds; skipped for custom BG / Pick manually… subject.
     /// </summary>
     private bool ShouldAutoMatchBackgroundToSubject() =>
         _backgroundIsCardArt
-        && _subjectIsCardArtRembg
+        && _subjectIsFromCardArt
         && _backgroundSource is not null
         && _subjectSource is not null;
 
@@ -609,7 +613,7 @@ public partial class CustomOverframeWindow : Window
             var matched = TryApplyAutoMatchBackgroundTransforms();
             var subjectStatus = readyStatus
                 ?? (matched
-                    ? $"Background: current card art (Cover), matched to rembg subject ×{_backgroundScale:0.00}. Drag Card Art or Apply."
+                    ? $"Background: current card art (Cover), matched to card-art subject ×{_backgroundScale:0.00}. Drag Card Art or Apply."
                     : "Background: current card art (Cover). Preview updated — drag Card Art or Apply.");
             var backgroundOnlyStatus = readyStatus
                 ?? "Background: current card art (Cover). Pick a subject…";
@@ -772,7 +776,8 @@ public partial class CustomOverframeWindow : Window
 
                 _subjectSource = prepared.Source;
                 _subjectMask = prepared.Mask;
-                _subjectIsCardArtRembg = false;
+                // SAM ran on live card art — same BG auto-match path as rembg.
+                _subjectIsFromCardArt = true;
             }
 
             var matched = TryApplyAutoMatchBackgroundTransforms();
@@ -857,7 +862,7 @@ public partial class CustomOverframeWindow : Window
                 () => AutoOverFrameArtService.LoadSubjectFromAlpha(imagePath, progress));
             _subjectSource = prepared.Source;
             _subjectMask = prepared.Mask;
-            _subjectIsCardArtRembg = false;
+            _subjectIsFromCardArt = false;
             SubjectManualRadio.IsChecked = true;
 
             await RecomposePreviewAsync();
@@ -900,7 +905,7 @@ public partial class CustomOverframeWindow : Window
             var prepared = await _autoArt.PrepareSubjectWithRembgAsync(liveTemp, progress);
             _subjectSource = prepared.Source;
             _subjectMask = prepared.Mask;
-            _subjectIsCardArtRembg = true;
+            _subjectIsFromCardArt = true;
             SubjectAutoRadio.IsChecked = true;
 
             var matched = TryApplyAutoMatchBackgroundTransforms();
@@ -929,7 +934,7 @@ public partial class CustomOverframeWindow : Window
     private void ResetSubjectPlacement()
     {
         DisposeSubject();
-        _subjectIsCardArtRembg = false;
+        _subjectIsFromCardArt = false;
         _offsetX = 0;
         _offsetY = 0;
         _subjectScale = DefaultSubjectScale;
@@ -1363,7 +1368,7 @@ public partial class CustomOverframeWindow : Window
         _subjectMask?.Dispose();
         _subjectSource = null;
         _subjectMask = null;
-        _subjectIsCardArtRembg = false;
+        _subjectIsFromCardArt = false;
     }
 
     private void DisposeBackground()
