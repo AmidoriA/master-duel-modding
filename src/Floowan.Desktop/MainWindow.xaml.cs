@@ -52,12 +52,14 @@ public partial class MainWindow : Window
 
     private readonly DispatcherTimer _cardSearchDebounceTimer;
     private readonly DispatcherTimer _ofSearchDebounceTimer;
+    private readonly DispatcherTimer _dbFilterDebounceTimer;
     private readonly DispatcherTimer _ofActionStatusClearTimer;
     private readonly CardThumbnailCache _thumbnailCache = new();
 
     /// <summary>Session-scoped results view: list vs thumbnails (shared by Card Art and Over-frame).</summary>
     private bool _useThumbnailView;
     private bool _viewModeUpdating;
+    private bool _dbFilterUiUpdating;
     private int _thumbnailLoadGeneration;
     private int _uiBusyDepth;
     public MainWindow()
@@ -65,6 +67,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         _cardSearchDebounceTimer = CreateSearchDebounceTimer(OnCardSearchDebounceTick);
         _ofSearchDebounceTimer = CreateSearchDebounceTimer(OnOfSearchDebounceTick);
+        _dbFilterDebounceTimer = CreateSearchDebounceTimer(OnDbFilterDebounceTick);
         _ofActionStatusClearTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromMilliseconds(OfActionStatusClearMs)
@@ -2090,6 +2093,7 @@ public partial class MainWindow : Window
         BumpThumbnailLoadGeneration();
         _cardSearchDebounceTimer.Stop();
         _ofSearchDebounceTimer.Stop();
+        _dbFilterDebounceTimer.Stop();
         _ofActionStatusClearTimer.Stop();
         CleanupPreviewTemp();
         CleanupOfPreviewTemp();
@@ -2146,22 +2150,65 @@ public partial class MainWindow : Window
 
     private void DbFilter_KeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter)
-            RunDatabaseQuery(resetOffset: true);
+        if (e.Key != Key.Enter)
+            return;
+
+        _dbFilterDebounceTimer.Stop();
+        RunDatabaseQuery(resetOffset: true);
     }
 
-    private void DbApplyFilters_Click(object sender, RoutedEventArgs e) =>
+    private void DbFilterText_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (_dbFilterUiUpdating)
+            return;
+
+        _dbFilterDebounceTimer.Stop();
+        _dbFilterDebounceTimer.Start();
+    }
+
+    private void DbFilterCombo_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_dbFilterUiUpdating || _database is null)
+            return;
+
+        _dbFilterDebounceTimer.Stop();
         RunDatabaseQuery(resetOffset: true);
+    }
+
+    private void OnDbFilterDebounceTick(object? sender, EventArgs e)
+    {
+        _dbFilterDebounceTimer.Stop();
+        if (_database is null)
+            return;
+
+        RunDatabaseQuery(resetOffset: true);
+    }
+
+    private void DbApplyFilters_Click(object sender, RoutedEventArgs e)
+    {
+        _dbFilterDebounceTimer.Stop();
+        RunDatabaseQuery(resetOffset: true);
+    }
 
     private void DbClearFilters_Click(object sender, RoutedEventArgs e)
     {
-        DbFilterIdBox.Text = "";
-        DbFilterNameBox.Text = "";
-        DbFilterDescBox.Text = "";
-        DbFilterFavoriteBox.SelectedIndex = 0;
-        DbFilterBackupBox.SelectedIndex = 0;
-        DbFilterModdedNameBox.SelectedIndex = 0;
-        DbFilterModdedDescBox.SelectedIndex = 0;
+        _dbFilterDebounceTimer.Stop();
+        _dbFilterUiUpdating = true;
+        try
+        {
+            DbFilterIdBox.Text = "";
+            DbFilterNameBox.Text = "";
+            DbFilterDescBox.Text = "";
+            DbFilterFavoriteBox.SelectedIndex = 0;
+            DbFilterBackupBox.SelectedIndex = 0;
+            DbFilterModdedNameBox.SelectedIndex = 0;
+            DbFilterModdedDescBox.SelectedIndex = 0;
+        }
+        finally
+        {
+            _dbFilterUiUpdating = false;
+        }
+
         RunDatabaseQuery(resetOffset: true);
     }
 
