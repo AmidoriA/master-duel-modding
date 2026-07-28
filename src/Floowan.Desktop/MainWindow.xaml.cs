@@ -52,12 +52,14 @@ public partial class MainWindow : Window
 
     private readonly DispatcherTimer _cardSearchDebounceTimer;
     private readonly DispatcherTimer _ofSearchDebounceTimer;
+    private readonly DispatcherTimer _dbFilterDebounceTimer;
     private readonly DispatcherTimer _ofActionStatusClearTimer;
     private readonly CardThumbnailCache _thumbnailCache = new();
 
     /// <summary>Session-scoped results view: list vs thumbnails (shared by Card Art and Over-frame).</summary>
     private bool _useThumbnailView;
     private bool _viewModeUpdating;
+    private bool _dbFilterUiUpdating;
     private int _thumbnailLoadGeneration;
     private int _uiBusyDepth;
     public MainWindow()
@@ -65,6 +67,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         _cardSearchDebounceTimer = CreateSearchDebounceTimer(OnCardSearchDebounceTick);
         _ofSearchDebounceTimer = CreateSearchDebounceTimer(OnOfSearchDebounceTick);
+        _dbFilterDebounceTimer = CreateSearchDebounceTimer(OnDbFilterDebounceTick);
         _ofActionStatusClearTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromMilliseconds(OfActionStatusClearMs)
@@ -467,6 +470,9 @@ public partial class MainWindow : Window
         _selected = CardList.SelectedItem as CardRecord;
         _replacementImagePath = null;
         ReplacementImage.Source = null;
+        CurrentArtImage.Opacity = 1.0;
+        ReplacementImage.Opacity = 0.0;
+        ReplacementImage.IsHitTestVisible = false;
         ImagePathText.Text = "";
         DetailText.Text = "";
 
@@ -506,6 +512,16 @@ public partial class MainWindow : Window
         }
     }
 
+    private void CardPreviewImage_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not Image image || image.Source is null || image.Opacity < 0.05)
+            return;
+
+        e.Handled = true;
+        var zoom = new CardPreviewZoomWindow(image.Source) { Owner = this };
+        zoom.ShowDialog();
+    }
+
     private void SelectImage_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFileDialog
@@ -528,6 +544,7 @@ public partial class MainWindow : Window
             Status($"Pendulum-sized art selected ({sizeLabel}). Target texture size is used on replace.");
         ReplacementImage.Source = LoadBitmap(dlg.FileName);
         ReplacementImage.Opacity = 1.0;
+        ReplacementImage.IsHitTestVisible = true;
         CurrentArtImage.Opacity = 0.35;
     }
 
@@ -627,6 +644,7 @@ public partial class MainWindow : Window
             {
                 CurrentArtImage.Opacity = 1.0;
                 ReplacementImage.Opacity = 0.0;
+                ReplacementImage.IsHitTestVisible = false;
                 _thumbnailCache.Invalidate(card);
                 LoadCurrentPreview();
             }
@@ -1511,21 +1529,27 @@ public partial class MainWindow : Window
             OfCurrentPreviewCol.Width = new GridLength(1, GridUnitType.Star);
             OfReplacementPreviewCol.Width = new GridLength(1, GridUnitType.Star);
             OfCurrentArtImage.Opacity = 1.0;
+            OfCurrentArtImage.IsHitTestVisible = true;
             OfReplacementImage.Opacity = 1.0;
+            OfReplacementImage.IsHitTestVisible = true;
         }
         else if (hasReplacement)
         {
             OfCurrentPreviewCol.Width = new GridLength(0);
             OfReplacementPreviewCol.Width = new GridLength(1, GridUnitType.Star);
             OfCurrentArtImage.Opacity = 0.0;
+            OfCurrentArtImage.IsHitTestVisible = false;
             OfReplacementImage.Opacity = 1.0;
+            OfReplacementImage.IsHitTestVisible = true;
         }
         else
         {
             OfCurrentPreviewCol.Width = new GridLength(1, GridUnitType.Star);
             OfReplacementPreviewCol.Width = new GridLength(0);
             OfCurrentArtImage.Opacity = 1.0;
+            OfCurrentArtImage.IsHitTestVisible = true;
             OfReplacementImage.Opacity = 0.0;
+            OfReplacementImage.IsHitTestVisible = false;
         }
     }
 
@@ -2090,6 +2114,7 @@ public partial class MainWindow : Window
         BumpThumbnailLoadGeneration();
         _cardSearchDebounceTimer.Stop();
         _ofSearchDebounceTimer.Stop();
+        _dbFilterDebounceTimer.Stop();
         _ofActionStatusClearTimer.Stop();
         CleanupPreviewTemp();
         CleanupOfPreviewTemp();
@@ -2146,22 +2171,65 @@ public partial class MainWindow : Window
 
     private void DbFilter_KeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter)
-            RunDatabaseQuery(resetOffset: true);
+        if (e.Key != Key.Enter)
+            return;
+
+        _dbFilterDebounceTimer.Stop();
+        RunDatabaseQuery(resetOffset: true);
     }
 
-    private void DbApplyFilters_Click(object sender, RoutedEventArgs e) =>
+    private void DbFilterText_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (_dbFilterUiUpdating)
+            return;
+
+        _dbFilterDebounceTimer.Stop();
+        _dbFilterDebounceTimer.Start();
+    }
+
+    private void DbFilterCombo_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_dbFilterUiUpdating || _database is null)
+            return;
+
+        _dbFilterDebounceTimer.Stop();
         RunDatabaseQuery(resetOffset: true);
+    }
+
+    private void OnDbFilterDebounceTick(object? sender, EventArgs e)
+    {
+        _dbFilterDebounceTimer.Stop();
+        if (_database is null)
+            return;
+
+        RunDatabaseQuery(resetOffset: true);
+    }
+
+    private void DbApplyFilters_Click(object sender, RoutedEventArgs e)
+    {
+        _dbFilterDebounceTimer.Stop();
+        RunDatabaseQuery(resetOffset: true);
+    }
 
     private void DbClearFilters_Click(object sender, RoutedEventArgs e)
     {
-        DbFilterIdBox.Text = "";
-        DbFilterNameBox.Text = "";
-        DbFilterDescBox.Text = "";
-        DbFilterFavoriteBox.SelectedIndex = 0;
-        DbFilterBackupBox.SelectedIndex = 0;
-        DbFilterModdedNameBox.SelectedIndex = 0;
-        DbFilterModdedDescBox.SelectedIndex = 0;
+        _dbFilterDebounceTimer.Stop();
+        _dbFilterUiUpdating = true;
+        try
+        {
+            DbFilterIdBox.Text = "";
+            DbFilterNameBox.Text = "";
+            DbFilterDescBox.Text = "";
+            DbFilterFavoriteBox.SelectedIndex = 0;
+            DbFilterBackupBox.SelectedIndex = 0;
+            DbFilterModdedNameBox.SelectedIndex = 0;
+            DbFilterModdedDescBox.SelectedIndex = 0;
+        }
+        finally
+        {
+            _dbFilterUiUpdating = false;
+        }
+
         RunDatabaseQuery(resetOffset: true);
     }
 
@@ -2414,6 +2482,50 @@ public partial class MainWindow : Window
         OpenCardInOverFrameTab(_dbSelected.Id);
     }
 
+    private void CardArtOpenInOverFrame_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selected is null)
+        {
+            Status("Select a Card Art card first.");
+            return;
+        }
+
+        OpenCardInOverFrameTab(_selected.Id);
+    }
+
+    private void CardArtOpenInDatabase_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selected is null)
+        {
+            Status("Select a Card Art card first.");
+            return;
+        }
+
+        OpenCardInDatabaseTab(_selected.Id);
+    }
+
+    private void OfOpenInCardArt_Click(object sender, RoutedEventArgs e)
+    {
+        if (_ofSelected is null)
+        {
+            Status("Select an Over-frame card first.");
+            return;
+        }
+
+        OpenCardInCardArtTab(_ofSelected.Id);
+    }
+
+    private void OfOpenInDatabase_Click(object sender, RoutedEventArgs e)
+    {
+        if (_ofSelected is null)
+        {
+            Status("Select an Over-frame card first.");
+            return;
+        }
+
+        OpenCardInDatabaseTab(_ofSelected.Id);
+    }
+
     /// <summary>
     /// Switches to Card Art, searches by card id, selects the row, and loads the preview.
     /// </summary>
@@ -2486,6 +2598,47 @@ public partial class MainWindow : Window
         Status($"Opened card id {cardId} in Over-frame.");
     }
 
+    /// <summary>
+    /// Switches to Database, filters by card id, selects the row, and loads the edit/preview panels.
+    /// </summary>
+    private void OpenCardInDatabaseTab(int cardId)
+    {
+        if (_database is null)
+        {
+            Status("Open database.db first.");
+            return;
+        }
+
+        var card = _database.GetById(cardId);
+        if (card is null)
+        {
+            Status($"Card id {cardId} not found.");
+            return;
+        }
+
+        DbFilterIdBox.Text = cardId.ToString();
+        DbFilterNameBox.Text = "";
+        DbFilterDescBox.Text = "";
+        DbFilterFavoriteBox.SelectedIndex = 0;
+        DbFilterBackupBox.SelectedIndex = 0;
+        DbFilterModdedNameBox.SelectedIndex = 0;
+        DbFilterModdedDescBox.SelectedIndex = 0;
+        // Prefer keeping this id if RunDatabaseQuery restores selection from _dbSelected.
+        _dbSelected = card;
+        RunDatabaseQuery(resetOffset: true);
+
+        if (DatabaseTab is not null)
+            MainTabs.SelectedItem = DatabaseTab;
+
+        if (!TrySelectDbCardById(cardId))
+        {
+            Status($"Card id {cardId} not in Database results.");
+            return;
+        }
+
+        Status($"Opened card id {cardId} in Database.");
+    }
+
     private static bool TrySelectCardById(ListBox list, int cardId)
     {
         foreach (var item in list.Items)
@@ -2495,6 +2648,21 @@ public partial class MainWindow : Window
 
             list.SelectedItem = card;
             list.ScrollIntoView(card);
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TrySelectDbCardById(int cardId)
+    {
+        foreach (var item in DbCardGrid.Items)
+        {
+            if (item is not CardRecord card || card.Id != cardId)
+                continue;
+
+            DbCardGrid.SelectedItem = card;
+            DbCardGrid.ScrollIntoView(card);
             return true;
         }
 
