@@ -7,6 +7,7 @@
 - Discover / browse Master Duel `LocalData/<playerId>` paths (Steam libraries + registry)
 - Load and search cards from Floowan’s master `database.db` (inspired by Floowandereeze catalog ideas; schema/contents maintained here — user settings/state in `user.db` beside the app)
 - **Tools → Update entire DB** / **Update new files only**: rebuild or incrementally refresh master catalog from LocalData + `masterduel_Data/StreamingAssets/AssetBundle` (CARD_* decrypt + illust scan); stores `card_type` / `created_at`. Incremental compares illustration `File.GetCreationTimeUtc` against DB `MAX(created_at)`.
+- **Tools → Scan / locate of_card_asset**: find the gate AssetBundle (async, off UI thread), cache its id in `user.db`, and sync `is_overframe` flags
 - **Tools → Restore overframes after patch**: re-register Floowan OF cards into the live `of_card_asset` gate (additive merge) and re-apply backed-up OF canvases after an MD update
 - Preview current Texture2D art from the card AssetBundle
 - Validate / prepare a replacement image (resize to texture size, RGBA32)
@@ -59,7 +60,7 @@ Automates the [Nexus Mods over-frame guide](https://www.nexusmods.com/yugiohmast
 2. Or select a card and click **Auto-create from current art**. Floowan extracts the current texture, removes its background, composites it under a **card frame with a transparent art hole** (from Master Duel `card_frame*` faces), and places an opaque cutout overflow on top. Pick the frame style (Normal / Effect / Fusion / …) in the Over-frame tab; it is auto-suggested from card text when possible. The first run downloads and verifies the rembg `isnet-anime` ONNX model (~168 MB) under `%LOCALAPPDATA%\Floowan\models`; Python and the rembg CLI are not required.
 3. Keep **RGBA32** (not BC7) — same writable path as normal card-art replace.
 4. Tip: main art / frame-overlap regions must use alpha ≈ **4** (not 0). Official over-frames and the Nexus guide comments use this as the foil/coverage mask; alpha 0 blacks out the card frame.
-5. On first use of the Over-frame tab (or via **Scan / locate of_card_asset**), Floowan finds the bundle containing TextAsset `of_card_asset`, caches its id in `user.db` `app_config`, and can sync `is_overframe` flags from the gate.
+5. On first use of the Over-frame tab (or via **Tools → Scan / locate of_card_asset**), Floowan finds the bundle containing TextAsset `of_card_asset`, caches its id in `user.db` `app_config`, and can sync `is_overframe` flags from the gate.
 6. **Apply over-frame** backs up the card bundle + gate bundle, saves the applied 704×1024 canvas as `backups/cards/{slug}-applied-overframe.png`, replaces the live texture, adds a LE ushort pair `(artId, baseArtId)` to the gate, and records `floowan_overframe` in `user.db`.
 7. **Enable gate only** / **Remove over-frame** edit the gate without requiring a new image; **Restore backups** reverts card art and drops this card’s gate row (never restores the whole shared gate backup).
 8. **Tools → Restore overframes after patch**: after an MD update replaces `of_card_asset`, re-applies Floowan OF from `user.db` (`floowan_overframe`) + applied PNG backups into the **current** gate via additive merge (official Konami OF entries stay).
