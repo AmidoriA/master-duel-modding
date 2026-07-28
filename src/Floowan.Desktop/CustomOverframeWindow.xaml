@@ -9,7 +9,7 @@
         ShowInTaskbar="False">
   <DockPanel Margin="14">
     <TextBlock DockPanel.Dock="Top"
-               Text="Subject is Card Art with alpha (file or rembg from live art). Background Cover-fills the art hole (defaults to this card's live art). Art scale and Bg scale share ×0.5–×4 where ×1 = Cover fit. Pan background with H/V sliders; Match background to subject copies subject offset+scale. Drag/scale Card Art only, then Apply. Layers: Background → Frame → Card Art → Lore."
+               Text="Subject is Card Art with alpha (file or rembg from live art). Background Cover-fills the art hole (defaults to this card's live art). Art scale and Bg scale share ×0.5–×4 where ×1 = Cover fit. Pan background with H/V sliders. When subject is rembg from card art and background is card art, background scale/pan auto-match the subject once. Drag/scale Card Art only, then Apply. Layers: Background → Frame → Card Art → Lore."
                Foreground="{StaticResource MutedBrush}"
                TextWrapping="Wrap"
                Margin="0,0,0,10"/>
@@ -129,7 +129,7 @@
                            FontWeight="SemiBold"
                            Foreground="{StaticResource TextBrush}"
                            Margin="0,0,0,6"/>
-                <TextBlock Text="Cover-fills the art hole only (lowest layer). Scale ×0.5–×4 (×1 = Cover, same as Art scale) and pan with H/V sliders (not drag). Does not move with Card Art unless you Match. Defaults to this card's live art."
+                <TextBlock Text="Cover-fills the art hole only (lowest layer). Scale ×0.5–×4 (×1 = Cover, same as Art scale) and pan with H/V sliders (not drag). Auto-matches subject scale/offset only when both layers come from card art (rembg subject). Defaults to this card's live art."
                            Foreground="{StaticResource MutedBrush}"
                            TextWrapping="Wrap"
                            Margin="0,0,0,8"/>
@@ -214,11 +214,6 @@
                              Margin="8,0,0,0"
                              Foreground="{StaticResource TextBrush}"/>
                 </StackPanel>
-                <Button x:Name="MatchBackgroundToSubjectButton"
-                        Content="Match background to subject"
-                        Click="MatchBackgroundToSubject_Click"
-                        HorizontalAlignment="Left"
-                        ToolTip="Copy subject offset into Bg H/V pan and Art scale into Bg scale so both layers match."/>
               </StackPanel>
             </Border>
           </StackPanel>
