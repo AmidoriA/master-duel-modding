@@ -295,19 +295,20 @@
               <WrapPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Card ID" Width="70" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <TextBox x:Name="DbFilterIdBox" Width="100" KeyDown="DbFilter_KeyDown"/>
+                  <TextBox x:Name="DbFilterIdBox" Width="100" KeyDown="DbFilter_KeyDown" TextChanged="DbFilterText_Changed"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Name" Width="50" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <TextBox x:Name="DbFilterNameBox" Width="180" KeyDown="DbFilter_KeyDown"/>
+                  <TextBox x:Name="DbFilterNameBox" Width="180" KeyDown="DbFilter_KeyDown" TextChanged="DbFilterText_Changed"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Description" Width="80" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <TextBox x:Name="DbFilterDescBox" Width="180" KeyDown="DbFilter_KeyDown"/>
+                  <TextBox x:Name="DbFilterDescBox" Width="180" KeyDown="DbFilter_KeyDown" TextChanged="DbFilterText_Changed"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Favorite" Width="60" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <ComboBox x:Name="DbFilterFavoriteBox" Width="110" SelectedIndex="0">
+                  <ComboBox x:Name="DbFilterFavoriteBox" Width="110" SelectedIndex="0"
+                            SelectionChanged="DbFilterCombo_Changed">
                     <ComboBoxItem Content="Any"/>
                     <ComboBoxItem Content="Yes"/>
                     <ComboBoxItem Content="No"/>
@@ -315,7 +316,8 @@
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Backup" Width="55" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <ComboBox x:Name="DbFilterBackupBox" Width="110" SelectedIndex="0">
+                  <ComboBox x:Name="DbFilterBackupBox" Width="110" SelectedIndex="0"
+                            SelectionChanged="DbFilterCombo_Changed">
                     <ComboBoxItem Content="Any"/>
                     <ComboBoxItem Content="Has backup"/>
                     <ComboBoxItem Content="No backup"/>
@@ -323,7 +325,8 @@
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Modded name" Width="90" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <ComboBox x:Name="DbFilterModdedNameBox" Width="110" SelectedIndex="0">
+                  <ComboBox x:Name="DbFilterModdedNameBox" Width="110" SelectedIndex="0"
+                            SelectionChanged="DbFilterCombo_Changed">
                     <ComboBoxItem Content="Any"/>
                     <ComboBoxItem Content="Populated"/>
                     <ComboBoxItem Content="Empty"/>
@@ -331,7 +334,8 @@
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Modded desc" Width="90" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <ComboBox x:Name="DbFilterModdedDescBox" Width="110" SelectedIndex="0">
+                  <ComboBox x:Name="DbFilterModdedDescBox" Width="110" SelectedIndex="0"
+                            SelectionChanged="DbFilterCombo_Changed">
                     <ComboBoxItem Content="Any"/>
                     <ComboBoxItem Content="Populated"/>
                     <ComboBoxItem Content="Empty"/>
