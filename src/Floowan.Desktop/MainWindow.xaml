@@ -127,6 +127,10 @@
                         ToolTip="Opens a before/after comparison. Confirm writes to the game (with backup); Cancel aborts."/>
                 <Button Content="Extract PNG" Click="Extract_Click"/>
                 <Button Content="Restore backup" Click="Restore_Click"/>
+                <Button Content="Open in Over-Frame" Click="CardArtOpenInOverFrame_Click" Margin="12,0,0,0"
+                        ToolTip="Switch to Over-frame with this card selected."/>
+                <Button Content="Open in Database View" Click="CardArtOpenInDatabase_Click"
+                        ToolTip="Switch to Database with this card selected."/>
               </StackPanel>
               <Grid>
                 <Grid.RowDefinitions>
@@ -206,6 +210,10 @@
                 <Button Content="Auto-create &amp; apply" Click="OfAutoCreateAndApply_Click" Background="{StaticResource AccentBrush}"/>
                 <Button Content="Preview" Click="OfPreview_Click"/>
                 <Button Content="Restore backups" Click="OfRestore_Click"/>
+                <Button Content="Open in Card Art" Click="OfOpenInCardArt_Click" Margin="12,0,0,0"
+                        ToolTip="Switch to Card Art with this card selected."/>
+                <Button Content="Open in Database View" Click="OfOpenInDatabase_Click"
+                        ToolTip="Switch to Database with this card selected."/>
               </WrapPanel>
               <Expander DockPanel.Dock="Bottom"
                         Header="Advanced (manual apply / gate)"
@@ -295,7 +303,7 @@
         </Grid>
       </TabItem>
 
-      <TabItem Header="Database">
+      <TabItem x:Name="DatabaseTab" Header="Database">
         <Grid Margin="0,8,0,0">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
