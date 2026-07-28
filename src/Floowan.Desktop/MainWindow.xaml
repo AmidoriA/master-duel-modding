@@ -141,8 +141,15 @@
                 </StackPanel>
                 <Border Grid.Row="1" Background="#12161A" Margin="0,12,0,0" CornerRadius="4">
                   <Grid>
-                    <Image x:Name="CurrentArtImage" Stretch="Uniform" Margin="8"/>
-                    <Image x:Name="ReplacementImage" Stretch="Uniform" Margin="8" Opacity="0.0"/>
+                    <Image x:Name="CurrentArtImage" Stretch="Uniform" Margin="8"
+                           Cursor="Hand"
+                           ToolTip="Click to enlarge"
+                           MouseLeftButtonUp="CardPreviewImage_MouseLeftButtonUp"/>
+                    <Image x:Name="ReplacementImage" Stretch="Uniform" Margin="8" Opacity="0.0"
+                           IsHitTestVisible="False"
+                           Cursor="Hand"
+                           ToolTip="Click to enlarge"
+                           MouseLeftButtonUp="CardPreviewImage_MouseLeftButtonUp"/>
                   </Grid>
                 </Border>
                 <TextBlock Grid.Row="2" x:Name="DetailText" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
@@ -271,8 +278,15 @@
                       <ColumnDefinition x:Name="OfCurrentPreviewCol" Width="*"/>
                       <ColumnDefinition x:Name="OfReplacementPreviewCol" Width="0"/>
                     </Grid.ColumnDefinitions>
-                    <Image x:Name="OfCurrentArtImage" Stretch="Uniform" Margin="8"/>
-                    <Image x:Name="OfReplacementImage" Grid.Column="1" Stretch="Uniform" Margin="8" Opacity="0.0"/>
+                    <Image x:Name="OfCurrentArtImage" Stretch="Uniform" Margin="8"
+                           Cursor="Hand"
+                           ToolTip="Click to enlarge"
+                           MouseLeftButtonUp="CardPreviewImage_MouseLeftButtonUp"/>
+                    <Image x:Name="OfReplacementImage" Grid.Column="1" Stretch="Uniform" Margin="8" Opacity="0.0"
+                           IsHitTestVisible="False"
+                           Cursor="Hand"
+                           ToolTip="Click to enlarge"
+                           MouseLeftButtonUp="CardPreviewImage_MouseLeftButtonUp"/>
                   </Grid>
                 </Border>
               </Grid>
