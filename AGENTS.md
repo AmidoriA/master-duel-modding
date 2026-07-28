@@ -2,7 +2,7 @@
 
 ## Cursor Cloud specific instructions
 
-Floowan is a **Windows-only .NET 8 WPF desktop app** (`net8.0-windows`, `UseWPF`) for replacing Yu-Gi-Oh! Master Duel card art. The Cursor Cloud VM is **Linux**, which affects what can run here.
+**Masterduel modding tool by AmidoriA** (code folders still named `Floowan.*`) is a **Windows-only .NET 8 WPF desktop app** (`net8.0-windows`, `UseWPF`) for replacing Yu-Gi-Oh! Master Duel card art. The Cursor Cloud VM is **Linux**, which affects what can run here.
 
 ### Projects
 - `src/Floowan.Core` — non-UI class library (SQLite DB, path discovery, image prep, Unity AssetBundle I/O). Builds and runs on Linux.
