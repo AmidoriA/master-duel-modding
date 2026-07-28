@@ -13,6 +13,7 @@ namespace Floowan.Desktop;
 /// <summary>
 /// Brush editor over card art. On Apply, returns an L8 paint mask in image pixels
 /// for <see cref="Sam2PointCutoutService.PrepareSubjectWithPaintedRegionAsync"/>.
+/// Left-drag paints; right-drag erases. Optional existing-subject highlight (green).
 /// </summary>
 public partial class Sam2MaskPaintWindow : Window
 {
@@ -22,12 +23,14 @@ public partial class Sam2MaskPaintWindow : Window
     private readonly byte[] _overlayPixels;
     private readonly int _overlayStride;
     private bool _painting;
+    private bool _erasing;
     private int _brushRadius = 14;
+    private double _displayScale = 1;
 
     /// <summary>Paint mask in source image pixels (caller must dispose).</summary>
     public Image<L8>? ResultPaintMask { get; private set; }
 
-    public Sam2MaskPaintWindow(Image<Rgba32> art)
+    public Sam2MaskPaintWindow(Image<Rgba32> art, Image<L8>? existingSubjectMask = null)
     {
         ArgumentNullException.ThrowIfNull(art);
         InitializeComponent();
@@ -44,7 +47,14 @@ public partial class Sam2MaskPaintWindow : Window
         _overlayPixels = new byte[_overlayStride * _art.Height];
         ArtImage.Source = ToBitmap(_art);
         MaskOverlay.Source = _overlayBitmap;
+        ApplyExistingSubjectHighlight(existingSubjectMask);
         UpdateBrushLabel();
+        SizeChanged += (_, _) => UpdateDisplayScale();
+        Loaded += (_, _) =>
+        {
+            UpdateDisplayScale();
+            UpdateBrushCursorVisualSize();
+        };
         Closed += (_, _) =>
         {
             if (!ReferenceEquals(ResultPaintMask, _paintMask))
@@ -55,20 +65,49 @@ public partial class Sam2MaskPaintWindow : Window
 
     /// <summary>
     /// Loads cleaned illustration from a PNG path for the paint editor.
+    /// Pass <paramref name="existingSubjectMask"/> (same pixel size as cleaned art) to
+    /// show already-added Card Art subject as a green highlight.
     /// </summary>
-    public static Sam2MaskPaintWindow FromImagePath(string imagePath)
+    public static Sam2MaskPaintWindow FromImagePath(
+        string imagePath,
+        Image<L8>? existingSubjectMask = null)
     {
         using var loaded = ImageSharpImage.Load<Rgba32>(imagePath);
         var clean = OverFrameAutoArtComposer.RequireCleanIllustrationSource(loaded);
         try
         {
-            return new Sam2MaskPaintWindow(clean);
+            Image<L8>? highlight = null;
+            if (existingSubjectMask is not null
+                && existingSubjectMask.Width == clean.Width
+                && existingSubjectMask.Height == clean.Height)
+            {
+                highlight = existingSubjectMask;
+            }
+
+            return new Sam2MaskPaintWindow(clean, highlight);
         }
         finally
         {
             if (!ReferenceEquals(loaded, clean))
                 clean.Dispose();
         }
+    }
+
+    private void ApplyExistingSubjectHighlight(Image<L8>? existingSubjectMask)
+    {
+        if (existingSubjectMask is null
+            || existingSubjectMask.Width != _art.Width
+            || existingSubjectMask.Height != _art.Height)
+        {
+            ExistingSubjectOverlay.Visibility = Visibility.Collapsed;
+            ExistingSubjectOverlay.Source = null;
+            return;
+        }
+
+        ExistingSubjectOverlay.Source = ToSubjectHighlightBitmap(existingSubjectMask);
+        ExistingSubjectOverlay.Visibility = Visibility.Visible;
+        StatusText.Text =
+            "Green = already added. Left-drag paints more, right-drag erases paint, then Apply.";
     }
 
     private void BrushSizeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -79,12 +118,48 @@ public partial class Sam2MaskPaintWindow : Window
         var diameter = (int)Math.Round(BrushSizeSlider.Value);
         _brushRadius = Math.Max(diameter / 2, 1);
         UpdateBrushLabel();
+        UpdateBrushCursorVisualSize();
     }
 
     private void UpdateBrushLabel()
     {
         var diameter = Math.Max(_brushRadius * 2, 1);
         BrushSizeValueText.Text = $"{diameter} px";
+    }
+
+    private void UpdateDisplayScale()
+    {
+        if (_art.Width <= 0 || _art.Height <= 0)
+            return;
+
+        var hostW = PaintHost.ActualWidth;
+        var hostH = PaintHost.ActualHeight;
+        if (hostW <= 0 || hostH <= 0)
+            return;
+
+        _displayScale = Math.Min(hostW / _art.Width, hostH / _art.Height);
+        UpdateBrushCursorVisualSize();
+    }
+
+    private void UpdateBrushCursorVisualSize()
+    {
+        var diameterPx = Math.Max(_brushRadius * 2, 1);
+        var screenDiameter = Math.Max(diameterPx * _displayScale, 4);
+        BrushCursor.Width = screenDiameter;
+        BrushCursor.Height = screenDiameter;
+    }
+
+    private void UpdateBrushCursorPosition(System.Windows.Point hostPos)
+    {
+        if (_displayScale <= 0)
+            UpdateDisplayScale();
+
+        BrushCursor.Margin = new Thickness(
+            hostPos.X - BrushCursor.Width * 0.5,
+            hostPos.Y - BrushCursor.Height * 0.5,
+            0,
+            0);
+        BrushCursor.Visibility = Visibility.Visible;
     }
 
     private void ClearMask_Click(object sender, RoutedEventArgs e)
@@ -97,7 +172,9 @@ public partial class Sam2MaskPaintWindow : Window
 
         Array.Clear(_overlayPixels);
         FlushOverlay();
-        StatusText.Text = "Mask cleared. Paint a region, then Apply.";
+        StatusText.Text = ExistingSubjectOverlay.Visibility == Visibility.Visible
+            ? "Paint cleared (green already-added kept). Left-drag paints, right-drag erases."
+            : "Paint cleared. Left-drag paints, right-drag erases, then Apply.";
     }
 
     private void Apply_Click(object sender, RoutedEventArgs e)
@@ -136,9 +213,18 @@ public partial class Sam2MaskPaintWindow : Window
         e.Handled = true;
     }
 
+    private void PaintHost_MouseEnter(object sender, MouseEventArgs e)
+    {
+        UpdateBrushCursorPosition(e.GetPosition(PaintHost));
+    }
+
     private void PaintHost_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (!TryPaintAt(e.GetPosition(PaintHost)))
+        if (_erasing)
+            return;
+
+        UpdateBrushCursorPosition(e.GetPosition(PaintHost));
+        if (!TryStrokeAt(e.GetPosition(PaintHost), erase: false))
             return;
 
         _painting = true;
@@ -146,42 +232,73 @@ public partial class Sam2MaskPaintWindow : Window
         e.Handled = true;
     }
 
-    private void PaintHost_MouseMove(object sender, MouseEventArgs e)
+    private void PaintHost_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (!_painting || e.LeftButton != MouseButtonState.Pressed)
+        if (_painting)
             return;
 
-        TryPaintAt(e.GetPosition(PaintHost));
+        UpdateBrushCursorPosition(e.GetPosition(PaintHost));
+        if (!TryStrokeAt(e.GetPosition(PaintHost), erase: true))
+            return;
+
+        _erasing = true;
+        PaintHost.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void PaintHost_MouseMove(object sender, MouseEventArgs e)
+    {
+        var pos = e.GetPosition(PaintHost);
+        UpdateBrushCursorPosition(pos);
+
+        if (_painting && e.LeftButton == MouseButtonState.Pressed)
+            TryStrokeAt(pos, erase: false);
+        else if (_erasing && e.RightButton == MouseButtonState.Pressed)
+            TryStrokeAt(pos, erase: true);
     }
 
     private void PaintHost_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        EndPaint();
+        if (_painting)
+            EndStroke();
+    }
+
+    private void PaintHost_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_erasing)
+            EndStroke();
     }
 
     private void PaintHost_MouseLeave(object sender, MouseEventArgs e)
     {
-        if (_painting && e.LeftButton != MouseButtonState.Pressed)
-            EndPaint();
+        BrushCursor.Visibility = Visibility.Collapsed;
+        if ((_painting && e.LeftButton != MouseButtonState.Pressed)
+            || (_erasing && e.RightButton != MouseButtonState.Pressed))
+        {
+            EndStroke();
+        }
     }
 
     private void PaintHost_LostMouseCapture(object sender, MouseEventArgs e)
     {
-        EndPaint();
+        EndStroke();
     }
 
-    private void EndPaint()
+    private void EndStroke()
     {
-        if (!_painting)
+        if (!_painting && !_erasing)
             return;
 
         _painting = false;
+        _erasing = false;
         if (PaintHost.IsMouseCaptured)
             PaintHost.ReleaseMouseCapture();
-        StatusText.Text = "Paint more, Clear mask, or Apply selection.";
+        StatusText.Text = ExistingSubjectOverlay.Visibility == Visibility.Visible
+            ? "Paint more (left) or erase (right), then Apply. Green = already added."
+            : "Paint more (left) or erase (right), then Apply.";
     }
 
-    private bool TryPaintAt(System.Windows.Point hostPos)
+    private bool TryStrokeAt(System.Windows.Point hostPos, bool erase)
     {
         if (!Sam2PointCutoutService.TryMapPreviewClickToImage(
                 hostPos.X,
@@ -196,12 +313,12 @@ public partial class Sam2MaskPaintWindow : Window
             return false;
         }
 
-        StampBrush((int)MathF.Round(imageX), (int)MathF.Round(imageY));
+        StampBrush((int)MathF.Round(imageX), (int)MathF.Round(imageY), erase);
         FlushOverlay();
         return true;
     }
 
-    private void StampBrush(int cx, int cy)
+    private void StampBrush(int cx, int cy, bool erase)
     {
         var r = _brushRadius;
         var r2 = r * r;
@@ -223,13 +340,24 @@ public partial class Sam2MaskPaintWindow : Window
                 if (dx * dx + dy * dy > r2)
                     continue;
 
-                maskRow[x] = new L8(255);
                 var i = overlayRow + x * 4;
-                // Semi-transparent cyan overlay (B,G,R,A).
-                _overlayPixels[i] = 220;
-                _overlayPixels[i + 1] = 200;
-                _overlayPixels[i + 2] = 40;
-                _overlayPixels[i + 3] = 160;
+                if (erase)
+                {
+                    maskRow[x] = new L8(0);
+                    _overlayPixels[i] = 0;
+                    _overlayPixels[i + 1] = 0;
+                    _overlayPixels[i + 2] = 0;
+                    _overlayPixels[i + 3] = 0;
+                }
+                else
+                {
+                    maskRow[x] = new L8(255);
+                    // Amber/yellow paint — distinct from green existing-subject highlight.
+                    _overlayPixels[i] = 40;   // B
+                    _overlayPixels[i + 1] = 190; // G
+                    _overlayPixels[i + 2] = 255; // R
+                    _overlayPixels[i + 3] = 180; // A
+                }
             }
         }
     }
@@ -241,6 +369,48 @@ public partial class Sam2MaskPaintWindow : Window
             _overlayPixels,
             _overlayStride,
             0);
+    }
+
+    private static BitmapSource ToSubjectHighlightBitmap(Image<L8> mask)
+    {
+        var w = mask.Width;
+        var h = mask.Height;
+        var stride = w * 4;
+        var pixels = new byte[stride * h];
+        var threshold = OverFrameAutoArtComposer.MaskKeepThreshold;
+        for (var y = 0; y < h; y++)
+        {
+            var row = mask.DangerousGetPixelRowMemory(y).Span;
+            var dest = y * stride;
+            for (var x = 0; x < w; x++)
+            {
+                var a = row[x].PackedValue;
+                if (a >= threshold)
+                {
+                    // Semi-transparent green fill for already-added subject.
+                    pixels[dest++] = 70;  // B
+                    pixels[dest++] = 210; // G
+                    pixels[dest++] = 40;  // R
+                    pixels[dest++] = 150; // A
+                }
+                else
+                {
+                    dest += 4;
+                }
+            }
+        }
+
+        var bmp = BitmapSource.Create(
+            w,
+            h,
+            96,
+            96,
+            PixelFormats.Bgra32,
+            null,
+            pixels,
+            stride);
+        bmp.Freeze();
+        return bmp;
     }
 
     private static BitmapSource ToBitmap(Image<Rgba32> image)

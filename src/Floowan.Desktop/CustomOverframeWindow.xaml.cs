@@ -732,7 +732,7 @@ public partial class CustomOverframeWindow : Window
 
             SetBusy(false);
             StatusText.Text = "Paint a masking area, then Apply selection.";
-            var paintWindow = Sam2MaskPaintWindow.FromImagePath(liveTemp);
+            var paintWindow = Sam2MaskPaintWindow.FromImagePath(liveTemp, _subjectMask);
             paintWindow.Owner = this;
             var accepted = paintWindow.ShowDialog() == true;
             paintMask = paintWindow.ResultPaintMask;

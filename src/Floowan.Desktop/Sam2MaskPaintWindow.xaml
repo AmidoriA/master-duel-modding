@@ -10,7 +10,7 @@
         PreviewKeyDown="Window_PreviewKeyDown">
   <DockPanel Margin="14">
     <TextBlock DockPanel.Dock="Top"
-               Text="Paint over the area that contains the subject you want. SAM 2 segments objects inside that region. Esc cancels."
+               Text="Paint (left-drag) or erase (right-drag) the prompt region. Green = already in Card Art; yellow = new paint. Esc cancels."
                Foreground="{StaticResource MutedBrush}"
                TextWrapping="Wrap"
                Margin="0,0,0,10"/>
@@ -39,15 +39,15 @@
                    Margin="8,0,0,0"
                    Foreground="{StaticResource TextBrush}"/>
         <Button x:Name="ClearMaskButton"
-                Content="Clear mask"
+                Content="Clear paint"
                 Click="ClearMask_Click"
                 Margin="16,0,0,0"
-                ToolTip="Erase the painted region and start over."/>
+                ToolTip="Erase the new paint strokes only (keeps the green already-added highlight)."/>
       </StackPanel>
       <DockPanel>
         <TextBlock x:Name="StatusText"
                    DockPanel.Dock="Left"
-                   Text="Paint a region, then Apply."
+                   Text="Left-drag paints, right-drag erases. Apply when ready."
                    Foreground="{StaticResource MutedBrush}"
                    TextWrapping="Wrap"
                    VerticalAlignment="Center"
@@ -72,11 +72,14 @@
             ClipToBounds="True">
       <Grid x:Name="PaintHost"
             Background="Transparent"
-            Cursor="Cross"
+            Cursor="None"
             MouseLeftButtonDown="PaintHost_MouseLeftButtonDown"
+            MouseRightButtonDown="PaintHost_MouseRightButtonDown"
             MouseMove="PaintHost_MouseMove"
             MouseLeftButtonUp="PaintHost_MouseLeftButtonUp"
+            MouseRightButtonUp="PaintHost_MouseRightButtonUp"
             MouseLeave="PaintHost_MouseLeave"
+            MouseEnter="PaintHost_MouseEnter"
             LostMouseCapture="PaintHost_LostMouseCapture">
         <Image x:Name="ArtImage"
                Stretch="Uniform"
@@ -84,13 +87,34 @@
                VerticalAlignment="Center"
                IsHitTestVisible="False"
                RenderOptions.BitmapScalingMode="HighQuality"/>
+        <!-- Already-added subject (green), under new paint. -->
+        <Image x:Name="ExistingSubjectOverlay"
+               Stretch="Uniform"
+               HorizontalAlignment="Center"
+               VerticalAlignment="Center"
+               IsHitTestVisible="False"
+               Visibility="Collapsed"
+               Opacity="0.55"
+               RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+        <!-- New paint strokes (yellow/amber). -->
         <Image x:Name="MaskOverlay"
                Stretch="Uniform"
                HorizontalAlignment="Center"
                VerticalAlignment="Center"
                IsHitTestVisible="False"
-               Opacity="0.45"
+               Opacity="0.55"
                RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+        <!-- Brush-size circle cursor (host coordinates). -->
+        <Ellipse x:Name="BrushCursor"
+                 Width="28"
+                 Height="28"
+                 Stroke="#F2F2F2"
+                 StrokeThickness="1.5"
+                 Fill="#33FFFFFF"
+                 IsHitTestVisible="False"
+                 Visibility="Collapsed"
+                 HorizontalAlignment="Left"
+                 VerticalAlignment="Top"/>
       </Grid>
     </Border>
   </DockPanel>
