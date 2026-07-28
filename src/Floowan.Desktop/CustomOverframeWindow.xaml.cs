@@ -675,11 +675,24 @@ public partial class CustomOverframeWindow : Window
         CleanupComposedTemp();
     }
 
-    private async void PickImage_Click(object sender, RoutedEventArgs e)
+    private async void SubjectAutoRadio_Click(object sender, RoutedEventArgs e)
     {
         if (_busy)
             return;
 
+        await PrepareSubjectFromLiveArtRembgAsync();
+    }
+
+    private async void SubjectManualRadio_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy)
+            return;
+
+        await PickSubjectImageAsync();
+    }
+
+    private async Task PickSubjectImageAsync()
+    {
         var dlg = new OpenFileDialog
         {
             Title = "Select subject image with alpha for custom overframe",
@@ -705,14 +718,6 @@ public partial class CustomOverframeWindow : Window
         await PrepareFromImageAsync(dlg.FileName, sizeNote);
     }
 
-    private async void FromCurrentArtRembg_Click(object sender, RoutedEventArgs e)
-    {
-        if (_busy)
-            return;
-
-        await PrepareSubjectFromLiveArtRembgAsync();
-    }
-
     private async Task PrepareFromImageAsync(string imagePath, string sizeNote)
     {
         SetBusy(true);
@@ -727,6 +732,7 @@ public partial class CustomOverframeWindow : Window
             _subjectSource = prepared.Source;
             _subjectMask = prepared.Mask;
             _subjectIsCardArtRembg = false;
+            SubjectManualRadio.IsChecked = true;
 
             await RecomposePreviewAsync();
             StatusText.Text =
@@ -746,7 +752,7 @@ public partial class CustomOverframeWindow : Window
 
     /// <summary>
     /// Extracts live card art, runs rembg, and installs the cutout as the Card Art
-    /// subject layer (same preview path as Select subject…).
+    /// subject layer (same preview path as Pick manually…).
     /// </summary>
     private async Task PrepareSubjectFromLiveArtRembgAsync()
     {
@@ -769,6 +775,7 @@ public partial class CustomOverframeWindow : Window
             _subjectSource = prepared.Source;
             _subjectMask = prepared.Mask;
             _subjectIsCardArtRembg = true;
+            SubjectAutoRadio.IsChecked = true;
 
             var matched = TryApplyAutoMatchBackgroundTransforms();
             await RecomposePreviewAsync();
@@ -1192,8 +1199,8 @@ public partial class CustomOverframeWindow : Window
         _busy = busy;
         PickBackgroundButton.IsEnabled = !busy;
         UseCardArtBackgroundButton.IsEnabled = !busy;
-        PickImageButton.IsEnabled = !busy;
-        FromCurrentArtRembgButton.IsEnabled = !busy;
+        SubjectAutoRadio.IsEnabled = !busy;
+        SubjectManualRadio.IsEnabled = !busy;
         FrameStyleBox.IsEnabled = !busy;
         ArtScaleSlider.IsEnabled = !busy;
         BgScaleSlider.IsEnabled = !busy;
