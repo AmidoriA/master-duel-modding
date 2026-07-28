@@ -62,19 +62,10 @@
               <TextBlock Text="LocalData path" Width="100" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
               <TextBox x:Name="GamePathBox" IsReadOnly="True"/>
             </DockPanel>
-            <DockPanel Margin="0,6,0,0">
-              <TextBlock Text="Master DB" Width="100" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-              <TextBox x:Name="DatabasePathBox" IsReadOnly="True"/>
-            </DockPanel>
-            <DockPanel Margin="0,6,0,0">
-              <TextBlock Text="User DB" Width="100" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-              <TextBox x:Name="UserDatabasePathBox" IsReadOnly="True"/>
-            </DockPanel>
           </StackPanel>
           <StackPanel Grid.Column="1" Orientation="Vertical" Margin="12,0,0,0">
             <Button Content="Discover Steam" Click="DiscoverSteam_Click" Margin="0,0,0,6"/>
-            <Button Content="Browse LocalData…" Click="BrowseGamePath_Click" Margin="0,0,0,6"/>
-            <Button Content="Browse database…" Click="BrowseDatabase_Click"/>
+            <Button Content="Browse LocalData…" Click="BrowseGamePath_Click"/>
           </StackPanel>
         </Grid>
       </Expander>
@@ -127,6 +118,10 @@
                         ToolTip="Opens a before/after comparison. Confirm writes to the game (with backup); Cancel aborts."/>
                 <Button Content="Extract PNG" Click="Extract_Click"/>
                 <Button Content="Restore backup" Click="Restore_Click"/>
+                <Button Content="Open in Over-Frame" Click="CardArtOpenInOverFrame_Click" Margin="12,0,0,0"
+                        ToolTip="Switch to Over-frame with this card selected."/>
+                <Button Content="Open in Database View" Click="CardArtOpenInDatabase_Click"
+                        ToolTip="Switch to Database with this card selected."/>
               </StackPanel>
               <Grid>
                 <Grid.RowDefinitions>
@@ -141,8 +136,15 @@
                 </StackPanel>
                 <Border Grid.Row="1" Background="#12161A" Margin="0,12,0,0" CornerRadius="4">
                   <Grid>
-                    <Image x:Name="CurrentArtImage" Stretch="Uniform" Margin="8"/>
-                    <Image x:Name="ReplacementImage" Stretch="Uniform" Margin="8" Opacity="0.0"/>
+                    <Image x:Name="CurrentArtImage" Stretch="Uniform" Margin="8"
+                           Cursor="Hand"
+                           ToolTip="Click to enlarge"
+                           MouseLeftButtonUp="CardPreviewImage_MouseLeftButtonUp"/>
+                    <Image x:Name="ReplacementImage" Stretch="Uniform" Margin="8" Opacity="0.0"
+                           IsHitTestVisible="False"
+                           Cursor="Hand"
+                           ToolTip="Click to enlarge"
+                           MouseLeftButtonUp="CardPreviewImage_MouseLeftButtonUp"/>
                   </Grid>
                 </Border>
                 <TextBlock Grid.Row="2" x:Name="DetailText" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
@@ -199,6 +201,10 @@
                 <Button Content="Auto-create &amp; apply" Click="OfAutoCreateAndApply_Click" Background="{StaticResource AccentBrush}"/>
                 <Button Content="Preview" Click="OfPreview_Click"/>
                 <Button Content="Restore backups" Click="OfRestore_Click"/>
+                <Button Content="Open in Card Art" Click="OfOpenInCardArt_Click" Margin="12,0,0,0"
+                        ToolTip="Switch to Card Art with this card selected."/>
+                <Button Content="Open in Database View" Click="OfOpenInDatabase_Click"
+                        ToolTip="Switch to Database with this card selected."/>
               </WrapPanel>
               <Expander DockPanel.Dock="Bottom"
                         Header="Advanced (manual apply / gate)"
@@ -271,8 +277,15 @@
                       <ColumnDefinition x:Name="OfCurrentPreviewCol" Width="*"/>
                       <ColumnDefinition x:Name="OfReplacementPreviewCol" Width="0"/>
                     </Grid.ColumnDefinitions>
-                    <Image x:Name="OfCurrentArtImage" Stretch="Uniform" Margin="8"/>
-                    <Image x:Name="OfReplacementImage" Grid.Column="1" Stretch="Uniform" Margin="8" Opacity="0.0"/>
+                    <Image x:Name="OfCurrentArtImage" Stretch="Uniform" Margin="8"
+                           Cursor="Hand"
+                           ToolTip="Click to enlarge"
+                           MouseLeftButtonUp="CardPreviewImage_MouseLeftButtonUp"/>
+                    <Image x:Name="OfReplacementImage" Grid.Column="1" Stretch="Uniform" Margin="8" Opacity="0.0"
+                           IsHitTestVisible="False"
+                           Cursor="Hand"
+                           ToolTip="Click to enlarge"
+                           MouseLeftButtonUp="CardPreviewImage_MouseLeftButtonUp"/>
                   </Grid>
                 </Border>
               </Grid>
@@ -281,7 +294,7 @@
         </Grid>
       </TabItem>
 
-      <TabItem Header="Database">
+      <TabItem x:Name="DatabaseTab" Header="Database">
         <Grid Margin="0,8,0,0">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -295,19 +308,20 @@
               <WrapPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Card ID" Width="70" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <TextBox x:Name="DbFilterIdBox" Width="100" KeyDown="DbFilter_KeyDown"/>
+                  <TextBox x:Name="DbFilterIdBox" Width="100" KeyDown="DbFilter_KeyDown" TextChanged="DbFilterText_Changed"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Name" Width="50" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <TextBox x:Name="DbFilterNameBox" Width="180" KeyDown="DbFilter_KeyDown"/>
+                  <TextBox x:Name="DbFilterNameBox" Width="180" KeyDown="DbFilter_KeyDown" TextChanged="DbFilterText_Changed"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Description" Width="80" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <TextBox x:Name="DbFilterDescBox" Width="180" KeyDown="DbFilter_KeyDown"/>
+                  <TextBox x:Name="DbFilterDescBox" Width="180" KeyDown="DbFilter_KeyDown" TextChanged="DbFilterText_Changed"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Favorite" Width="60" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <ComboBox x:Name="DbFilterFavoriteBox" Width="110" SelectedIndex="0">
+                  <ComboBox x:Name="DbFilterFavoriteBox" Width="110" SelectedIndex="0"
+                            SelectionChanged="DbFilterCombo_Changed">
                     <ComboBoxItem Content="Any"/>
                     <ComboBoxItem Content="Yes"/>
                     <ComboBoxItem Content="No"/>
@@ -315,7 +329,8 @@
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Backup" Width="55" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <ComboBox x:Name="DbFilterBackupBox" Width="110" SelectedIndex="0">
+                  <ComboBox x:Name="DbFilterBackupBox" Width="110" SelectedIndex="0"
+                            SelectionChanged="DbFilterCombo_Changed">
                     <ComboBoxItem Content="Any"/>
                     <ComboBoxItem Content="Has backup"/>
                     <ComboBoxItem Content="No backup"/>
@@ -323,7 +338,8 @@
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Modded name" Width="90" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <ComboBox x:Name="DbFilterModdedNameBox" Width="110" SelectedIndex="0">
+                  <ComboBox x:Name="DbFilterModdedNameBox" Width="110" SelectedIndex="0"
+                            SelectionChanged="DbFilterCombo_Changed">
                     <ComboBoxItem Content="Any"/>
                     <ComboBoxItem Content="Populated"/>
                     <ComboBoxItem Content="Empty"/>
@@ -331,7 +347,8 @@
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Modded desc" Width="90" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <ComboBox x:Name="DbFilterModdedDescBox" Width="110" SelectedIndex="0">
+                  <ComboBox x:Name="DbFilterModdedDescBox" Width="110" SelectedIndex="0"
+                            SelectionChanged="DbFilterCombo_Changed">
                     <ComboBoxItem Content="Any"/>
                     <ComboBoxItem Content="Populated"/>
                     <ComboBoxItem Content="Empty"/>
@@ -364,7 +381,10 @@
                           SelectionChanged="DbCardGrid_SelectionChanged"
                           Sorting="DbCardGrid_Sorting"
                           CanUserSortColumns="True"
-                          HeadersVisibility="Column">
+                          HeadersVisibility="Column"
+                          IsReadOnly="True"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False">
                   <DataGrid.Columns>
                     <DataGridTextColumn Header="id" Binding="{Binding Id}" SortMemberPath="Id" Width="70"/>
                     <DataGridTextColumn Header="name" Binding="{Binding Name}" SortMemberPath="Name" Width="140"/>
@@ -375,8 +395,8 @@
                     <DataGridTextColumn Header="modded_description" Binding="{Binding ModdedDescription}" SortMemberPath="ModdedDescription" Width="140"/>
                     <DataGridTextColumn Header="bundle" Binding="{Binding Bundle}" SortMemberPath="Bundle" Width="80"/>
                     <DataGridTextColumn Header="data_index" Binding="{Binding DataIndex}" SortMemberPath="DataIndex" Width="80"/>
-                    <DataGridCheckBoxColumn Header="favorite" Binding="{Binding Favorite}" SortMemberPath="Favorite" Width="70"/>
-                    <DataGridCheckBoxColumn Header="has_backup" Binding="{Binding HasBackup}" SortMemberPath="HasBackup" Width="80"/>
+                    <DataGridCheckBoxColumn Header="favorite" Binding="{Binding Favorite}" SortMemberPath="Favorite" Width="70" IsReadOnly="True"/>
+                    <DataGridCheckBoxColumn Header="has_backup" Binding="{Binding HasBackup}" SortMemberPath="HasBackup" Width="80" IsReadOnly="True"/>
                   </DataGrid.Columns>
                 </DataGrid>
               </DockPanel>
@@ -384,11 +404,9 @@
 
             <Border Grid.Column="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
               <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="Edit record" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock DockPanel.Dock="Top" Text="Record details" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                 <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,12,0,0">
-                  <Button Content="Save" Click="DbSave_Click" Background="{StaticResource AccentBrush}"/>
-                  <Button Content="Discard" Click="DbDiscard_Click"/>
-                  <Button Content="Open in Card Art" Click="DbOpenInCardArt_Click" Margin="12,0,0,0"/>
+                  <Button Content="Open in Card Art" Click="DbOpenInCardArt_Click"/>
                   <Button Content="Open in Over-frame" Click="DbOpenInOverFrame_Click"/>
                 </StackPanel>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -415,18 +433,18 @@
                     <TextBox x:Name="DbEditIdBox" Grid.Row="0" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
 
                     <TextBlock Grid.Row="1" Text="name" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                    <TextBox x:Name="DbEditNameBox" Grid.Row="1" Grid.Column="1" Margin="0,0,0,8"/>
+                    <TextBox x:Name="DbEditNameBox" Grid.Row="1" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
 
                     <TextBlock Grid.Row="2" Text="description" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Top" Margin="0,6,0,8"/>
                     <TextBox x:Name="DbEditDescBox" Grid.Row="2" Grid.Column="1" Height="90" TextWrapping="Wrap"
-                             AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Margin="0,0,0,8"/>
+                             AcceptsReturn="True" VerticalScrollBarVisibility="Auto" IsReadOnly="True" Margin="0,0,0,8"/>
 
                     <TextBlock Grid.Row="3" Text="modded_name" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                    <TextBox x:Name="DbEditModdedNameBox" Grid.Row="3" Grid.Column="1" Margin="0,0,0,8"/>
+                    <TextBox x:Name="DbEditModdedNameBox" Grid.Row="3" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
 
                     <TextBlock Grid.Row="4" Text="modded_description" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Top" Margin="0,6,0,8"/>
                     <TextBox x:Name="DbEditModdedDescBox" Grid.Row="4" Grid.Column="1" Height="90" TextWrapping="Wrap"
-                             AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Margin="0,0,0,8"/>
+                             AcceptsReturn="True" VerticalScrollBarVisibility="Auto" IsReadOnly="True" Margin="0,0,0,8"/>
 
                     <TextBlock x:Name="DbEditCardTypeLabel" Grid.Row="5" Text="card_type" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
                     <TextBox x:Name="DbEditCardTypeBox" Grid.Row="5" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
@@ -441,7 +459,7 @@
                     <TextBox x:Name="DbEditDataIndexBox" Grid.Row="8" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
 
                     <TextBlock Grid.Row="9" Text="favorite" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                    <CheckBox x:Name="DbEditFavoriteBox" Grid.Row="9" Grid.Column="1" Content="Favorite" Margin="0,0,0,8"/>
+                    <CheckBox x:Name="DbEditFavoriteBox" Grid.Row="9" Grid.Column="1" Content="Favorite" IsEnabled="False" Margin="0,0,0,8"/>
 
                     <TextBlock Grid.Row="10" Text="has_backup" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
                     <TextBox x:Name="DbEditHasBackupBox" Grid.Row="10" Grid.Column="1" IsReadOnly="True"/>
