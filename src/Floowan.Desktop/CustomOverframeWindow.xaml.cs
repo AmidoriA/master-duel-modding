@@ -345,8 +345,8 @@ public partial class CustomOverframeWindow : Window
 
     /// <summary>
     /// Auto-match Cover background to subject only when both come from card art
-    /// (live-art rembg subject + card-art background). Runs once when that pairing
-    /// is established — not on later subject drag/scale.
+    /// (live-art rembg subject + card-art background). Re-applies on subject drag/scale
+    /// while that pairing holds; skipped for custom BG/subject / Cover-only.
     /// </summary>
     private bool ShouldAutoMatchBackgroundToSubject() =>
         _backgroundIsCardArt
@@ -357,7 +357,8 @@ public partial class CustomOverframeWindow : Window
     /// <summary>
     /// Copies subject Cover scale/offset into background sliders and fields via Core
     /// <see cref="OverFrameAutoArtComposer.MatchBackgroundToSubject"/> (Pendulum Y bias).
-    /// Does not recompose; caller must refresh preview afterward.
+    /// Writes BG controls under <see cref="_updatingBgPanSliders"/> so pan/scale handlers
+    /// do not re-enter. Does not recompose; caller must refresh preview afterward.
     /// </summary>
     private bool TryApplyAutoMatchBackgroundTransforms()
     {
@@ -430,9 +431,11 @@ public partial class CustomOverframeWindow : Window
         StatusText.Text = $"Recomposing at art scale ×{_subjectScale:0.00}…";
         try
         {
+            var matched = TryApplyAutoMatchBackgroundTransforms();
             await RecomposePreviewAsync();
-            StatusText.Text =
-                $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}. Drag or Apply.";
+            StatusText.Text = matched
+                ? $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}; background matched. Drag or Apply."
+                : $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}. Drag or Apply.";
         }
         catch (Exception ex)
         {
@@ -1084,9 +1087,11 @@ public partial class CustomOverframeWindow : Window
         StatusText.Text = $"Recomposing at offset {_offsetX}, {_offsetY}…";
         try
         {
+            var matched = TryApplyAutoMatchBackgroundTransforms();
             await RecomposePreviewAsync();
-            StatusText.Text =
-                $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}. Drag or Apply.";
+            StatusText.Text = matched
+                ? $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}; background matched. Drag or Apply."
+                : $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}. Drag or Apply.";
         }
         catch (Exception ex)
         {
