@@ -345,8 +345,8 @@ public partial class CustomOverframeWindow : Window
 
     /// <summary>
     /// Auto-match Cover background to subject only when both come from card art
-    /// (live-art rembg subject + card-art background). Runs once when that pairing
-    /// is established — not on later subject drag/scale.
+    /// (live-art rembg subject + card-art background). Re-applies on subject drag/scale
+    /// while that pairing holds; skipped for custom BG/subject / Cover-only.
     /// </summary>
     private bool ShouldAutoMatchBackgroundToSubject() =>
         _backgroundIsCardArt
@@ -357,7 +357,8 @@ public partial class CustomOverframeWindow : Window
     /// <summary>
     /// Copies subject Cover scale/offset into background sliders and fields via Core
     /// <see cref="OverFrameAutoArtComposer.MatchBackgroundToSubject"/> (Pendulum Y bias).
-    /// Does not recompose; caller must refresh preview afterward.
+    /// Writes BG controls under <see cref="_updatingBgPanSliders"/> so pan/scale handlers
+    /// do not re-enter. Does not recompose; caller must refresh preview afterward.
     /// </summary>
     private bool TryApplyAutoMatchBackgroundTransforms()
     {
@@ -430,9 +431,11 @@ public partial class CustomOverframeWindow : Window
         StatusText.Text = $"Recomposing at art scale ×{_subjectScale:0.00}…";
         try
         {
+            var matched = TryApplyAutoMatchBackgroundTransforms();
             await RecomposePreviewAsync();
-            StatusText.Text =
-                $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}. Drag or Apply.";
+            StatusText.Text = matched
+                ? $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}; background matched. Drag or Apply."
+                : $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}. Drag or Apply.";
         }
         catch (Exception ex)
         {
@@ -675,11 +678,24 @@ public partial class CustomOverframeWindow : Window
         CleanupComposedTemp();
     }
 
-    private async void PickImage_Click(object sender, RoutedEventArgs e)
+    private async void SubjectAutoRadio_Click(object sender, RoutedEventArgs e)
     {
         if (_busy)
             return;
 
+        await PrepareSubjectFromLiveArtRembgAsync();
+    }
+
+    private async void SubjectManualRadio_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy)
+            return;
+
+        await PickSubjectImageAsync();
+    }
+
+    private async Task PickSubjectImageAsync()
+    {
         var dlg = new OpenFileDialog
         {
             Title = "Select subject image with alpha for custom overframe",
@@ -705,14 +721,6 @@ public partial class CustomOverframeWindow : Window
         await PrepareFromImageAsync(dlg.FileName, sizeNote);
     }
 
-    private async void FromCurrentArtRembg_Click(object sender, RoutedEventArgs e)
-    {
-        if (_busy)
-            return;
-
-        await PrepareSubjectFromLiveArtRembgAsync();
-    }
-
     private async Task PrepareFromImageAsync(string imagePath, string sizeNote)
     {
         SetBusy(true);
@@ -727,6 +735,7 @@ public partial class CustomOverframeWindow : Window
             _subjectSource = prepared.Source;
             _subjectMask = prepared.Mask;
             _subjectIsCardArtRembg = false;
+            SubjectManualRadio.IsChecked = true;
 
             await RecomposePreviewAsync();
             StatusText.Text =
@@ -746,7 +755,7 @@ public partial class CustomOverframeWindow : Window
 
     /// <summary>
     /// Extracts live card art, runs rembg, and installs the cutout as the Card Art
-    /// subject layer (same preview path as Select subject…).
+    /// subject layer (same preview path as Pick manually…).
     /// </summary>
     private async Task PrepareSubjectFromLiveArtRembgAsync()
     {
@@ -769,6 +778,7 @@ public partial class CustomOverframeWindow : Window
             _subjectSource = prepared.Source;
             _subjectMask = prepared.Mask;
             _subjectIsCardArtRembg = true;
+            SubjectAutoRadio.IsChecked = true;
 
             var matched = TryApplyAutoMatchBackgroundTransforms();
             await RecomposePreviewAsync();
@@ -1084,9 +1094,11 @@ public partial class CustomOverframeWindow : Window
         StatusText.Text = $"Recomposing at offset {_offsetX}, {_offsetY}…";
         try
         {
+            var matched = TryApplyAutoMatchBackgroundTransforms();
             await RecomposePreviewAsync();
-            StatusText.Text =
-                $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}. Drag or Apply.";
+            StatusText.Text = matched
+                ? $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}; background matched. Drag or Apply."
+                : $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}. Drag or Apply.";
         }
         catch (Exception ex)
         {
@@ -1192,8 +1204,8 @@ public partial class CustomOverframeWindow : Window
         _busy = busy;
         PickBackgroundButton.IsEnabled = !busy;
         UseCardArtBackgroundButton.IsEnabled = !busy;
-        PickImageButton.IsEnabled = !busy;
-        FromCurrentArtRembgButton.IsEnabled = !busy;
+        SubjectAutoRadio.IsEnabled = !busy;
+        SubjectManualRadio.IsEnabled = !busy;
         FrameStyleBox.IsEnabled = !busy;
         ArtScaleSlider.IsEnabled = !busy;
         BgScaleSlider.IsEnabled = !busy;
