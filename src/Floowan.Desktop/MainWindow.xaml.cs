@@ -2414,6 +2414,50 @@ public partial class MainWindow : Window
         OpenCardInOverFrameTab(_dbSelected.Id);
     }
 
+    private void CardArtOpenInOverFrame_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selected is null)
+        {
+            Status("Select a Card Art card first.");
+            return;
+        }
+
+        OpenCardInOverFrameTab(_selected.Id);
+    }
+
+    private void CardArtOpenInDatabase_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selected is null)
+        {
+            Status("Select a Card Art card first.");
+            return;
+        }
+
+        OpenCardInDatabaseTab(_selected.Id);
+    }
+
+    private void OfOpenInCardArt_Click(object sender, RoutedEventArgs e)
+    {
+        if (_ofSelected is null)
+        {
+            Status("Select an Over-frame card first.");
+            return;
+        }
+
+        OpenCardInCardArtTab(_ofSelected.Id);
+    }
+
+    private void OfOpenInDatabase_Click(object sender, RoutedEventArgs e)
+    {
+        if (_ofSelected is null)
+        {
+            Status("Select an Over-frame card first.");
+            return;
+        }
+
+        OpenCardInDatabaseTab(_ofSelected.Id);
+    }
+
     /// <summary>
     /// Switches to Card Art, searches by card id, selects the row, and loads the preview.
     /// </summary>
@@ -2486,6 +2530,47 @@ public partial class MainWindow : Window
         Status($"Opened card id {cardId} in Over-frame.");
     }
 
+    /// <summary>
+    /// Switches to Database, filters by card id, selects the row, and loads the edit/preview panels.
+    /// </summary>
+    private void OpenCardInDatabaseTab(int cardId)
+    {
+        if (_database is null)
+        {
+            Status("Open database.db first.");
+            return;
+        }
+
+        var card = _database.GetById(cardId);
+        if (card is null)
+        {
+            Status($"Card id {cardId} not found.");
+            return;
+        }
+
+        DbFilterIdBox.Text = cardId.ToString();
+        DbFilterNameBox.Text = "";
+        DbFilterDescBox.Text = "";
+        DbFilterFavoriteBox.SelectedIndex = 0;
+        DbFilterBackupBox.SelectedIndex = 0;
+        DbFilterModdedNameBox.SelectedIndex = 0;
+        DbFilterModdedDescBox.SelectedIndex = 0;
+        // Prefer keeping this id if RunDatabaseQuery restores selection from _dbSelected.
+        _dbSelected = card;
+        RunDatabaseQuery(resetOffset: true);
+
+        if (DatabaseTab is not null)
+            MainTabs.SelectedItem = DatabaseTab;
+
+        if (!TrySelectDbCardById(cardId))
+        {
+            Status($"Card id {cardId} not in Database results.");
+            return;
+        }
+
+        Status($"Opened card id {cardId} in Database.");
+    }
+
     private static bool TrySelectCardById(ListBox list, int cardId)
     {
         foreach (var item in list.Items)
@@ -2495,6 +2580,21 @@ public partial class MainWindow : Window
 
             list.SelectedItem = card;
             list.ScrollIntoView(card);
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TrySelectDbCardById(int cardId)
+    {
+        foreach (var item in DbCardGrid.Items)
+        {
+            if (item is not CardRecord card || card.Id != cardId)
+                continue;
+
+            DbCardGrid.SelectedItem = card;
+            DbCardGrid.ScrollIntoView(card);
             return true;
         }
 
