@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <ApplicationIcon />
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <RootNamespace>Floowan.Desktop</RootNamespace>
   </PropertyGroup>
 
@@ -18,6 +18,8 @@
     <None Include="..\Floowan.Core\Resources\classdata.tpk" Link="classdata.tpk" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database.db" Link="database.db" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\THIRD_PARTY_NOTICES.txt" Link="THIRD_PARTY_NOTICES.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Resource Include="Assets\AppIcon.ico" />
+    <Resource Include="Assets\AppIcon.png" />
   </ItemGroup>
 
 </Project>

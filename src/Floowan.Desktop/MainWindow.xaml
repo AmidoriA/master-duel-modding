@@ -4,6 +4,7 @@
         Title="Masterduel modding tool by AmidoriA"
         Height="800" Width="1400"
         MinHeight="620" MinWidth="1100"
+        Icon="Assets/AppIcon.ico"
         Background="{StaticResource BgBrush}"
         Foreground="{StaticResource TextBrush}"
         FontFamily="Segoe UI">
