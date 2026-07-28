@@ -28,7 +28,7 @@ public partial class MainWindow : Window
     private const string AppCaption = "Master Duel Modding";
     private const string ProjectGitHubUrl = "https://github.com/AmidoriA/master-duel-modding";
     private const string FloowandereezeGitHubUrl = "https://github.com/Nauder/floowandereeze-and-modding-qt";
-    private const string ThirdPartyNoticesFileName = "THIRD_PARTY_NOTICES.md";
+    private const string ThirdPartyNoticesFileName = "THIRD_PARTY_NOTICES.txt";
 
     private CardDatabase? _database;
     private CardArtModService? _modService;
