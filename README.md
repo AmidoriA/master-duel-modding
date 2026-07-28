@@ -78,4 +78,4 @@ Game updates may reset `of_card_asset` (and card bundles). Keep backups under `b
 
 ## Attribution
 
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Path layout and art-replacement approach are inspired by Floowandereeze and Modding (GPL-3.0); Floowan’s `database.db` is maintained separately (Tools update, extra columns). Bundle I/O uses AssetsTools.NET / UABEA (MIT). Over-frame steps follow the community Nexus guide linked above.
+See [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt). Path layout and art-replacement approach are inspired by Floowandereeze and Modding (GPL-3.0); this project’s `database.db` is maintained separately (Tools update, extra columns). Bundle I/O uses AssetsTools.NET / UABEA (MIT). Over-frame steps follow the community Nexus guide linked above.
