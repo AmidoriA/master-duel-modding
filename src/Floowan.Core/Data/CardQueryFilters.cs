@@ -15,4 +15,10 @@ public sealed class CardQueryFilters
     public bool? HasModdedDescription { get; init; }
     public int Limit { get; init; } = 100;
     public int Offset { get; init; } = 0;
+
+    /// <summary>Column used for SQL ORDER BY before LIMIT/OFFSET (full filtered set, not page-only).</summary>
+    public CardSortColumn SortBy { get; init; } = CardSortColumn.Id;
+
+    /// <summary>When true, sort descending; otherwise ascending.</summary>
+    public bool SortDescending { get; init; }
 }

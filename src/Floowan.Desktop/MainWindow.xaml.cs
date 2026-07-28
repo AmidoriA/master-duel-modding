@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
@@ -47,6 +48,8 @@ public partial class MainWindow : Window
     private CardRecord? _dbSelected;
     private int _dbOffset;
     private int _dbTotalMatching;
+    private CardSortColumn _dbSortBy = CardSortColumn.Id;
+    private bool _dbSortDescending;
 
     private string _backupRoot = Path.Combine(AppContext.BaseDirectory, "backups");
 
@@ -2178,6 +2181,101 @@ public partial class MainWindow : Window
         RunDatabaseQuery(resetOffset: false);
     }
 
+    private void DbCardGrid_Sorting(object sender, DataGridSortingEventArgs e)
+    {
+        // Cancel WPF's in-memory page sort; re-query with ORDER BY on the full filtered set.
+        e.Handled = true;
+
+        if (!TryMapDbSortColumn(e.Column, out var sortBy))
+            return;
+
+        var direction = e.Column.SortDirection != ListSortDirection.Ascending
+            ? ListSortDirection.Ascending
+            : ListSortDirection.Descending;
+
+        foreach (var column in DbCardGrid.Columns)
+            column.SortDirection = null;
+        e.Column.SortDirection = direction;
+
+        _dbSortBy = sortBy;
+        _dbSortDescending = direction == ListSortDirection.Descending;
+        RunDatabaseQuery(resetOffset: true);
+    }
+
+    private static bool TryMapDbSortColumn(DataGridColumn column, out CardSortColumn sortBy)
+    {
+        var key = column.SortMemberPath;
+        if (string.IsNullOrWhiteSpace(key) && column is DataGridBoundColumn bound)
+            key = (bound.Binding as System.Windows.Data.Binding)?.Path?.Path;
+
+        switch (key)
+        {
+            case nameof(CardRecord.Id):
+                sortBy = CardSortColumn.Id;
+                return true;
+            case nameof(CardRecord.Name):
+                sortBy = CardSortColumn.Name;
+                return true;
+            case nameof(CardRecord.Description):
+                sortBy = CardSortColumn.Description;
+                return true;
+            case nameof(CardRecord.Bundle):
+                sortBy = CardSortColumn.Bundle;
+                return true;
+            case nameof(CardRecord.DataIndex):
+                sortBy = CardSortColumn.DataIndex;
+                return true;
+            case nameof(CardRecord.CardType):
+                sortBy = CardSortColumn.CardType;
+                return true;
+            case nameof(CardRecord.CreatedAt):
+                sortBy = CardSortColumn.CreatedAt;
+                return true;
+            case nameof(CardRecord.ModdedName):
+                sortBy = CardSortColumn.ModdedName;
+                return true;
+            case nameof(CardRecord.ModdedDescription):
+                sortBy = CardSortColumn.ModdedDescription;
+                return true;
+            case nameof(CardRecord.Favorite):
+                sortBy = CardSortColumn.Favorite;
+                return true;
+            case nameof(CardRecord.HasBackup):
+                sortBy = CardSortColumn.HasBackup;
+                return true;
+            default:
+                sortBy = CardSortColumn.Id;
+                return false;
+        }
+    }
+
+    private void SyncDbSortGlyphs()
+    {
+        var path = _dbSortBy switch
+        {
+            CardSortColumn.Id => nameof(CardRecord.Id),
+            CardSortColumn.Name => nameof(CardRecord.Name),
+            CardSortColumn.Description => nameof(CardRecord.Description),
+            CardSortColumn.Bundle => nameof(CardRecord.Bundle),
+            CardSortColumn.DataIndex => nameof(CardRecord.DataIndex),
+            CardSortColumn.CardType => nameof(CardRecord.CardType),
+            CardSortColumn.CreatedAt => nameof(CardRecord.CreatedAt),
+            CardSortColumn.ModdedName => nameof(CardRecord.ModdedName),
+            CardSortColumn.ModdedDescription => nameof(CardRecord.ModdedDescription),
+            CardSortColumn.Favorite => nameof(CardRecord.Favorite),
+            CardSortColumn.HasBackup => nameof(CardRecord.HasBackup),
+            _ => nameof(CardRecord.Id)
+        };
+
+        var direction = _dbSortDescending ? ListSortDirection.Descending : ListSortDirection.Ascending;
+        foreach (var column in DbCardGrid.Columns)
+        {
+            column.SortDirection = string.Equals(column.SortMemberPath, path, StringComparison.Ordinal)
+                ? direction
+                : null;
+        }
+    }
+
     private void RunDatabaseQuery(bool resetOffset)
     {
         if (_database is null)
@@ -2197,6 +2295,7 @@ public partial class MainWindow : Window
 
             var keepId = _dbSelected?.Id;
             DbCardGrid.ItemsSource = page;
+            SyncDbSortGlyphs();
 
             if (keepId is int id)
             {
@@ -2213,7 +2312,7 @@ public partial class MainWindow : Window
 
             var pageStart = _dbTotalMatching == 0 ? 0 : _dbOffset + 1;
             var pageEnd = Math.Min(_dbOffset + page.Count, _dbTotalMatching);
-            DbPageInfoText.Text = $"Showing {pageStart}?{pageEnd} of {_dbTotalMatching}";
+            DbPageInfoText.Text = $"Showing {pageStart}–{pageEnd} of {_dbTotalMatching}";
             DbPrevPageButton.IsEnabled = _dbOffset > 0;
             DbNextPageButton.IsEnabled = _dbOffset + DbPageSize < _dbTotalMatching;
             Status($"Database: {page.Count} row(s) on page ({_dbTotalMatching} match filter).");
@@ -2245,7 +2344,9 @@ public partial class MainWindow : Window
             HasModdedName = TriStateBool(DbFilterModdedNameBox.SelectedIndex),
             HasModdedDescription = TriStateBool(DbFilterModdedDescBox.SelectedIndex),
             Limit = DbPageSize,
-            Offset = _dbOffset
+            Offset = _dbOffset,
+            SortBy = _dbSortBy,
+            SortDescending = _dbSortDescending
         };
     }
 
