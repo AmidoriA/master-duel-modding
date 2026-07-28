@@ -1,0 +1,73 @@
+Third-party notices
+===================
+
+Product: Masterduel modding tool by AmidoriA
+Repository: https://github.com/AmidoriA/master-duel-modding
+
+This file lists licenses and attributions for libraries and inspiration used by
+the app. Open it in Notepad or any plain-text editor.
+
+
+AssetsTools.NET / UABEA
+-----------------------
+- https://github.com/nesrak1/AssetsTools.NET
+- https://github.com/nesrak1/UABEA
+- License: MIT
+- Used for Unity AssetBundle / Texture2D reading and writing.
+- classdata.tpk is redistributed from UABEA release files for Unity type trees.
+
+
+AssetStudio (reference only)
+----------------------------
+- https://github.com/Perfare/AssetStudio
+- Used as a research reference for Unity asset layouts; not linked into this build.
+
+
+Floowandereeze and Modding (inspiration — please credit)
+--------------------------------------------------------
+- Qt app: https://github.com/Nauder/floowandereeze-and-modding-qt
+- Catalog ETL: https://github.com/Nauder/floowandereeze-and-modding-etl
+- License: GPL-3.0
+- Floowandereeze and Modding (by Nauder) pioneered practical Master Duel card-art
+  replacement: path layout (LocalData/<id>/0000/...), Texture2D -> RGBA32, LZ4
+  pack, and backups. AmidoriA's C# tool reimplements related behaviors
+  independently with AssetsTools.NET and does not copy Floowandereeze Python
+  source. Please give Floowandereeze the credit it deserves.
+- The shipped database.db is not a verbatim copy of upstream ETL output.
+  Schema and contents are maintained in this project (Tools -> DB update from a
+  local Master Duel install), including columns such as card_type and
+  created_at. Early catalog ideas were inspired by Floowandereeze; treat the DB
+  as this project's own artifact going forward.
+- If you distribute a combined work that incorporates Floowandereeze GPL code,
+  comply with GPL-3.0 for that combined work.
+
+
+SixLabors.ImageSharp
+--------------------
+- https://github.com/SixLabors/ImageSharp
+- License: Apache-2.0
+- Image load / resize / PNG export for preparation and previews.
+
+
+Microsoft.Data.Sqlite
+---------------------
+- License: MIT
+- Reads the master database.db (and attached user.db).
+
+
+rembg / IS-Net anime (isnet-anime)
+----------------------------------
+- https://github.com/danielgatis/rembg
+- https://github.com/SkyTNT/anime-segmentation
+- Licenses: rembg MIT; anime-segmentation model per upstream project
+- The automatic over-frame generator independently ports rembg's documented
+  isnet-anime preprocessing/postprocessing to .NET. The ONNX model is downloaded
+  from the official rembg release on first use and is not stored in this
+  repository.
+
+
+Microsoft.ML.OnnxRuntime
+------------------------
+- https://github.com/microsoft/onnxruntime
+- License: MIT
+- Runs the isnet-anime background-removal model locally.

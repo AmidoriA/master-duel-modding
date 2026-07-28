@@ -17,7 +17,7 @@
   <ItemGroup>
     <None Include="..\Floowan.Core\Resources\classdata.tpk" Link="classdata.tpk" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database.db" Link="database.db" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\THIRD_PARTY_NOTICES.md" Link="THIRD_PARTY_NOTICES.md" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\THIRD_PARTY_NOTICES.txt" Link="THIRD_PARTY_NOTICES.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
