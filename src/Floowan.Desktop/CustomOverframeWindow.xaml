@@ -9,7 +9,7 @@
         ShowInTaskbar="False">
   <DockPanel Margin="14">
     <TextBlock DockPanel.Dock="Top"
-               Text="Subject is Card Art with alpha (file or rembg from live art). Background Cover-fills the art hole (defaults to this card's live art). Art scale and Bg scale share ×0.5–×4 where ×1 = Cover fit. Pan background with H/V sliders. When subject is rembg from card art and background is card art, background scale/pan auto-match the subject once. Drag/scale Card Art only, then Apply. Layers: Background → Frame → Card Art → Lore."
+               Text="Choose one subject source (auto detect or pick manually) — not both. Background Cover-fills the art hole (defaults to this card's live art). Art scale and Bg scale share ×0.5–×4 where ×1 = Cover fit. Pan background with H/V sliders. When subject is rembg from card art and background is card art, background scale/pan stay matched as you drag or scale the subject. Drag/scale Card Art only, then Apply. Layers: Background → Frame → Card Art → Lore."
                Foreground="{StaticResource MutedBrush}"
                TextWrapping="Wrap"
                Margin="0,0,0,10"/>
@@ -55,17 +55,50 @@
                            Foreground="{StaticResource MutedBrush}"
                            TextWrapping="Wrap"
                            Margin="0,0,0,8"/>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                  <Button x:Name="PickImageButton"
-                          Content="Select subject…"
-                          Click="PickImage_Click"
-                          Margin="0,0,8,0"
-                          ToolTip="Pick a PNG with existing alpha (no rembg)."/>
-                  <Button x:Name="FromCurrentArtRembgButton"
-                          Content="From current art (rembg)…"
-                          Click="FromCurrentArtRembg_Click"
-                          Margin="0,0,0,0"
-                          ToolTip="Extract this card's live art, run rembg, and use the cutout as the Card Art subject layer."/>
+                <TextBlock Text="Choose one"
+                           FontWeight="SemiBold"
+                           Foreground="{StaticResource MutedBrush}"
+                           Margin="0,0,0,6"/>
+                <StackPanel Orientation="Vertical" Margin="0,0,0,10">
+                  <Border Background="{StaticResource ControlBgBrush}"
+                          BorderBrush="{StaticResource ControlBorderBrush}"
+                          BorderThickness="1"
+                          CornerRadius="3"
+                          Padding="8,8"
+                          Margin="0,0,0,6">
+                    <StackPanel>
+                      <RadioButton x:Name="SubjectAutoRadio"
+                                   GroupName="CustomOfSubjectSource"
+                                   Content="Auto detect"
+                                   Margin="0,0,0,4"
+                                   ToolTip="Cut out the subject from this card's live art (rembg)."
+                                   Click="SubjectAutoRadio_Click"/>
+                      <TextBlock Text="Cut out from this card's current art (rembg)."
+                                 Foreground="{StaticResource MutedBrush}"
+                                 TextWrapping="Wrap"
+                                 Margin="22,0,0,0"
+                                 FontSize="11"/>
+                    </StackPanel>
+                  </Border>
+                  <Border Background="{StaticResource ControlBgBrush}"
+                          BorderBrush="{StaticResource ControlBorderBrush}"
+                          BorderThickness="1"
+                          CornerRadius="3"
+                          Padding="8,8">
+                    <StackPanel>
+                      <RadioButton x:Name="SubjectManualRadio"
+                                   GroupName="CustomOfSubjectSource"
+                                   Content="Pick manually…"
+                                   Margin="0,0,0,4"
+                                   ToolTip="Pick a PNG with existing alpha (no rembg)."
+                                   Click="SubjectManualRadio_Click"/>
+                      <TextBlock Text="Use a PNG that already has transparency."
+                                 Foreground="{StaticResource MutedBrush}"
+                                 TextWrapping="Wrap"
+                                 Margin="22,0,0,0"
+                                 FontSize="11"/>
+                    </StackPanel>
+                  </Border>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                   <TextBlock Text="Frame"
@@ -129,7 +162,7 @@
                            FontWeight="SemiBold"
                            Foreground="{StaticResource TextBrush}"
                            Margin="0,0,0,6"/>
-                <TextBlock Text="Cover-fills the art hole only (lowest layer). Scale ×0.5–×4 (×1 = Cover, same as Art scale) and pan with H/V sliders (not drag). Auto-matches subject scale/offset only when both layers come from card art (rembg subject). Defaults to this card's live art."
+                <TextBlock Text="Cover-fills the art hole only (lowest layer). Scale ×0.5–×4 (×1 = Cover, same as Art scale) and pan with H/V sliders (not drag). Stays matched to subject drag/scale when both layers come from card art (rembg subject). Defaults to this card's live art."
                            Foreground="{StaticResource MutedBrush}"
                            TextWrapping="Wrap"
                            Margin="0,0,0,8"/>
