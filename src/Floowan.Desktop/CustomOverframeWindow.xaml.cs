@@ -33,6 +33,10 @@ public partial class CustomOverframeWindow : Window
     private string? _composedTempPath;
     private int _offsetX;
     private int _offsetY;
+    /// <summary>True when Cover background is live card art (default / "Use card art").</summary>
+    private bool _backgroundIsCardArt;
+    /// <summary>True when subject is rembg cutout from this card's live art.</summary>
+    private bool _subjectIsCardArtRembg;
     private const float DefaultSubjectScale = 1.5f;
     private const float DefaultBackgroundScale = 1.0f;
 
@@ -339,10 +343,26 @@ public partial class CustomOverframeWindow : Window
         await ApplyBackgroundTransformChangeAsync();
     }
 
-    private async void MatchBackgroundToSubject_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Auto-match Cover background to subject only when both come from card art
+    /// (live-art rembg subject + card-art background). Runs once when that pairing
+    /// is established — not on later subject drag/scale.
+    /// </summary>
+    private bool ShouldAutoMatchBackgroundToSubject() =>
+        _backgroundIsCardArt
+        && _subjectIsCardArtRembg
+        && _backgroundSource is not null
+        && _subjectSource is not null;
+
+    /// <summary>
+    /// Copies subject Cover scale/offset into background sliders and fields via Core
+    /// <see cref="OverFrameAutoArtComposer.MatchBackgroundToSubject"/> (Pendulum Y bias).
+    /// Does not recompose; caller must refresh preview afterward.
+    /// </summary>
+    private bool TryApplyAutoMatchBackgroundTransforms()
     {
-        if (_busy || _backgroundSource is null)
-            return;
+        if (!ShouldAutoMatchBackgroundToSubject() || _backgroundSource is null)
+            return false;
 
         // Core Match accounts for PendulumVerticalOffset: subject Cover is nudged +200 on
         // Pendulum while hole-only Cover background is not — copying offset 1:1 misaligns.
@@ -367,14 +387,15 @@ public partial class CustomOverframeWindow : Window
 
         // Pan limits depend on the new shared Cover scale — sync ranges first, then apply
         // matched pan (already clamped in Core; re-clamp to live slider max for safety).
-        // Do not write _backgroundOffset* here; ApplyBackgroundTransformChangeAsync owns that.
         SyncBackgroundPanSliderRanges();
+        int panX;
+        int panY;
         _updatingBgPanSliders = true;
         try
         {
-            var panX = OverFrameAutoArtComposer.ClampBackgroundPan(
+            panX = OverFrameAutoArtComposer.ClampBackgroundPan(
                 matchedPanX, (int)Math.Round(BgPanHSlider.Maximum));
-            var panY = OverFrameAutoArtComposer.ClampBackgroundPan(
+            panY = OverFrameAutoArtComposer.ClampBackgroundPan(
                 matchedPanY, (int)Math.Round(BgPanVSlider.Maximum));
             BgPanHSlider.Value = panX;
             BgPanVSlider.Value = panY;
@@ -384,14 +405,11 @@ public partial class CustomOverframeWindow : Window
             _updatingBgPanSliders = false;
         }
 
+        _backgroundScale = matchedScale;
+        _backgroundOffsetX = panX;
+        _backgroundOffsetY = panY;
         UpdateBackgroundTransformLabels();
-        await ApplyBackgroundTransformChangeAsync();
-        if (!_busy)
-        {
-            StatusText.Text =
-                $"Matched background to subject: scale ×{_backgroundScale:0.00}, " +
-                $"pan {_backgroundOffsetX}, {_backgroundOffsetY}.";
-        }
+        return true;
     }
 
     private async Task ApplyArtScaleChangeAsync()
@@ -522,6 +540,7 @@ public partial class CustomOverframeWindow : Window
         try
         {
             DisposeBackground();
+            _backgroundIsCardArt = false;
             _backgroundSource = await Task.Run(() => ImageSharpImage.Load<Rgba32>(dlg.FileName));
             ResetBackgroundPlacement();
             await RefreshPreviewAfterBackgroundChangeAsync(
@@ -576,11 +595,15 @@ public partial class CustomOverframeWindow : Window
             await Task.Run(() => _overFrameService.ExtractCardArt(gamePath, card, outputPath));
 
             DisposeBackground();
+            _backgroundIsCardArt = true;
             _backgroundSource = await Task.Run(() => ImageSharpImage.Load<Rgba32>(liveTemp));
             ResetBackgroundPlacement();
 
+            var matched = TryApplyAutoMatchBackgroundTransforms();
             var subjectStatus = readyStatus
-                ?? "Background: current card art (Cover). Preview updated — drag Card Art or Apply.";
+                ?? (matched
+                    ? $"Background: current card art (Cover), matched to rembg subject ×{_backgroundScale:0.00}. Drag Card Art or Apply."
+                    : "Background: current card art (Cover). Preview updated — drag Card Art or Apply.");
             var backgroundOnlyStatus = readyStatus
                 ?? "Background: current card art (Cover). Pick a subject…";
             await RefreshPreviewAfterBackgroundChangeAsync(subjectStatus, backgroundOnlyStatus);
@@ -703,6 +726,7 @@ public partial class CustomOverframeWindow : Window
                 () => AutoOverFrameArtService.LoadSubjectFromAlpha(imagePath, progress));
             _subjectSource = prepared.Source;
             _subjectMask = prepared.Mask;
+            _subjectIsCardArtRembg = false;
 
             await RecomposePreviewAsync();
             StatusText.Text =
@@ -744,10 +768,13 @@ public partial class CustomOverframeWindow : Window
             var prepared = await _autoArt.PrepareSubjectWithRembgAsync(liveTemp, progress);
             _subjectSource = prepared.Source;
             _subjectMask = prepared.Mask;
+            _subjectIsCardArtRembg = true;
 
+            var matched = TryApplyAutoMatchBackgroundTransforms();
             await RecomposePreviewAsync();
-            StatusText.Text =
-                "Subject from live art (rembg). Drag or scale the art, then Apply.";
+            StatusText.Text = matched
+                ? $"Subject from live art (rembg); background matched ×{_backgroundScale:0.00}. Drag or Apply."
+                : "Subject from live art (rembg). Drag or scale the art, then Apply.";
             PreviewHintText.Visibility = Visibility.Collapsed;
             ApplyButton.IsEnabled = true;
         }
@@ -769,6 +796,7 @@ public partial class CustomOverframeWindow : Window
     private void ResetSubjectPlacement()
     {
         DisposeSubject();
+        _subjectIsCardArtRembg = false;
         _offsetX = 0;
         _offsetY = 0;
         _subjectScale = DefaultSubjectScale;
@@ -1164,7 +1192,6 @@ public partial class CustomOverframeWindow : Window
         _busy = busy;
         PickBackgroundButton.IsEnabled = !busy;
         UseCardArtBackgroundButton.IsEnabled = !busy;
-        MatchBackgroundToSubjectButton.IsEnabled = !busy && _backgroundSource is not null;
         PickImageButton.IsEnabled = !busy;
         FromCurrentArtRembgButton.IsEnabled = !busy;
         FrameStyleBox.IsEnabled = !busy;
@@ -1200,12 +1227,14 @@ public partial class CustomOverframeWindow : Window
         _subjectMask?.Dispose();
         _subjectSource = null;
         _subjectMask = null;
+        _subjectIsCardArtRembg = false;
     }
 
     private void DisposeBackground()
     {
         _backgroundSource?.Dispose();
         _backgroundSource = null;
+        _backgroundIsCardArt = false;
     }
 
     private void CleanupComposedTemp()
