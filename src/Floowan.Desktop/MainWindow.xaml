@@ -362,19 +362,21 @@
                 <TextBlock DockPanel.Dock="Top" Text="Cards" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                 <DataGrid x:Name="DbCardGrid"
                           SelectionChanged="DbCardGrid_SelectionChanged"
+                          Sorting="DbCardGrid_Sorting"
+                          CanUserSortColumns="True"
                           HeadersVisibility="Column">
                   <DataGrid.Columns>
-                    <DataGridTextColumn Header="id" Binding="{Binding Id}" Width="70"/>
-                    <DataGridTextColumn Header="name" Binding="{Binding Name}" Width="140"/>
-                    <DataGridTextColumn x:Name="DbColCardType" Header="card_type" Binding="{Binding CardType}" Width="90"/>
-                    <DataGridTextColumn x:Name="DbColCreatedAt" Header="created_at" Binding="{Binding CreatedAtDisplay}" Width="140"/>
-                    <DataGridTextColumn Header="description" Binding="{Binding Description}" Width="180"/>
-                    <DataGridTextColumn Header="modded_name" Binding="{Binding ModdedName}" Width="120"/>
-                    <DataGridTextColumn Header="modded_description" Binding="{Binding ModdedDescription}" Width="140"/>
-                    <DataGridTextColumn Header="bundle" Binding="{Binding Bundle}" Width="80"/>
-                    <DataGridTextColumn Header="data_index" Binding="{Binding DataIndex}" Width="80"/>
-                    <DataGridCheckBoxColumn Header="favorite" Binding="{Binding Favorite}" Width="70"/>
-                    <DataGridCheckBoxColumn Header="has_backup" Binding="{Binding HasBackup}" Width="80"/>
+                    <DataGridTextColumn Header="id" Binding="{Binding Id}" SortMemberPath="Id" Width="70"/>
+                    <DataGridTextColumn Header="name" Binding="{Binding Name}" SortMemberPath="Name" Width="140"/>
+                    <DataGridTextColumn x:Name="DbColCardType" Header="card_type" Binding="{Binding CardType}" SortMemberPath="CardType" Width="90"/>
+                    <DataGridTextColumn x:Name="DbColCreatedAt" Header="created_at" Binding="{Binding CreatedAtDisplay}" SortMemberPath="CreatedAt" Width="140"/>
+                    <DataGridTextColumn Header="description" Binding="{Binding Description}" SortMemberPath="Description" Width="180"/>
+                    <DataGridTextColumn Header="modded_name" Binding="{Binding ModdedName}" SortMemberPath="ModdedName" Width="120"/>
+                    <DataGridTextColumn Header="modded_description" Binding="{Binding ModdedDescription}" SortMemberPath="ModdedDescription" Width="140"/>
+                    <DataGridTextColumn Header="bundle" Binding="{Binding Bundle}" SortMemberPath="Bundle" Width="80"/>
+                    <DataGridTextColumn Header="data_index" Binding="{Binding DataIndex}" SortMemberPath="DataIndex" Width="80"/>
+                    <DataGridCheckBoxColumn Header="favorite" Binding="{Binding Favorite}" SortMemberPath="Favorite" Width="70"/>
+                    <DataGridCheckBoxColumn Header="has_backup" Binding="{Binding HasBackup}" SortMemberPath="HasBackup" Width="80"/>
                   </DataGrid.Columns>
                 </DataGrid>
               </DockPanel>
