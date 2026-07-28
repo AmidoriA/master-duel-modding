@@ -46,7 +46,17 @@ public sealed class CardCatalogExtractor
     private const long MinCardDataBytes = 8 * 1024;
     private const long MaxCardDataBytes = 2 * 1024 * 1024;
     private const long MinIllustBytes = 16 * 1024;
-    private const long MaxIllustBytes = 3 * 1024 * 1024;
+    // Inclusive upper bound for illustration candidates. Must stay above large LocalData
+    // illust bundles (e.g. Fabled Lurrie / 2caa5d54 ≈ 4.6 MiB). The previous 3 MiB cap
+    // skipped those files entirely, so cards never joined into the catalog.
+    private const long MaxIllustBytes = 8 * 1024 * 1024;
+
+    /// <summary>
+    /// Whether a file length falls in the illustration AssetBundle size window used before
+    /// <c>LoadBundleFile</c>. Exposed for regression tests of the upper bound.
+    /// </summary>
+    public static bool IsIllustrationSizeCandidate(long length) =>
+        length is >= MinIllustBytes and <= MaxIllustBytes;
 
     /// <summary>
     /// AssetsTools.NET class-package load is not safe to run concurrently against the same file.
@@ -131,7 +141,7 @@ public sealed class CardCatalogExtractor
 
                 var mayHaveCardData = !cardData.IsComplete
                     && length is >= MinCardDataBytes and <= MaxCardDataBytes;
-                var mayHaveIllust = length is >= MinIllustBytes and <= MaxIllustBytes;
+                var mayHaveIllust = IsIllustrationSizeCandidate(length);
                 if (!mayHaveCardData && !mayHaveIllust)
                     return am;
 
