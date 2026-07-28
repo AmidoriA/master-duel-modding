@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Navigation;
 using System.Windows.Threading;
 using Floowan.Core.Assets;
 using Floowan.Core.Data;
@@ -24,6 +25,10 @@ public partial class MainWindow : Window
     private const int SearchDebounceMs = 250;
     private const int OfActionStatusClearMs = 6000;
     private const string OfRestartHint = "Restart Master Duel to reload.";
+    private const string AppCaption = "Master Duel Modding";
+    private const string ProjectGitHubUrl = "https://github.com/AmidoriA/master-duel-modding";
+    private const string FloowandereezeGitHubUrl = "https://github.com/Nauder/floowandereeze-and-modding-qt";
+    private const string ThirdPartyNoticesFileName = "THIRD_PARTY_NOTICES.md";
 
     private CardDatabase? _database;
     private CardArtModService? _modService;
@@ -151,7 +156,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             Status("Startup error: " + ex.Message);
-            MessageBox.Show(ex.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -232,7 +237,7 @@ public partial class MainWindow : Window
         var paths = GamePathLocator.FindSteamMasterDuelPaths();
         if (paths.Count == 0)
         {
-            MessageBox.Show("No valid Master Duel LocalData folders were found via Steam libraries.", "Floowan");
+            MessageBox.Show("No valid Master Duel LocalData folders were found via Steam libraries.", AppCaption);
             return;
         }
 
@@ -279,7 +284,7 @@ public partial class MainWindow : Window
         {
             if (!GamePathLocator.IsValidGamePath(dlg.FolderName, out var error))
             {
-                MessageBox.Show(error ?? "Invalid path", "Floowan", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(error ?? "Invalid path", AppCaption, MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             SetGamePath(dlg.FolderName);
@@ -530,17 +535,17 @@ public partial class MainWindow : Window
     {
         if (_modService is null || _selected is null)
         {
-            MessageBox.Show("Select a card first.", "Floowan");
+            MessageBox.Show("Select a card first.", AppCaption);
             return;
         }
         if (string.IsNullOrWhiteSpace(GamePathBox.Text))
         {
-            MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
+            MessageBox.Show("Set the Master Duel LocalData path first.", AppCaption);
             return;
         }
         if (string.IsNullOrWhiteSpace(_replacementImagePath))
         {
-            MessageBox.Show("Select a replacement image first.", "Floowan");
+            MessageBox.Show("Select a replacement image first.", AppCaption);
             return;
         }
 
@@ -562,7 +567,7 @@ public partial class MainWindow : Window
         {
             MessageBox.Show(
                 "Could not load current live art for comparison. Check the game path and try again.",
-                "Floowan",
+                AppCaption,
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
             return;
@@ -615,7 +620,7 @@ public partial class MainWindow : Window
             var result = await Task.Run(() =>
                 _modService.ReplaceCardArt(gamePath, card, image, createBackup: true, _database));
             Status(result.Message);
-            MessageBox.Show(result.Message, "Floowan",
+            MessageBox.Show(result.Message, AppCaption,
                 MessageBoxButton.OK,
                 result.Success ? MessageBoxImage.Information : MessageBoxImage.Error);
             if (result.Success)
@@ -658,7 +663,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -679,7 +684,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -695,7 +700,7 @@ public partial class MainWindow : Window
     {
         if (_database is null)
         {
-            MessageBox.Show("Open database.db first.", "Floowan");
+            MessageBox.Show("Open database.db first.", AppCaption);
             return;
         }
 
@@ -705,7 +710,7 @@ public partial class MainWindow : Window
         {
             MessageBox.Show(
                 pathError ?? "Set a valid Master Duel LocalData path first (Home tab).",
-                "Floowan",
+                AppCaption,
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
             return;
@@ -776,7 +781,7 @@ public partial class MainWindow : Window
             {
                 ToolsUpdateDbStatusText.Text = result.Message;
                 Status("Database update failed: " + result.Message);
-                MessageBox.Show(result.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(result.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -791,7 +796,7 @@ public partial class MainWindow : Window
         {
             ToolsUpdateDbStatusText.Text = "Error: " + ex.Message;
             Status("Database update failed: " + ex.Message);
-            MessageBox.Show(ex.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
@@ -804,13 +809,13 @@ public partial class MainWindow : Window
     {
         if (_database is null)
         {
-            MessageBox.Show("Open database.db first.", "Floowan");
+            MessageBox.Show("Open database.db first.", AppCaption);
             return;
         }
 
         if (_overFrameService is null)
         {
-            MessageBox.Show("Over-frame service is not initialized.", "Floowan");
+            MessageBox.Show("Over-frame service is not initialized.", AppCaption);
             return;
         }
 
@@ -820,7 +825,7 @@ public partial class MainWindow : Window
         {
             MessageBox.Show(
                 pathError ?? "Set a valid Master Duel LocalData path first (Home tab).",
-                "Floowan",
+                AppCaption,
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
             return;
@@ -828,7 +833,7 @@ public partial class MainWindow : Window
 
         var pending = _database.ListFloowanOverframeCards();
         var confirm = MessageBox.Show(
-            "Re-apply Floowan over-frames after an MD patch for " + pending.Count +
+            "Re-apply modded over-frames after an MD patch for " + pending.Count +
             " card(s) recorded in user.db.\n\n" +
             "This merges into the current of_card_asset gate (official OF entries are kept) " +
             "and restores 704x1024 art from *-applied-overframe.png backups when live art was reset.\n\n" +
@@ -842,7 +847,7 @@ public partial class MainWindow : Window
         SetToolsLongRunningButtonsEnabled(false);
         SetUiBusy(true);
         ToolsRestoreOverframesStatusText.Text = "Starting…";
-        Status("Restoring Floowan over-frames after patch…");
+        Status("Restoring modded over-frames after patch…");
 
         var database = _database;
         var service = _overFrameService;
@@ -862,7 +867,7 @@ public partial class MainWindow : Window
             RunOfSearch();
             MessageBox.Show(
                 result.Message,
-                "Floowan",
+                AppCaption,
                 MessageBoxButton.OK,
                 result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
         }
@@ -870,7 +875,7 @@ public partial class MainWindow : Window
         {
             ToolsRestoreOverframesStatusText.Text = "Error: " + ex.Message;
             Status("Restore overframes failed: " + ex.Message);
-            MessageBox.Show(ex.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
@@ -891,7 +896,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -1024,7 +1029,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -1309,7 +1314,7 @@ public partial class MainWindow : Window
         MessageBox.Show(
             "Select a frame style before continuing.\n\n" +
             "The Frame dropdown is empty — choose Effect, Normal, Fusion, etc.",
-            "Floowan — Frame required",
+            "Master Duel Modding — Frame required",
             MessageBoxButton.OK,
             MessageBoxImage.Warning);
         return true;
@@ -1383,7 +1388,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(GamePathBox.Text))
         {
             if (showErrors)
-                MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
+                MessageBox.Show("Set the Master Duel LocalData path first.", AppCaption);
             return;
         }
 
@@ -1442,7 +1447,7 @@ public partial class MainWindow : Window
                 _ofGateReady = false;
                 ReportOfGateScanStatus(result.Message);
                 if (showErrors)
-                    MessageBox.Show(result.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show(result.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
         catch (Exception ex)
@@ -1450,7 +1455,7 @@ public partial class MainWindow : Window
             _ofGateReady = false;
             ReportOfGateScanStatus("Scan failed: " + ex.Message);
             if (showErrors)
-                MessageBox.Show(ex.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
@@ -1556,12 +1561,12 @@ public partial class MainWindow : Window
         // Non-OF: compose what Auto-create would produce (rembg + frame -> 704x1024), without Apply.
         if (_overFrameService is null || _autoOverFrameArtService is null || _ofSelected is null)
         {
-            MessageBox.Show("Select a card first.", "Floowan");
+            MessageBox.Show("Select a card first.", AppCaption);
             return;
         }
         if (string.IsNullOrWhiteSpace(GamePathBox.Text))
         {
-            MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
+            MessageBox.Show("Set the Master Duel LocalData path first.", AppCaption);
             return;
         }
         // Preview may run without a Frame selection (defaults to Effect for compose only).
@@ -1588,7 +1593,7 @@ public partial class MainWindow : Window
             Status("Over-frame preview failed: " + ex.Message);
             MessageBox.Show(
                 "Could not compose over-frame preview:\n\n" + ex.Message,
-                "Floowan",
+                AppCaption,
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
@@ -1741,12 +1746,12 @@ public partial class MainWindow : Window
     {
         if (_overFrameService is null || _autoOverFrameArtService is null || _ofSelected is null)
         {
-            MessageBox.Show("Select a card first.", "Floowan");
+            MessageBox.Show("Select a card first.", AppCaption);
             return;
         }
         if (string.IsNullOrWhiteSpace(GamePathBox.Text))
         {
-            MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
+            MessageBox.Show("Set the Master Duel LocalData path first.", AppCaption);
             return;
         }
 
@@ -1761,7 +1766,7 @@ public partial class MainWindow : Window
                 $"'{_ofSelected.DisplayName}' is already over-framed.\n\n" +
                 "Use Restore backups first, then open Custom overframe art again.\n" +
                 "Custom overframe will not nest frames on live OF art.",
-                "Floowan",
+                AppCaption,
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
             Status("Custom overframe art blocked — card is already over-framed. Restore first.");
@@ -1829,12 +1834,12 @@ public partial class MainWindow : Window
     {
         if (_overFrameService is null || _autoOverFrameArtService is null || _ofSelected is null)
         {
-            MessageBox.Show("Select a card first.", "Floowan");
+            MessageBox.Show("Select a card first.", AppCaption);
             return;
         }
         if (string.IsNullOrWhiteSpace(GamePathBox.Text))
         {
-            MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
+            MessageBox.Show("Set the Master Duel LocalData path first.", AppCaption);
             return;
         }
         if (WarnIfFrameStyleNotSelected())
@@ -1872,7 +1877,7 @@ public partial class MainWindow : Window
         {
             ClearOfActionStatus();
             Status("Auto-create & apply failed: " + ex.Message);
-            MessageBox.Show(ex.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
@@ -1884,12 +1889,12 @@ public partial class MainWindow : Window
     {
         if (_overFrameService is null || _ofSelected is null)
         {
-            MessageBox.Show("Select a card first.", "Floowan");
+            MessageBox.Show("Select a card first.", AppCaption);
             return;
         }
         if (string.IsNullOrWhiteSpace(GamePathBox.Text))
         {
-            MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
+            MessageBox.Show("Set the Master Duel LocalData path first.", AppCaption);
             return;
         }
 
@@ -1924,12 +1929,12 @@ public partial class MainWindow : Window
     {
         if (_overFrameService is null || _ofSelected is null)
         {
-            MessageBox.Show("Select a card first.", "Floowan");
+            MessageBox.Show("Select a card first.", AppCaption);
             return;
         }
         if (string.IsNullOrWhiteSpace(GamePathBox.Text))
         {
-            MessageBox.Show("Set the Master Duel LocalData path first.", "Floowan");
+            MessageBox.Show("Set the Master Duel LocalData path first.", AppCaption);
             return;
         }
 
@@ -1944,7 +1949,7 @@ public partial class MainWindow : Window
             "This removes the card's art-id from the gate so Master Duel no longer treats it as over-framed. " +
             "It does not restore the card texture — use Restore backups for that.\n\n" +
             "Other cards' gate entries are left alone.",
-            "Floowan",
+            AppCaption,
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning);
         if (confirm != MessageBoxResult.Yes)
@@ -2144,7 +2149,7 @@ public partial class MainWindow : Window
         }
 
         ClearOfActionStatus();
-        MessageBox.Show(result.Message, "Floowan", MessageBoxButton.OK, failureImage);
+        MessageBox.Show(result.Message, AppCaption, MessageBoxButton.OK, failureImage);
     }
 
     private void DbFilter_KeyDown(object sender, KeyEventArgs e)
@@ -2743,5 +2748,98 @@ public partial class MainWindow : Window
         }
 
         return false;
+    }
+
+    // --- About tab ---
+
+    private void AboutOpenProjectGitHub_Click(object sender, RoutedEventArgs e) =>
+        OpenExternalUri(ProjectGitHubUrl);
+
+    private void AboutOpenFloowandereezeGitHub_Click(object sender, RoutedEventArgs e) =>
+        OpenExternalUri(FloowandereezeGitHubUrl);
+
+    private void AboutHyperlink_RequestNavigate(object sender, RequestNavigateEventArgs e)
+    {
+        OpenExternalUri(e.Uri.AbsoluteUri);
+        e.Handled = true;
+    }
+
+    private void AboutOpenThirdPartyNotices_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var path = ResolveThirdPartyNoticesPath();
+            if (path is null)
+            {
+                MessageBox.Show(
+                    "Could not find " + ThirdPartyNoticesFileName + " next to the app or in the project folder.",
+                    AppCaption,
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = path,
+                UseShellExecute = true
+            });
+            Status("Opened " + path);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static void OpenExternalUri(string uri)
+    {
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = uri,
+            UseShellExecute = true
+        });
+    }
+
+    private static string? ResolveThirdPartyNoticesPath()
+    {
+        var candidates = new List<string>
+        {
+            Path.Combine(AppContext.BaseDirectory, ThirdPartyNoticesFileName),
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", ThirdPartyNoticesFileName),
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ThirdPartyNoticesFileName),
+        };
+
+        foreach (var candidate in candidates)
+        {
+            try
+            {
+                var full = Path.GetFullPath(candidate);
+                if (File.Exists(full))
+                    return full;
+            }
+            catch
+            {
+                // ignore invalid paths
+            }
+        }
+
+        // Walk up from the exe looking for a repo / install root copy.
+        try
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            for (var i = 0; i < 8 && dir is not null; i++, dir = dir.Parent)
+            {
+                var atRoot = Path.Combine(dir.FullName, ThirdPartyNoticesFileName);
+                if (File.Exists(atRoot))
+                    return atRoot;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return null;
     }
 }
