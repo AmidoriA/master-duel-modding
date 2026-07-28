@@ -364,12 +364,12 @@ public sealed class OverFrameModService : IDisposable
             return new OverFrameRestoreBatchResult
             {
                 Success = true,
-                Message = "No Floowan over-frames recorded in user.db. Apply OF first, or run after a patch that wiped the gate.",
+                Message = "No modded over-frames recorded in user.db. Apply OF first, or run after a patch that wiped the gate.",
                 Total = 0
             };
         }
 
-        progress?.Report($"Locating of_card_asset gate ({cards.Count} Floowan OF card(s))…");
+        progress?.Report($"Locating of_card_asset gate ({cards.Count} modded OF card(s))…");
         var gateLocate = _locator.Locate(playerDataPath, database, progress, cancellationToken);
         if (!gateLocate.Success || gateLocate.BundlePath is null || gateLocate.BundleId is null)
         {
