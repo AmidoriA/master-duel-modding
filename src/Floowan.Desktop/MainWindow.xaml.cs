@@ -120,9 +120,7 @@ public partial class MainWindow : Window
             _overFrameService = new OverFrameModService(backupRoot: _backupRoot);
             _autoOverFrameArtService = new AutoOverFrameArtService();
 
-            var defaultDb = FindDefaultDatabase();
-            if (defaultDb is not null)
-                OpenDatabase(defaultDb);
+            OpenFixedDatabases();
 
             var discovered = GamePathLocator.FindSteamMasterDuelPaths();
             if (discovered.Count == 1)
@@ -156,7 +154,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Collapse the Home path header once LocalData is valid (same gate as mod operations).
-    /// Keep expanded on first run / empty LocalData so paths can be set.
+    /// Keep expanded on first run / empty LocalData so the game path can be set.
     /// </summary>
     private void UpdateHomePathsExpanderExpanded()
     {
@@ -172,25 +170,21 @@ public partial class MainWindow : Window
             && GamePathLocator.IsValidGamePath(GamePathBox.Text, out _);
     }
 
-    private static string? FindDefaultDatabase()
+    /// <summary>
+    /// Opens master <c>database.db</c> and <c>user.db</c> beside the executable
+    /// (<see cref="AppContext.BaseDirectory"/>). No browsable override.
+    /// </summary>
+    private void OpenFixedDatabases()
     {
-        var candidates = new[]
+        var path = MasterDatabasePaths.ResolveDefaultPath();
+        if (!File.Exists(path))
         {
-            Path.Combine(AppContext.BaseDirectory, "database.db"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "database.db")),
-            Path.Combine(Directory.GetCurrentDirectory(), "database.db"),
-            @"C:\Users\user\Documents\Projects\Floowan-copy\database.db"
-        };
-        return candidates.FirstOrDefault(File.Exists);
-    }
+            Status("Missing database.db beside the app: " + path);
+            return;
+        }
 
-    private void OpenDatabase(string path)
-    {
         _database?.Dispose();
-        var userPath = UserDatabasePaths.ResolveDefaultPath();
-        _database = new CardDatabase(path, userPath);
-        DatabasePathBox.Text = path;
-        UserDatabasePathBox.Text = _database.UserDatabasePath;
+        _database = new CardDatabase(path, UserDatabasePaths.ResolveDefaultPath());
         ApplyDatabaseOptionalColumnsVisibility();
 
         RefreshOfGateStatusFromCache();
@@ -287,25 +281,6 @@ public partial class MainWindow : Window
             }
             SetGamePath(dlg.FolderName);
             Status("Selected LocalData: " + dlg.FolderName);
-        }
-    }
-
-    private void BrowseDatabase_Click(object sender, RoutedEventArgs e)
-    {
-        var dlg = new OpenFileDialog
-        {
-            Title = "Open master card catalog (database.db)",
-            Filter = "SQLite DB (*.db)|*.db|All files|*.*"
-        };
-        if (dlg.ShowDialog(this) == true)
-        {
-            OpenDatabase(dlg.FileName);
-            RunSearch();
-            RunOfSearch();
-            RunDatabaseQuery(resetOffset: true);
-            Status(
-                "Opened master: " + dlg.FileName +
-                " ? user: " + (_database?.UserDatabasePath ?? UserDatabasePaths.ResolveDefaultPath()));
         }
     }
 
