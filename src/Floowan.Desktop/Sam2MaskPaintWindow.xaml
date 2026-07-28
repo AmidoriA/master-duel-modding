@@ -11,7 +11,7 @@
   <DockPanel Margin="14">
     <TextBlock x:Name="HelpText"
                DockPanel.Dock="Top"
-               Text="Green = already in Card Art. Paint mode: amber strokes. Click mode: cyan SAM preview."
+               Text="Green = already in Card Art (Paint). Click mode: cyan working selection — left-click adds, right-click removes."
                Foreground="{StaticResource MutedBrush}"
                TextWrapping="Wrap"
                Margin="0,0,0,10"/>
@@ -36,7 +36,7 @@
                      Content="Click object"
                      VerticalAlignment="Center"
                      Checked="ModeRadio_Checked"
-                     ToolTip="Click an object; SAM 2 previews the mask (cyan). Apply adds it to Card Art."/>
+                     ToolTip="Left-click adds a SAM object to the working selection; right-click removes one (including prior-session subject)."/>
       </StackPanel>
       <StackPanel x:Name="PaintToolsPanel" Orientation="Horizontal" Margin="0,0,0,8">
         <TextBlock Text="Brush"
@@ -68,10 +68,10 @@
       </StackPanel>
       <StackPanel x:Name="ClickToolsPanel" Orientation="Horizontal" Margin="0,0,0,8" Visibility="Collapsed">
         <Button x:Name="ClearClickPreviewButton"
-                Content="Clear preview"
+                Content="Reset selection"
                 Click="ClearClickPreview_Click"
                 HorizontalAlignment="Left"
-                ToolTip="Discard the pending cyan SAM preview and click again."/>
+                ToolTip="Reset the cyan working selection to the prior-session subject (or empty)."/>
       </StackPanel>
       <DockPanel>
         <TextBlock x:Name="StatusText"

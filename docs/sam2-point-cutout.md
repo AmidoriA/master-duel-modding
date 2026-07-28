@@ -56,8 +56,10 @@ In **Custom overframe art**:
    the editor with two modes:
    - **Paint** — brush size, clear paint, left-drag amber strokes / right-drag erase.
      A circle cursor tracks brush diameter. Apply runs SAM 2 on the painted region.
-   - **Click object** — click a point; SAM 2 runs async and shows a **cyan** preview
-     mask in-editor. Click again replaces the preview. Apply uses that pending mask.
+   - **Click object** — cyan working selection starts from any prior-session subject.
+     **Left-click** runs point-prompt SAM and **unions** into the working set;
+     **right-click** runs SAM and **subtracts** that region (including prior subject).
+     Apply **replaces** the Card Art subject with the working mask.
 4. If a Card Art subject already exists, it is shown as a **green** highlight under
    pending overlays.
 5. Apply installs or **unions** the SAM mask onto Card Art (same as before).

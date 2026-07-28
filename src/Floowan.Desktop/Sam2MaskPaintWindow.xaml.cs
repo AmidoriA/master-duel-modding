@@ -17,7 +17,10 @@ public enum Sam2EditorResultKind
     /// <summary>Amber paint mask — parent runs SAM on the painted region.</summary>
     PaintPrompt,
 
-    /// <summary>Pending cyan SAM mask from Click object mode — parent unions as-is.</summary>
+    /// <summary>
+    /// Click-mode working selection mask — parent <b>replaces</b> the subject mask
+    /// (already includes prior-session subject plus add/remove edits).
+    /// </summary>
     ClickSamMask
 }
 
@@ -25,9 +28,9 @@ public enum Sam2EditorResultKind
 /// SAM selection editor over card art.
 /// <list type="bullet">
 /// <item><b>Paint</b> — left-drag paint / right-drag erase; Apply returns a paint prompt mask.</item>
-/// <item><b>Click object</b> — click runs point-prompt SAM async and shows a cyan preview; Apply returns that mask.</item>
+/// <item><b>Click object</b> — working selection starts from existing subject; left-click unions
+/// SAM, right-click subtracts SAM; Apply returns the working mask.</item>
 /// </list>
-/// Optional green overlay shows an already-added Card Art subject.
 /// </summary>
 public partial class Sam2MaskPaintWindow : Window
 {
@@ -38,13 +41,15 @@ public partial class Sam2MaskPaintWindow : Window
     private readonly WriteableBitmap _overlayBitmap;
     private readonly byte[] _overlayPixels;
     private readonly int _overlayStride;
+    /// <summary>Snapshot of subject when the editor opened (may be null).</summary>
+    private readonly Image<L8>? _baselineExistingMask;
+    private readonly bool _hadExistingSubject;
+    private Image<L8> _workingClickMask;
     private bool _painting;
     private bool _erasing;
     private bool _clickBusy;
     private int _brushRadius = 14;
     private double _displayScale = 1;
-    private Image<L8>? _pendingClickMask;
-    private Image<Rgba32>? _pendingClickSource;
     private int _clickGeneration;
 
     public Sam2EditorResultKind ResultKind { get; private set; } = Sam2EditorResultKind.PaintPrompt;
@@ -52,10 +57,10 @@ public partial class Sam2MaskPaintWindow : Window
     /// <summary>Paint-mode prompt mask (caller disposes). Null unless Apply in Paint mode.</summary>
     public Image<L8>? ResultPaintMask { get; private set; }
 
-    /// <summary>Click-mode SAM mask (caller disposes). Null unless Apply in Click mode.</summary>
+    /// <summary>Click-mode working SAM mask (caller disposes). Null unless Apply in Click mode.</summary>
     public Image<L8>? ResultSamMask { get; private set; }
 
-    /// <summary>Click-mode cleaned RGB source matching <see cref="ResultSamMask"/> (caller disposes).</summary>
+    /// <summary>Cleaned RGB source matching <see cref="ResultSamMask"/> (caller disposes).</summary>
     public Image<Rgba32>? ResultSamSource { get; private set; }
 
     private bool IsClickMode => ClickModeRadio.IsChecked == true;
@@ -85,9 +90,26 @@ public partial class Sam2MaskPaintWindow : Window
             null);
         _overlayStride = _art.Width * 4;
         _overlayPixels = new byte[_overlayStride * _art.Height];
+
+        if (existingSubjectMask is not null
+            && existingSubjectMask.Width == _art.Width
+            && existingSubjectMask.Height == _art.Height)
+        {
+            _baselineExistingMask = existingSubjectMask.Clone();
+            _workingClickMask = existingSubjectMask.Clone();
+            _hadExistingSubject = true;
+        }
+        else
+        {
+            _baselineExistingMask = null;
+            _workingClickMask = new Image<L8>(_art.Width, _art.Height);
+            _hadExistingSubject = false;
+        }
+
         ArtImage.Source = ToBitmap(_art);
         MaskOverlay.Source = _overlayBitmap;
-        ApplyExistingSubjectHighlight(existingSubjectMask);
+        ApplyExistingSubjectHighlight(_baselineExistingMask);
+        RefreshWorkingClickOverlay();
         UpdateBrushLabel();
         SyncModeUi();
         SizeChanged += (_, _) => UpdateDisplayScale();
@@ -132,18 +154,15 @@ public partial class Sam2MaskPaintWindow : Window
     {
         if (!ReferenceEquals(ResultPaintMask, _paintMask))
             _paintMask.Dispose();
-        if (!ReferenceEquals(ResultSamMask, _pendingClickMask))
-            _pendingClickMask?.Dispose();
-        if (!ReferenceEquals(ResultSamSource, _pendingClickSource))
-            _pendingClickSource?.Dispose();
+        if (!ReferenceEquals(ResultSamMask, _workingClickMask))
+            _workingClickMask.Dispose();
+        _baselineExistingMask?.Dispose();
         _art.Dispose();
     }
 
     private void ApplyExistingSubjectHighlight(Image<L8>? existingSubjectMask)
     {
-        if (existingSubjectMask is null
-            || existingSubjectMask.Width != _art.Width
-            || existingSubjectMask.Height != _art.Height)
+        if (existingSubjectMask is null)
         {
             ExistingSubjectOverlay.Visibility = Visibility.Collapsed;
             ExistingSubjectOverlay.Source = null;
@@ -157,6 +176,24 @@ public partial class Sam2MaskPaintWindow : Window
             r: 40,
             a: 150);
         ExistingSubjectOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void RefreshWorkingClickOverlay()
+    {
+        if (CountOpaque(_workingClickMask) == 0)
+        {
+            ClickPreviewOverlay.Source = null;
+            ClickPreviewOverlay.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        ClickPreviewOverlay.Source = ToMaskHighlightBitmap(
+            _workingClickMask,
+            b: 230,
+            g: 200,
+            r: 40,
+            a: 170);
+        ClickPreviewOverlay.Visibility = Visibility.Visible;
     }
 
     private void ModeRadio_Checked(object sender, RoutedEventArgs e)
@@ -178,19 +215,21 @@ public partial class Sam2MaskPaintWindow : Window
 
         if (click)
         {
+            // Working cyan overlay covers prior + edits; hide static green to avoid double-tint.
+            ExistingSubjectOverlay.Visibility = Visibility.Collapsed;
             HelpText.Text =
-                "Click an object for a cyan SAM preview. Green = already in Card Art. Apply adds the preview (union).";
-            StatusText.Text = _pendingClickMask is null
-                ? "Click object mode: click the subject to preview SAM 2."
-                : "Cyan = pending SAM selection. Click again to replace, or Apply.";
-            ClickPreviewOverlay.Visibility =
-                _pendingClickMask is null ? Visibility.Collapsed : Visibility.Visible;
+                "Cyan = working selection (starts from prior subject). Left-click adds, right-click removes. Apply writes it back.";
+            StatusText.Text = CountOpaque(_workingClickMask) == 0
+                ? "Click object: left-click to add, right-click to remove."
+                : "Left-click adds to selection, right-click removes (incl. prior session), then Apply.";
+            RefreshWorkingClickOverlay();
         }
         else
         {
+            ApplyExistingSubjectHighlight(_baselineExistingMask);
             HelpText.Text =
                 "Paint (left-drag) or erase (right-drag). Green = already in Card Art; amber = new paint. Esc cancels.";
-            StatusText.Text = ExistingSubjectOverlay.Visibility == Visibility.Visible
+            StatusText.Text = _hadExistingSubject
                 ? "Green = already added. Left-drag paints, right-drag erases, then Apply."
                 : "Left-drag paints, right-drag erases. Apply when ready.";
             ClickPreviewOverlay.Visibility = Visibility.Collapsed;
@@ -265,26 +304,27 @@ public partial class Sam2MaskPaintWindow : Window
 
         Array.Clear(_overlayPixels);
         FlushPaintOverlay();
-        StatusText.Text = ExistingSubjectOverlay.Visibility == Visibility.Visible
+        StatusText.Text = _hadExistingSubject
             ? "Paint cleared (green already-added kept). Left-drag paints, right-drag erases."
             : "Paint cleared. Left-drag paints, right-drag erases, then Apply.";
     }
 
     private void ClearClickPreview_Click(object sender, RoutedEventArgs e)
     {
-        ClearPendingClickPreview();
-        StatusText.Text = "Preview cleared. Click an object to run SAM 2 again.";
+        _clickGeneration++;
+        ResetWorkingClickMaskToBaseline();
+        RefreshWorkingClickOverlay();
+        StatusText.Text = _hadExistingSubject
+            ? "Selection reset to prior-session subject. Left-click adds, right-click removes."
+            : "Selection cleared. Left-click adds, right-click removes.";
     }
 
-    private void ClearPendingClickPreview()
+    private void ResetWorkingClickMaskToBaseline()
     {
-        _clickGeneration++;
-        _pendingClickMask?.Dispose();
-        _pendingClickSource?.Dispose();
-        _pendingClickMask = null;
-        _pendingClickSource = null;
-        ClickPreviewOverlay.Source = null;
-        ClickPreviewOverlay.Visibility = Visibility.Collapsed;
+        _workingClickMask.Dispose();
+        _workingClickMask = _baselineExistingMask is not null
+            ? _baselineExistingMask.Clone()
+            : new Image<L8>(_art.Width, _art.Height);
     }
 
     private void Apply_Click(object sender, RoutedEventArgs e)
@@ -297,12 +337,13 @@ public partial class Sam2MaskPaintWindow : Window
 
         if (IsClickMode)
         {
-            if (_pendingClickMask is null || _pendingClickSource is null)
+            // Allow Apply even when empty if we started with a subject (user removed everything).
+            if (CountOpaque(_workingClickMask) == 0 && !_hadExistingSubject)
             {
-                StatusText.Text = "Click an object first to preview SAM 2.";
+                StatusText.Text = "Left-click an object to add to the selection first.";
                 MessageBox.Show(
                     this,
-                    "Click an object on the art to preview a SAM 2 selection, then Apply.",
+                    "Left-click an object to add it to the working selection, then Apply.",
                     Title,
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
@@ -310,10 +351,10 @@ public partial class Sam2MaskPaintWindow : Window
             }
 
             ResultKind = Sam2EditorResultKind.ClickSamMask;
-            ResultSamMask = _pendingClickMask;
-            ResultSamSource = _pendingClickSource;
-            _pendingClickMask = null;
-            _pendingClickSource = null;
+            ResultSamMask = _workingClickMask;
+            ResultSamSource = _art.Clone();
+            // Ownership of working mask transferred; leave a stub so Cleanup is safe.
+            _workingClickMask = new Image<L8>(_art.Width, _art.Height);
             DialogResult = true;
             Close();
             return;
@@ -368,7 +409,7 @@ public partial class Sam2MaskPaintWindow : Window
         if (IsClickMode)
         {
             e.Handled = true;
-            await RunClickSamAtAsync(e.GetPosition(PaintHost));
+            await RunClickSamAtAsync(e.GetPosition(PaintHost), subtract: false);
             return;
         }
 
@@ -384,9 +425,19 @@ public partial class Sam2MaskPaintWindow : Window
         e.Handled = true;
     }
 
-    private void PaintHost_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    private async void PaintHost_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (IsClickMode || _painting || _clickBusy)
+        if (_clickBusy)
+            return;
+
+        if (IsClickMode)
+        {
+            e.Handled = true;
+            await RunClickSamAtAsync(e.GetPosition(PaintHost), subtract: true);
+            return;
+        }
+
+        if (_painting)
             return;
 
         UpdateBrushCursorPosition(e.GetPosition(PaintHost));
@@ -449,12 +500,12 @@ public partial class Sam2MaskPaintWindow : Window
         _erasing = false;
         if (PaintHost.IsMouseCaptured)
             PaintHost.ReleaseMouseCapture();
-        StatusText.Text = ExistingSubjectOverlay.Visibility == Visibility.Visible
+        StatusText.Text = _hadExistingSubject
             ? "Paint more (left) or erase (right), then Apply. Green = already added."
             : "Paint more (left) or erase (right), then Apply.";
     }
 
-    private async Task RunClickSamAtAsync(System.Windows.Point hostPos)
+    private async Task RunClickSamAtAsync(System.Windows.Point hostPos, bool subtract)
     {
         if (!Sam2PointCutoutService.TryMapPreviewClickToImage(
                 hostPos.X,
@@ -477,7 +528,8 @@ public partial class Sam2MaskPaintWindow : Window
         PaintModeRadio.IsEnabled = false;
         ClickModeRadio.IsEnabled = false;
         Cursor = Cursors.Wait;
-        StatusText.Text = $"SAM 2: segmenting at ({imageX:0},{imageY:0})…";
+        var verb = subtract ? "removing" : "adding";
+        StatusText.Text = $"SAM 2: {verb} at ({imageX:0},{imageY:0})…";
 
         try
         {
@@ -503,19 +555,21 @@ public partial class Sam2MaskPaintWindow : Window
                 return;
             }
 
-            _pendingClickMask?.Dispose();
-            _pendingClickSource?.Dispose();
-            _pendingClickMask = prepared.Mask;
-            _pendingClickSource = prepared.Source;
-            ClickPreviewOverlay.Source = ToMaskHighlightBitmap(
-                _pendingClickMask,
-                b: 230,
-                g: 200,
-                r: 40,
-                a: 170);
-            ClickPreviewOverlay.Visibility = Visibility.Visible;
-            StatusText.Text =
-                $"Cyan = SAM preview at ({imageX:0},{imageY:0}). Apply to add, or click again to replace.";
+            Image<L8> next;
+            if (subtract)
+                next = Sam2PointCutoutService.SubtractMasks(_workingClickMask, prepared.Mask);
+            else
+                next = Sam2PointCutoutService.UnionMasks(_workingClickMask, prepared.Mask);
+
+            prepared.Mask.Dispose();
+            prepared.Source.Dispose();
+            _workingClickMask.Dispose();
+            _workingClickMask = next;
+            RefreshWorkingClickOverlay();
+
+            StatusText.Text = subtract
+                ? $"Removed SAM region at ({imageX:0},{imageY:0}). Left-click adds, right-click removes, or Apply."
+                : $"Added SAM region at ({imageX:0},{imageY:0}). Left-click adds, right-click removes, or Apply.";
         }
         catch (Exception ex)
         {
@@ -599,7 +653,6 @@ public partial class Sam2MaskPaintWindow : Window
                 else
                 {
                     maskRow[x] = new L8(255);
-                    // Amber/yellow paint — distinct from green existing + cyan click preview.
                     _overlayPixels[i] = 40;
                     _overlayPixels[i + 1] = 190;
                     _overlayPixels[i + 2] = 255;
@@ -616,6 +669,23 @@ public partial class Sam2MaskPaintWindow : Window
             _overlayPixels,
             _overlayStride,
             0);
+    }
+
+    private static int CountOpaque(Image<L8> mask)
+    {
+        var keep = 0;
+        var threshold = OverFrameAutoArtComposer.MaskKeepThreshold;
+        for (var y = 0; y < mask.Height; y++)
+        {
+            var row = mask.DangerousGetPixelRowMemory(y).Span;
+            for (var x = 0; x < row.Length; x++)
+            {
+                if (row[x].PackedValue >= threshold)
+                    keep++;
+            }
+        }
+
+        return keep;
     }
 
     private static BitmapSource ToMaskHighlightBitmap(Image<L8> mask, byte b, byte g, byte r, byte a)

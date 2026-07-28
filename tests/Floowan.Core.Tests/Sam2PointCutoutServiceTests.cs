@@ -121,6 +121,24 @@ public class Sam2PointCutoutServiceTests
     }
 
     [Fact]
+    public void SubtractMasks_ClearsOpaqueRemovalPixels()
+    {
+        using var existing = new Image<L8>(3, 1);
+        using var removal = new Image<L8>(3, 1);
+        existing[0, 0] = new L8(200);
+        existing[1, 0] = new L8(200);
+        existing[2, 0] = new L8(200);
+        removal[1, 0] = new L8(255);
+        removal[2, 0] = new L8(10); // below keep threshold — keep existing
+
+        using var result = Sam2PointCutoutService.SubtractMasks(existing, removal);
+
+        Assert.Equal(200, result[0, 0].PackedValue);
+        Assert.Equal(0, result[1, 0].PackedValue);
+        Assert.Equal(200, result[2, 0].PackedValue);
+    }
+
+    [Fact]
     public void BundleConstants_MatchDocumentedTinyPackage()
     {
         Assert.Equal("sam2_hiera_tiny.encoder.onnx", Sam2PointCutoutService.EncoderFileName);

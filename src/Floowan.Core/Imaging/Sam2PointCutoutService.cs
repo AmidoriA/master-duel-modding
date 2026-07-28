@@ -297,6 +297,34 @@ public sealed class Sam2PointCutoutService : IDisposable
     }
 
     /// <summary>
+    /// Clears pixels in <paramref name="existing"/> wherever <paramref name="removal"/> is
+    /// opaque (at/above <see cref="OverFrameAutoArtComposer.MaskKeepThreshold"/>).
+    /// Used by Click-mode right-click remove.
+    /// </summary>
+    public static Image<L8> SubtractMasks(Image<L8> existing, Image<L8> removal)
+    {
+        ArgumentNullException.ThrowIfNull(existing);
+        ArgumentNullException.ThrowIfNull(removal);
+        if (existing.Width != removal.Width || existing.Height != removal.Height)
+            throw new ArgumentException("Mask dimensions must match for subtract.");
+
+        var threshold = OverFrameAutoArtComposer.MaskKeepThreshold;
+        var result = existing.Clone();
+        for (var y = 0; y < result.Height; y++)
+        {
+            var dst = result.DangerousGetPixelRowMemory(y).Span;
+            var rem = removal.DangerousGetPixelRowMemory(y).Span;
+            for (var x = 0; x < dst.Length; x++)
+            {
+                if (rem[x].PackedValue >= threshold)
+                    dst[x] = new L8(0);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// Applies <paramref name="mask"/> as alpha onto a clone of <paramref name="source"/>.
     /// </summary>
     public static Image<Rgba32> ApplyMaskAsAlpha(Image<Rgba32> source, Image<L8> mask)

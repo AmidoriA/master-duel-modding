@@ -787,44 +787,88 @@ public partial class CustomOverframeWindow : Window
             }
 
             SetBusy(true);
-            var unioned = false;
-            if (_subjectSource is not null
-                && _subjectMask is not null
-                && _subjectSource.Width == preparedSource.Width
-                && _subjectSource.Height == preparedSource.Height
-                && _subjectMask.Width == preparedMask.Width
-                && _subjectMask.Height == preparedMask.Height)
+            if (paintWindow.ResultKind == Sam2EditorResultKind.ClickSamMask)
             {
-                var merged = Sam2PointCutoutService.UnionMasks(_subjectMask, preparedMask);
-                preparedMask.Dispose();
-                preparedSource.Dispose();
-                _subjectMask.Dispose();
-                _subjectMask = merged;
-                // Keep existing RGB source; only grow the alpha subject.
-                unioned = true;
+                // Working selection already includes prior subject ± add/remove — replace mask.
+                if (_subjectSource is not null
+                    && _subjectMask is not null
+                    && _subjectSource.Width == preparedSource.Width
+                    && _subjectSource.Height == preparedSource.Height
+                    && _subjectMask.Width == preparedMask.Width
+                    && _subjectMask.Height == preparedMask.Height)
+                {
+                    _subjectMask.Dispose();
+                    _subjectMask = preparedMask;
+                    preparedSource.Dispose();
+                }
+                else
+                {
+                    if (_subjectSource is not null || _subjectMask is not null)
+                        ResetSubjectPlacement();
+
+                    _subjectSource = preparedSource;
+                    _subjectMask = preparedMask;
+                    _subjectIsFromCardArt = true;
+                }
+
+                // Empty working selection after removals → clear subject.
+                if (!MaskHasOpaquePixels(_subjectMask))
+                {
+                    ResetSubjectPlacement();
+                    if (_backgroundSource is not null)
+                        await ShowBackgroundOnlyPreviewAsync();
+                    StatusText.Text = "SAM 2 click selection cleared the subject.";
+                    ApplyButton.IsEnabled = false;
+                    return;
+                }
+
+                var matchedClick = TryApplyAutoMatchBackgroundTransforms();
+                await RecomposePreviewAsync();
+                StatusText.Text = matchedClick
+                    ? $"Subject from SAM 2 click selection; background matched ×{_backgroundScale:0.00}. Drag or Apply."
+                    : "Subject from SAM 2 click selection. Drag or scale the art, then Apply.";
+                PreviewHintText.Visibility = Visibility.Collapsed;
+                ApplyButton.IsEnabled = true;
             }
             else
             {
-                if (_subjectSource is not null || _subjectMask is not null)
-                    ResetSubjectPlacement();
+                var unioned = false;
+                if (_subjectSource is not null
+                    && _subjectMask is not null
+                    && _subjectSource.Width == preparedSource.Width
+                    && _subjectSource.Height == preparedSource.Height
+                    && _subjectMask.Width == preparedMask.Width
+                    && _subjectMask.Height == preparedMask.Height)
+                {
+                    var merged = Sam2PointCutoutService.UnionMasks(_subjectMask, preparedMask);
+                    preparedMask.Dispose();
+                    preparedSource.Dispose();
+                    _subjectMask.Dispose();
+                    _subjectMask = merged;
+                    unioned = true;
+                }
+                else
+                {
+                    if (_subjectSource is not null || _subjectMask is not null)
+                        ResetSubjectPlacement();
 
-                _subjectSource = preparedSource;
-                _subjectMask = preparedMask;
-                // SAM ran on live card art — same BG auto-match path as rembg.
-                _subjectIsFromCardArt = true;
+                    _subjectSource = preparedSource;
+                    _subjectMask = preparedMask;
+                    _subjectIsFromCardArt = true;
+                }
+
+                var matched = TryApplyAutoMatchBackgroundTransforms();
+                await RecomposePreviewAsync();
+                StatusText.Text = unioned
+                    ? (matched
+                        ? $"Added SAM 2 {modeNote} selection; background matched ×{_backgroundScale:0.00}. Drag or Apply."
+                        : $"Added SAM 2 {modeNote} selection to existing subject. Drag or scale the art, then Apply.")
+                    : (matched
+                        ? $"Subject from SAM 2 {modeNote}; background matched ×{_backgroundScale:0.00}. Drag or Apply."
+                        : $"Subject from SAM 2 {modeNote} selection. Drag or scale the art, then Apply.");
+                PreviewHintText.Visibility = Visibility.Collapsed;
+                ApplyButton.IsEnabled = true;
             }
-
-            var matched = TryApplyAutoMatchBackgroundTransforms();
-            await RecomposePreviewAsync();
-            StatusText.Text = unioned
-                ? (matched
-                    ? $"Added SAM 2 {modeNote} selection; background matched ×{_backgroundScale:0.00}. Drag or Apply."
-                    : $"Added SAM 2 {modeNote} selection to existing subject. Drag or scale the art, then Apply.")
-                : (matched
-                    ? $"Subject from SAM 2 {modeNote}; background matched ×{_backgroundScale:0.00}. Drag or Apply."
-                    : $"Subject from SAM 2 {modeNote} selection. Drag or scale the art, then Apply.");
-            PreviewHintText.Visibility = Visibility.Collapsed;
-            ApplyButton.IsEnabled = true;
         }
         catch (Exception ex)
         {
@@ -856,6 +900,21 @@ public partial class CustomOverframeWindow : Window
 
             SetBusy(false);
         }
+    }
+
+    private static bool MaskHasOpaquePixels(Image<L8> mask)
+    {
+        var threshold = OverFrameAutoArtComposer.MaskKeepThreshold;
+        for (var y = 0; y < mask.Height; y++)
+        {
+            for (var x = 0; x < mask.Width; x++)
+            {
+                if (mask[x, y].PackedValue >= threshold)
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private async Task PickSubjectImageAsync()
