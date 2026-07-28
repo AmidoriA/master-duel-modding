@@ -237,6 +237,14 @@
                   <ComboBoxItem Content="Pendulum Ritual" Tag="PendulumRitual"/>
                   <ComboBoxItem Content="Pendulum Token" Tag="PendulumToken"/>
                 </ComboBox>
+                <TextBlock x:Name="OfActionStatusText"
+                           VerticalAlignment="Center"
+                           Margin="12,0,0,0"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           Foreground="{StaticResource AccentBrush}"
+                           TextWrapping="Wrap"
+                           MaxWidth="360"/>
               </StackPanel>
               <Grid>
                 <Grid.RowDefinitions>
