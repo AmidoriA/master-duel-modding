@@ -14,6 +14,10 @@ Repository: [AmidoriA/master-duel-modding](https://github.com/AmidoriA/master-du
 - Apply over-frame mods (704×1024), including auto-create with local background removal
 - Tools to refresh the catalog from a local install and restore over-frames after a game patch
 
+## Tutorial
+
+Watch the walkthrough: [https://youtu.be/jXaKaVDhXdg](https://youtu.be/jXaKaVDhXdg)
+
 ## Requirements
 
 - Windows
