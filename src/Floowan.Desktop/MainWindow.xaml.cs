@@ -2501,48 +2501,4 @@ public partial class MainWindow : Window
         return false;
     }
 
-    private void DbDiscard_Click(object sender, RoutedEventArgs e)
-    {
-        if (_dbSelected is null)
-        {
-            ClearDatabaseEditForm();
-            return;
-        }
-
-        LoadDatabaseEditForm(_dbSelected);
-        Status("Discarded Database edit changes.");
-    }
-
-    private void DbSave_Click(object sender, RoutedEventArgs e)
-    {
-        if (_database is null)
-        {
-            Status("Open database.db first.");
-            return;
-        }
-
-        if (_dbSelected is null || !int.TryParse(DbEditIdBox.Text, out var id))
-        {
-            Status("Select a Database row to edit.");
-            return;
-        }
-
-        try
-        {
-            _database.UpdateCard(
-                id,
-                DbEditNameBox.Text ?? "",
-                DbEditDescBox.Text ?? "",
-                NullIfBlank(DbEditModdedNameBox.Text),
-                NullIfBlank(DbEditModdedDescBox.Text),
-                DbEditFavoriteBox.IsChecked == true);
-
-            RunDatabaseQuery(resetOffset: false);
-            Status($"Saved card id {id}.");
-        }
-        catch (Exception ex)
-        {
-            Status("Database save error: " + ex.Message);
-        }
-    }
 }
