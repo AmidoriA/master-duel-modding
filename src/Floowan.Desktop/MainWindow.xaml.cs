@@ -467,6 +467,9 @@ public partial class MainWindow : Window
         _selected = CardList.SelectedItem as CardRecord;
         _replacementImagePath = null;
         ReplacementImage.Source = null;
+        CurrentArtImage.Opacity = 1.0;
+        ReplacementImage.Opacity = 0.0;
+        ReplacementImage.IsHitTestVisible = false;
         ImagePathText.Text = "";
         DetailText.Text = "";
 
@@ -506,6 +509,16 @@ public partial class MainWindow : Window
         }
     }
 
+    private void CardPreviewImage_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not Image image || image.Source is null || image.Opacity < 0.05)
+            return;
+
+        e.Handled = true;
+        var zoom = new CardPreviewZoomWindow(image.Source) { Owner = this };
+        zoom.ShowDialog();
+    }
+
     private void SelectImage_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFileDialog
@@ -528,6 +541,7 @@ public partial class MainWindow : Window
             Status($"Pendulum-sized art selected ({sizeLabel}). Target texture size is used on replace.");
         ReplacementImage.Source = LoadBitmap(dlg.FileName);
         ReplacementImage.Opacity = 1.0;
+        ReplacementImage.IsHitTestVisible = true;
         CurrentArtImage.Opacity = 0.35;
     }
 
@@ -627,6 +641,7 @@ public partial class MainWindow : Window
             {
                 CurrentArtImage.Opacity = 1.0;
                 ReplacementImage.Opacity = 0.0;
+                ReplacementImage.IsHitTestVisible = false;
                 _thumbnailCache.Invalidate(card);
                 LoadCurrentPreview();
             }
@@ -1511,21 +1526,27 @@ public partial class MainWindow : Window
             OfCurrentPreviewCol.Width = new GridLength(1, GridUnitType.Star);
             OfReplacementPreviewCol.Width = new GridLength(1, GridUnitType.Star);
             OfCurrentArtImage.Opacity = 1.0;
+            OfCurrentArtImage.IsHitTestVisible = true;
             OfReplacementImage.Opacity = 1.0;
+            OfReplacementImage.IsHitTestVisible = true;
         }
         else if (hasReplacement)
         {
             OfCurrentPreviewCol.Width = new GridLength(0);
             OfReplacementPreviewCol.Width = new GridLength(1, GridUnitType.Star);
             OfCurrentArtImage.Opacity = 0.0;
+            OfCurrentArtImage.IsHitTestVisible = false;
             OfReplacementImage.Opacity = 1.0;
+            OfReplacementImage.IsHitTestVisible = true;
         }
         else
         {
             OfCurrentPreviewCol.Width = new GridLength(1, GridUnitType.Star);
             OfReplacementPreviewCol.Width = new GridLength(0);
             OfCurrentArtImage.Opacity = 1.0;
+            OfCurrentArtImage.IsHitTestVisible = true;
             OfReplacementImage.Opacity = 0.0;
+            OfReplacementImage.IsHitTestVisible = false;
         }
     }
 
