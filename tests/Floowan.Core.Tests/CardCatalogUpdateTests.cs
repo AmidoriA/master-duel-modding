@@ -420,6 +420,20 @@ CREATE TABLE card (
     }
 
     [Fact]
+    public void CardCatalogExtractor_IllustrationSizeWindow_IncludesLargeIllustBundles()
+    {
+        // Regression: Fabled Lurrie's LocalData illust (bundle 2caa5d54) is ~4.61 MiB.
+        // A 3 MiB upper bound skipped it, so art id 8092 never entered the catalog and
+        // search for "Fabled Lurrie" returned nothing after Update entire DB.
+        const long fabledLurrieBundleBytes = 4_838_312;
+        Assert.True(CardCatalogExtractor.IsIllustrationSizeCandidate(fabledLurrieBundleBytes));
+        Assert.True(CardCatalogExtractor.IsIllustrationSizeCandidate(3 * 1024 * 1024));
+        Assert.True(CardCatalogExtractor.IsIllustrationSizeCandidate(8 * 1024 * 1024));
+        Assert.False(CardCatalogExtractor.IsIllustrationSizeCandidate(8 * 1024 * 1024 + 1));
+        Assert.False(CardCatalogExtractor.IsIllustrationSizeCandidate(15 * 1024));
+    }
+
+    [Fact]
     public void CardCatalogExtractor_SkipsCorruptOrNonBundleFiles_WithoutThrowing()
     {
         // Minimal install layout so IsValidGamePath passes; junk under 0000 is not a Unity bundle.
