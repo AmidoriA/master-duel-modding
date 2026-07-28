@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="SAM 2 — add selection"
-        Height="740" Width="660"
-        MinHeight="540" MinWidth="500"
+        Height="740" Width="680"
+        MinHeight="540" MinWidth="520"
         Background="{StaticResource BgBrush}"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
@@ -11,7 +11,7 @@
   <DockPanel Margin="14">
     <TextBlock x:Name="HelpText"
                DockPanel.Dock="Top"
-               Text="Cyan = working selection. Paint: amber prompt → SAM on release → union. Click: left-add / right-remove."
+               Text="Cyan = working selection. Modes: Click (default) · Lasso · Paint. Undo restores prior selection."
                Foreground="{StaticResource MutedBrush}"
                TextWrapping="Wrap"
                Margin="0,0,0,10"/>
@@ -23,60 +23,73 @@
                    Foreground="{StaticResource MutedBrush}"
                    Width="48"
                    Margin="0,0,8,0"/>
-        <RadioButton x:Name="PaintModeRadio"
+        <RadioButton x:Name="ClickModeRadio"
                      GroupName="SamEditorMode"
-                     Content="Paint"
+                     Content="Click object"
                      IsChecked="True"
                      VerticalAlignment="Center"
                      Margin="0,0,12,0"
                      Checked="ModeRadio_Checked"
-                     ToolTip="Left-drag paints, right-drag erases amber. On release, SAM 2 runs and unions into the cyan working selection."/>
-        <RadioButton x:Name="ClickModeRadio"
+                     ToolTip="Left-click adds a SAM object; right-click removes one (including prior-session subject)."/>
+        <RadioButton x:Name="LassoModeRadio"
                      GroupName="SamEditorMode"
-                     Content="Click object"
+                     Content="Lasso"
+                     VerticalAlignment="Center"
+                     Margin="0,0,12,0"
+                     Checked="ModeRadio_Checked"
+                     ToolTip="Draw a freehand lasso. On release, fill the polygon, run SAM 2, and union into the cyan selection."/>
+        <RadioButton x:Name="PaintModeRadio"
+                     GroupName="SamEditorMode"
+                     Content="Paint"
                      VerticalAlignment="Center"
                      Checked="ModeRadio_Checked"
-                     ToolTip="Left-click adds a SAM object to the working selection; right-click removes one (including prior-session subject)."/>
+                     ToolTip="Left-drag paints, right-drag erases amber. On release, SAM 2 runs and unions into the cyan working selection."/>
       </StackPanel>
-      <StackPanel x:Name="PaintToolsPanel" Orientation="Horizontal" Margin="0,0,0,8">
-        <TextBlock Text="Brush"
-                   VerticalAlignment="Center"
-                   Foreground="{StaticResource MutedBrush}"
-                   Width="48"
-                   Margin="0,0,8,0"/>
-        <Slider x:Name="BrushSizeSlider"
-                Width="180"
-                Minimum="4"
-                Maximum="96"
-                Value="28"
-                TickFrequency="1"
-                IsSnapToTickEnabled="True"
-                VerticalAlignment="Center"
-                ValueChanged="BrushSizeSlider_ValueChanged"
-                ToolTip="Brush diameter in image pixels."/>
-        <TextBlock x:Name="BrushSizeValueText"
-                   Text="28 px"
-                   Width="56"
-                   VerticalAlignment="Center"
-                   Margin="8,0,0,0"
-                   Foreground="{StaticResource TextBrush}"/>
-        <Button x:Name="ClearMaskButton"
-                Content="Clear paint"
-                Click="ClearMask_Click"
-                Margin="16,0,0,0"
-                ToolTip="Clear the amber paint prompt only (keeps the cyan working selection)."/>
-      </StackPanel>
-      <StackPanel x:Name="ClickToolsPanel" Orientation="Horizontal" Margin="0,0,0,8" Visibility="Collapsed">
-        <Button x:Name="ClearClickPreviewButton"
+      <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+        <Button x:Name="UndoButton"
+                Content="Undo"
+                Click="Undo_Click"
+                IsEnabled="False"
+                Margin="0,0,8,0"
+                ToolTip="Undo the last selection change (Ctrl+Z). Up to 20 steps."/>
+        <Button x:Name="ResetSelectionButton"
                 Content="Reset selection"
                 Click="ClearClickPreview_Click"
-                HorizontalAlignment="Left"
+                Margin="0,0,8,0"
                 ToolTip="Reset the cyan working selection to the prior-session subject (or empty)."/>
+        <StackPanel x:Name="PaintToolsPanel" Orientation="Horizontal" Visibility="Collapsed">
+          <TextBlock Text="Brush"
+                     VerticalAlignment="Center"
+                     Foreground="{StaticResource MutedBrush}"
+                     Width="48"
+                     Margin="0,0,8,0"/>
+          <Slider x:Name="BrushSizeSlider"
+                  Width="160"
+                  Minimum="4"
+                  Maximum="96"
+                  Value="28"
+                  TickFrequency="1"
+                  IsSnapToTickEnabled="True"
+                  VerticalAlignment="Center"
+                  ValueChanged="BrushSizeSlider_ValueChanged"
+                  ToolTip="Brush diameter in image pixels."/>
+          <TextBlock x:Name="BrushSizeValueText"
+                     Text="28 px"
+                     Width="56"
+                     VerticalAlignment="Center"
+                     Margin="8,0,0,0"
+                     Foreground="{StaticResource TextBrush}"/>
+          <Button x:Name="ClearMaskButton"
+                  Content="Clear paint"
+                  Click="ClearMask_Click"
+                  Margin="12,0,0,0"
+                  ToolTip="Clear the amber paint prompt only (keeps the cyan working selection)."/>
+        </StackPanel>
       </StackPanel>
       <DockPanel>
         <TextBlock x:Name="StatusText"
                    DockPanel.Dock="Left"
-                   Text="Left-drag paints, right-drag erases. Apply when ready."
+                   Text="Click object: left-click to add, right-click to remove."
                    Foreground="{StaticResource MutedBrush}"
                    TextWrapping="Wrap"
                    VerticalAlignment="Center"
@@ -87,7 +100,7 @@
                   Click="Apply_Click"
                   Background="{StaticResource AccentBrush}"
                   Margin="0,0,8,0"
-                  ToolTip="Add the selection to Card Art (union if a subject already exists)."/>
+                  ToolTip="Write the cyan working selection back to Card Art."/>
           <Button Content="Cancel" IsCancel="True" Click="Cancel_Click"/>
         </StackPanel>
       </DockPanel>
@@ -101,7 +114,7 @@
             ClipToBounds="True">
       <Grid x:Name="PaintHost"
             Background="Transparent"
-            Cursor="None"
+            Cursor="Cross"
             MouseLeftButtonDown="PaintHost_MouseLeftButtonDown"
             MouseRightButtonDown="PaintHost_MouseRightButtonDown"
             MouseMove="PaintHost_MouseMove"
@@ -116,7 +129,6 @@
                VerticalAlignment="Center"
                IsHitTestVisible="False"
                RenderOptions.BitmapScalingMode="HighQuality"/>
-        <!-- Already-added subject (green), under pending overlays. -->
         <Image x:Name="ExistingSubjectOverlay"
                Stretch="Uniform"
                HorizontalAlignment="Center"
@@ -125,7 +137,6 @@
                Visibility="Collapsed"
                Opacity="0.55"
                RenderOptions.BitmapScalingMode="NearestNeighbor"/>
-        <!-- Paint strokes (amber) or unused in Click mode. -->
         <Image x:Name="MaskOverlay"
                Stretch="Uniform"
                HorizontalAlignment="Center"
@@ -133,7 +144,6 @@
                IsHitTestVisible="False"
                Opacity="0.55"
                RenderOptions.BitmapScalingMode="NearestNeighbor"/>
-        <!-- Click-mode pending SAM mask (cyan). -->
         <Image x:Name="ClickPreviewOverlay"
                Stretch="Uniform"
                HorizontalAlignment="Center"
@@ -142,7 +152,12 @@
                Visibility="Collapsed"
                Opacity="0.55"
                RenderOptions.BitmapScalingMode="NearestNeighbor"/>
-        <!-- Brush-size circle cursor (Paint mode). -->
+        <Polyline x:Name="LassoPolyline"
+                  Stroke="#FFC84A"
+                  StrokeThickness="2"
+                  StrokeLineJoin="Round"
+                  IsHitTestVisible="False"
+                  Visibility="Collapsed"/>
         <Ellipse x:Name="BrushCursor"
                  Width="28"
                  Height="28"

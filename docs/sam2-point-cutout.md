@@ -53,17 +53,12 @@ In **Custom overframe art**:
    and start from Advanced only.
 2. Open **Advanced** → **Add more selection…** (hidden if `FLOOWAN_SAM2=0`).
 3. Floowan extracts live card art, warms SAM 2 models off the UI thread, and opens
-   the editor with two modes:
-   - **Paint** — left-drag amber prompt / right-drag erase amber. On **stroke release**,
-     SAM 2 runs on the paint region async and **unions** into the cyan working selection
-     (then clears amber). Multi-stroke adds accumulate like Click left-add.
-   - **Click object** — cyan working selection starts from any prior-session subject.
-     **Left-click** runs point-prompt SAM and **unions** into the working set;
-     **right-click** runs SAM and **subtracts** that region (including prior subject).
-     Apply **replaces** the Card Art subject with the working mask.
-4. If a Card Art subject already exists, it is shown as a **green** highlight under
-   pending overlays.
-5. Apply installs or **unions** the SAM mask onto Card Art (same as before).
+   the editor with modes **Click object** (default) · **Lasso** · **Paint**:
+   - **Click object** — left-click unions SAM, right-click subtracts (incl. prior subject).
+   - **Lasso** — freehand loop; on release fill polygon → SAM → union into cyan.
+   - **Paint** — amber brush; on stroke end SAM unions into cyan.
+   - **Undo** (Ctrl+Z) restores prior working selection (up to 20 steps).
+     Apply **replaces** Card Art with the working mask.
 
 ## Feature flag
 

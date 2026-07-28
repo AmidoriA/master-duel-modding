@@ -8,6 +8,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Advanced;
 using SixLabors.ImageSharp.PixelFormats;
 using ImageSharpImage = SixLabors.ImageSharp.Image;
+using WpfPoint = System.Windows.Point;
 
 namespace Floowan.Desktop;
 
@@ -18,8 +19,8 @@ public enum Sam2EditorResultKind
     PaintPrompt,
 
     /// <summary>
-    /// Working selection mask (Click and live-Paint) — parent <b>replaces</b> the subject mask
-    /// (already includes prior-session subject plus add/remove edits).
+    /// Working selection mask — parent <b>replaces</b> the subject mask
+    /// (prior-session subject plus Click / Lasso / Paint edits).
     /// </summary>
     WorkingSamMask,
 
@@ -28,15 +29,12 @@ public enum Sam2EditorResultKind
 }
 
 /// <summary>
-/// SAM selection editor over card art.
-/// <list type="bullet">
-/// <item><b>Paint</b> — left-drag paint / right-drag erase; on stroke end SAM runs on the paint
-/// prompt and unions into the cyan working selection. Apply commits the working mask.</item>
-/// <item><b>Click object</b> — left-click unions SAM, right-click subtracts; Apply commits working mask.</item>
-/// </list>
+/// SAM selection editor: Click (default), Lasso, Paint — shared cyan working selection + Undo.
 /// </summary>
 public partial class Sam2MaskPaintWindow : Window
 {
+    private const int MaxUndoLevels = 20;
+
     private readonly Image<Rgba32> _art;
     private readonly string _artPath;
     private readonly Sam2PointCutoutService _sam2;
@@ -44,29 +42,27 @@ public partial class Sam2MaskPaintWindow : Window
     private readonly WriteableBitmap _overlayBitmap;
     private readonly byte[] _overlayPixels;
     private readonly int _overlayStride;
-    /// <summary>Snapshot of subject when the editor opened (may be null).</summary>
     private readonly Image<L8>? _baselineExistingMask;
     private readonly bool _hadExistingSubject;
+    private readonly List<Image<L8>> _undoStack = [];
+    private readonly List<(float X, float Y)> _lassoImagePoints = [];
     private Image<L8> _workingClickMask;
     private bool _painting;
     private bool _erasing;
-    private bool _clickBusy;
+    private bool _lassoing;
+    private bool _samBusy;
     private int _brushRadius = 14;
     private double _displayScale = 1;
-    private int _clickGeneration;
+    private int _samGeneration;
 
-    public Sam2EditorResultKind ResultKind { get; private set; } = Sam2EditorResultKind.PaintPrompt;
-
-    /// <summary>Paint-mode prompt mask (caller disposes). Null unless Apply in Paint mode.</summary>
+    public Sam2EditorResultKind ResultKind { get; private set; } = Sam2EditorResultKind.WorkingSamMask;
     public Image<L8>? ResultPaintMask { get; private set; }
-
-    /// <summary>Click-mode working SAM mask (caller disposes). Null unless Apply in Click mode.</summary>
     public Image<L8>? ResultSamMask { get; private set; }
-
-    /// <summary>Cleaned RGB source matching <see cref="ResultSamMask"/> (caller disposes).</summary>
     public Image<Rgba32>? ResultSamSource { get; private set; }
 
     private bool IsClickMode => ClickModeRadio.IsChecked == true;
+    private bool IsLassoMode => LassoModeRadio.IsChecked == true;
+    private bool IsPaintMode => PaintModeRadio.IsChecked == true;
 
     public Sam2MaskPaintWindow(
         Image<Rgba32> art,
@@ -77,7 +73,7 @@ public partial class Sam2MaskPaintWindow : Window
         ArgumentNullException.ThrowIfNull(art);
         ArgumentNullException.ThrowIfNull(sam2);
         if (string.IsNullOrWhiteSpace(artPath))
-            throw new ArgumentException("Art path is required for Click-mode SAM.", nameof(artPath));
+            throw new ArgumentException("Art path is required for SAM.", nameof(artPath));
 
         InitializeComponent();
         _art = art.Clone();
@@ -85,12 +81,7 @@ public partial class Sam2MaskPaintWindow : Window
         _sam2 = sam2;
         _paintMask = new Image<L8>(_art.Width, _art.Height);
         _overlayBitmap = new WriteableBitmap(
-            _art.Width,
-            _art.Height,
-            96,
-            96,
-            PixelFormats.Bgra32,
-            null);
+            _art.Width, _art.Height, 96, 96, PixelFormats.Bgra32, null);
         _overlayStride = _art.Width * 4;
         _overlayPixels = new byte[_overlayStride * _art.Height];
 
@@ -114,19 +105,18 @@ public partial class Sam2MaskPaintWindow : Window
         ApplyExistingSubjectHighlight(_baselineExistingMask);
         RefreshWorkingClickOverlay();
         UpdateBrushLabel();
+        UpdateUndoButton();
         SyncModeUi();
         SizeChanged += (_, _) => UpdateDisplayScale();
         Loaded += (_, _) =>
         {
             UpdateDisplayScale();
             UpdateBrushCursorVisualSize();
+            SyncModeUi();
         };
         Closed += (_, _) => CleanupOwnedImages();
     }
 
-    /// <summary>
-    /// Loads cleaned illustration from a PNG path. Models should already be ensured by the caller.
-    /// </summary>
     public static Sam2MaskPaintWindow FromImagePath(
         string imagePath,
         Sam2PointCutoutService sam2,
@@ -160,7 +150,45 @@ public partial class Sam2MaskPaintWindow : Window
         if (!ReferenceEquals(ResultSamMask, _workingClickMask))
             _workingClickMask.Dispose();
         _baselineExistingMask?.Dispose();
+        foreach (var snap in _undoStack)
+            snap.Dispose();
+        _undoStack.Clear();
         _art.Dispose();
+    }
+
+    private void PushWorkingHistory()
+    {
+        _undoStack.Add(_workingClickMask.Clone());
+        while (_undoStack.Count > MaxUndoLevels)
+        {
+            _undoStack[0].Dispose();
+            _undoStack.RemoveAt(0);
+        }
+
+        UpdateUndoButton();
+    }
+
+    private void UpdateUndoButton()
+    {
+        UndoButton.IsEnabled = !_samBusy && _undoStack.Count > 0;
+    }
+
+    private void Undo_Click(object sender, RoutedEventArgs e) => TryUndo();
+
+    private bool TryUndo()
+    {
+        if (_samBusy || _undoStack.Count == 0)
+            return false;
+
+        _workingClickMask.Dispose();
+        _workingClickMask = _undoStack[^1];
+        _undoStack.RemoveAt(_undoStack.Count - 1);
+        RefreshWorkingClickOverlay();
+        UpdateUndoButton();
+        StatusText.Text = _undoStack.Count == 0
+            ? "Undid last change (history empty)."
+            : $"Undid last change ({_undoStack.Count} step(s) left).";
+        return true;
     }
 
     private void ApplyExistingSubjectHighlight(Image<L8>? existingSubjectMask)
@@ -173,11 +201,7 @@ public partial class Sam2MaskPaintWindow : Window
         }
 
         ExistingSubjectOverlay.Source = ToMaskHighlightBitmap(
-            existingSubjectMask,
-            b: 70,
-            g: 210,
-            r: 40,
-            a: 150);
+            existingSubjectMask, b: 70, g: 210, r: 40, a: 150);
         ExistingSubjectOverlay.Visibility = Visibility.Visible;
     }
 
@@ -191,11 +215,7 @@ public partial class Sam2MaskPaintWindow : Window
         }
 
         ClickPreviewOverlay.Source = ToMaskHighlightBitmap(
-            _workingClickMask,
-            b: 230,
-            g: 200,
-            r: 40,
-            a: 170);
+            _workingClickMask, b: 230, g: 200, r: 40, a: 170);
         ClickPreviewOverlay.Visibility = Visibility.Visible;
     }
 
@@ -204,38 +224,58 @@ public partial class Sam2MaskPaintWindow : Window
         if (!IsLoaded)
             return;
 
+        CancelLassoInProgress();
+        ClearPaintPrompt();
         SyncModeUi();
     }
 
     private void SyncModeUi()
     {
-        var click = IsClickMode;
-        PaintToolsPanel.Visibility = click ? Visibility.Collapsed : Visibility.Visible;
-        ClickToolsPanel.Visibility = click ? Visibility.Visible : Visibility.Collapsed;
-        MaskOverlay.Visibility = click ? Visibility.Collapsed : Visibility.Visible;
+        PaintToolsPanel.Visibility = IsPaintMode ? Visibility.Visible : Visibility.Collapsed;
+        MaskOverlay.Visibility = IsPaintMode || IsLassoMode ? Visibility.Visible : Visibility.Collapsed;
         BrushCursor.Visibility = Visibility.Collapsed;
-        PaintHost.Cursor = click ? Cursors.Cross : Cursors.None;
-
-        // Working cyan overlay for both modes; hide static green to avoid double-tint.
+        LassoPolyline.Visibility = Visibility.Collapsed;
         ExistingSubjectOverlay.Visibility = Visibility.Collapsed;
         RefreshWorkingClickOverlay();
 
-        if (click)
+        if (IsClickMode)
         {
+            PaintHost.Cursor = Cursors.Cross;
             HelpText.Text =
-                "Cyan = working selection (starts from prior subject). Left-click adds, right-click removes. Apply writes it back.";
+                "Click object (default): cyan working selection. Left-click adds, right-click removes. Undo / Reset available.";
             StatusText.Text = CountOpaque(_workingClickMask) == 0
                 ? "Click object: left-click to add, right-click to remove."
-                : "Left-click adds to selection, right-click removes (incl. prior session), then Apply.";
+                : "Left-click adds, right-click removes (incl. prior session), Undo, or Apply.";
+        }
+        else if (IsLassoMode)
+        {
+            PaintHost.Cursor = Cursors.Cross;
+            HelpText.Text =
+                "Lasso: drag a freehand loop. On release the interior fills, SAM runs, and the result unions into cyan.";
+            StatusText.Text = "Lasso: drag around a region, release to run SAM 2.";
         }
         else
         {
+            PaintHost.Cursor = Cursors.None;
             HelpText.Text =
-                "Amber = paint prompt. On stroke end, SAM runs and unions into the cyan working selection. Right-erase adjusts amber before the next SAM. Apply commits.";
+                "Paint: amber brush prompt. On stroke end SAM unions into cyan. Right-erase adjusts amber. Circle cursor = brush size.";
             StatusText.Text = CountOpaque(_workingClickMask) == 0
                 ? "Paint a region, release to run SAM 2, then Apply."
-                : "Paint more (release to add via SAM), erase amber, or Apply the cyan selection.";
+                : "Paint more (release to add), erase amber, Undo, or Apply.";
         }
+    }
+
+    private void SetSamBusy(bool busy)
+    {
+        _samBusy = busy;
+        ApplyButton.IsEnabled = !busy;
+        UndoButton.IsEnabled = !busy && _undoStack.Count > 0;
+        ResetSelectionButton.IsEnabled = !busy;
+        ClearMaskButton.IsEnabled = !busy;
+        ClickModeRadio.IsEnabled = !busy;
+        LassoModeRadio.IsEnabled = !busy;
+        PaintModeRadio.IsEnabled = !busy;
+        Cursor = busy ? Cursors.Wait : Cursors.Arrow;
     }
 
     private void BrushSizeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -243,43 +283,36 @@ public partial class Sam2MaskPaintWindow : Window
         if (!IsLoaded)
             return;
 
-        var diameter = (int)Math.Round(BrushSizeSlider.Value);
-        _brushRadius = Math.Max(diameter / 2, 1);
+        _brushRadius = Math.Max((int)Math.Round(BrushSizeSlider.Value) / 2, 1);
         UpdateBrushLabel();
         UpdateBrushCursorVisualSize();
     }
 
-    private void UpdateBrushLabel()
-    {
-        var diameter = Math.Max(_brushRadius * 2, 1);
-        BrushSizeValueText.Text = $"{diameter} px";
-    }
+    private void UpdateBrushLabel() =>
+        BrushSizeValueText.Text = $"{Math.Max(_brushRadius * 2, 1)} px";
 
     private void UpdateDisplayScale()
     {
         if (_art.Width <= 0 || _art.Height <= 0)
             return;
-
         var hostW = PaintHost.ActualWidth;
         var hostH = PaintHost.ActualHeight;
         if (hostW <= 0 || hostH <= 0)
             return;
-
         _displayScale = Math.Min(hostW / _art.Width, hostH / _art.Height);
         UpdateBrushCursorVisualSize();
     }
 
     private void UpdateBrushCursorVisualSize()
     {
-        var diameterPx = Math.Max(_brushRadius * 2, 1);
-        var screenDiameter = Math.Max(diameterPx * _displayScale, 4);
+        var screenDiameter = Math.Max(Math.Max(_brushRadius * 2, 1) * _displayScale, 4);
         BrushCursor.Width = screenDiameter;
         BrushCursor.Height = screenDiameter;
     }
 
-    private void UpdateBrushCursorPosition(System.Windows.Point hostPos)
+    private void UpdateBrushCursorPosition(WpfPoint hostPos)
     {
-        if (IsClickMode || _clickBusy)
+        if (!IsPaintMode || _samBusy)
         {
             BrushCursor.Visibility = Visibility.Collapsed;
             return;
@@ -298,32 +331,33 @@ public partial class Sam2MaskPaintWindow : Window
 
     private void ClearMask_Click(object sender, RoutedEventArgs e)
     {
-        _clickGeneration++;
+        _samGeneration++;
         ClearPaintPrompt();
-        StatusText.Text = "Paint prompt cleared (cyan working selection kept). Paint again or Apply.";
+        StatusText.Text = "Paint prompt cleared (cyan working selection kept).";
     }
 
     private void ClearPaintPrompt()
     {
         for (var y = 0; y < _paintMask.Height; y++)
-        {
-            var row = _paintMask.DangerousGetPixelRowMemory(y).Span;
-            row.Clear();
-        }
-
+            _paintMask.DangerousGetPixelRowMemory(y).Span.Clear();
         Array.Clear(_overlayPixels);
         FlushPaintOverlay();
     }
 
     private void ClearClickPreview_Click(object sender, RoutedEventArgs e)
     {
-        _clickGeneration++;
+        if (_samBusy)
+            return;
+
+        _samGeneration++;
+        CancelLassoInProgress();
         ClearPaintPrompt();
+        PushWorkingHistory();
         ResetWorkingClickMaskToBaseline();
         RefreshWorkingClickOverlay();
         StatusText.Text = _hadExistingSubject
-            ? "Selection reset to prior-session subject. Left-click adds, right-click removes."
-            : "Selection cleared. Left-click adds, right-click removes.";
+            ? "Selection reset to prior-session subject."
+            : "Selection cleared.";
     }
 
     private void ResetWorkingClickMaskToBaseline()
@@ -336,19 +370,18 @@ public partial class Sam2MaskPaintWindow : Window
 
     private void Apply_Click(object sender, RoutedEventArgs e)
     {
-        if (_clickBusy)
+        if (_samBusy)
         {
             StatusText.Text = "Wait for SAM 2 to finish, then Apply.";
             return;
         }
 
-        // Both modes commit the cyan working selection (live paint already unioned into it).
-        if (CountOpaque(_paintMask) > 0)
+        if (_lassoing || CountOpaque(_paintMask) > 0)
         {
-            StatusText.Text = "Release the stroke and wait for SAM 2, or Clear paint, then Apply.";
+            StatusText.Text = "Finish the current stroke (SAM runs on release), then Apply.";
             MessageBox.Show(
                 this,
-                "Finish the current paint stroke (SAM runs on release) or Clear paint before Apply.",
+                "Finish the current lasso/paint stroke before Apply.",
                 Title,
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
@@ -357,14 +390,10 @@ public partial class Sam2MaskPaintWindow : Window
 
         if (CountOpaque(_workingClickMask) == 0 && !_hadExistingSubject)
         {
-            StatusText.Text = IsClickMode
-                ? "Left-click an object to add to the selection first."
-                : "Paint a region (release to run SAM), or use Click object, then Apply.";
+            StatusText.Text = "Add a selection first (Click, Lasso, or Paint).";
             MessageBox.Show(
                 this,
-                IsClickMode
-                    ? "Left-click an object to add it to the working selection, then Apply."
-                    : "Paint a region and release so SAM 2 can update the selection, then Apply.",
+                "Add to the working selection with Click, Lasso, or Paint, then Apply.",
                 Title,
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
@@ -374,7 +403,6 @@ public partial class Sam2MaskPaintWindow : Window
         ResultKind = Sam2EditorResultKind.WorkingSamMask;
         ResultSamMask = _workingClickMask;
         ResultSamSource = _art.Clone();
-        // Ownership of working mask transferred; leave a stub so Cleanup is safe.
         _workingClickMask = new Image<L8>(_art.Width, _art.Height);
         DialogResult = true;
         Close();
@@ -388,6 +416,13 @@ public partial class Sam2MaskPaintWindow : Window
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Z && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        {
+            if (TryUndo())
+                e.Handled = true;
+            return;
+        }
+
         if (e.Key != Key.Escape)
             return;
 
@@ -398,13 +433,13 @@ public partial class Sam2MaskPaintWindow : Window
 
     private void PaintHost_MouseEnter(object sender, MouseEventArgs e)
     {
-        if (!IsClickMode)
+        if (IsPaintMode)
             UpdateBrushCursorPosition(e.GetPosition(PaintHost));
     }
 
     private async void PaintHost_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (_clickBusy)
+        if (_samBusy)
             return;
 
         if (IsClickMode)
@@ -414,13 +449,21 @@ public partial class Sam2MaskPaintWindow : Window
             return;
         }
 
+        if (IsLassoMode)
+        {
+            if (_erasing || _painting)
+                return;
+            BeginLasso(e.GetPosition(PaintHost));
+            e.Handled = true;
+            return;
+        }
+
+        // Paint
         if (_erasing)
             return;
-
         UpdateBrushCursorPosition(e.GetPosition(PaintHost));
         if (!TryStrokeAt(e.GetPosition(PaintHost), erase: false))
             return;
-
         _painting = true;
         PaintHost.CaptureMouse();
         e.Handled = true;
@@ -428,7 +471,7 @@ public partial class Sam2MaskPaintWindow : Window
 
     private async void PaintHost_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (_clickBusy)
+        if (_samBusy)
             return;
 
         if (IsClickMode)
@@ -438,13 +481,12 @@ public partial class Sam2MaskPaintWindow : Window
             return;
         }
 
-        if (_painting)
+        if (IsLassoMode || _painting || _lassoing)
             return;
 
         UpdateBrushCursorPosition(e.GetPosition(PaintHost));
         if (!TryStrokeAt(e.GetPosition(PaintHost), erase: true))
             return;
-
         _erasing = true;
         PaintHost.CaptureMouse();
         e.Handled = true;
@@ -453,10 +495,19 @@ public partial class Sam2MaskPaintWindow : Window
     private void PaintHost_MouseMove(object sender, MouseEventArgs e)
     {
         var pos = e.GetPosition(PaintHost);
-        if (!IsClickMode)
+        if (IsPaintMode)
             UpdateBrushCursorPosition(pos);
 
-        if (IsClickMode || _clickBusy)
+        if (_samBusy)
+            return;
+
+        if (_lassoing && e.LeftButton == MouseButtonState.Pressed)
+        {
+            ContinueLasso(pos);
+            return;
+        }
+
+        if (IsClickMode)
             return;
 
         if (_painting && e.LeftButton == MouseButtonState.Pressed)
@@ -467,7 +518,9 @@ public partial class Sam2MaskPaintWindow : Window
 
     private void PaintHost_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (_painting)
+        if (_lassoing)
+            _ = EndLassoAsync();
+        else if (_painting)
             _ = EndStrokeAsync();
     }
 
@@ -480,17 +533,93 @@ public partial class Sam2MaskPaintWindow : Window
     private void PaintHost_MouseLeave(object sender, MouseEventArgs e)
     {
         BrushCursor.Visibility = Visibility.Collapsed;
-        if ((_painting && e.LeftButton != MouseButtonState.Pressed)
-            || (_erasing && e.RightButton != MouseButtonState.Pressed))
-        {
+        if (_lassoing && e.LeftButton != MouseButtonState.Pressed)
+            _ = EndLassoAsync();
+        else if ((_painting && e.LeftButton != MouseButtonState.Pressed)
+                 || (_erasing && e.RightButton != MouseButtonState.Pressed))
             _ = EndStrokeAsync();
-        }
     }
 
     private void PaintHost_LostMouseCapture(object sender, MouseEventArgs e)
     {
-        if (_painting || _erasing)
+        if (_lassoing)
+            _ = EndLassoAsync();
+        else if (_painting || _erasing)
             _ = EndStrokeAsync();
+    }
+
+    private void BeginLasso(WpfPoint hostPos)
+    {
+        if (!TryMapHostToImage(hostPos, out var ix, out var iy))
+            return;
+
+        CancelLassoInProgress();
+        _lassoing = true;
+        _lassoImagePoints.Add((ix, iy));
+        LassoPolyline.Points = [hostPos];
+        LassoPolyline.Visibility = Visibility.Visible;
+        PaintHost.CaptureMouse();
+        StatusText.Text = "Lasso: drag to enclose a region…";
+    }
+
+    private void ContinueLasso(WpfPoint hostPos)
+    {
+        if (!TryMapHostToImage(hostPos, out var ix, out var iy))
+            return;
+
+        if (_lassoImagePoints.Count > 0)
+        {
+            var (lx, ly) = _lassoImagePoints[^1];
+            var dx = ix - lx;
+            var dy = iy - ly;
+            if (dx * dx + dy * dy < 2.5f)
+                return;
+        }
+
+        _lassoImagePoints.Add((ix, iy));
+        LassoPolyline.Points.Add(hostPos);
+    }
+
+    private void CancelLassoInProgress()
+    {
+        _lassoing = false;
+        _lassoImagePoints.Clear();
+        LassoPolyline.Points.Clear();
+        LassoPolyline.Visibility = Visibility.Collapsed;
+        if (PaintHost.IsMouseCaptured && !_painting && !_erasing)
+            PaintHost.ReleaseMouseCapture();
+    }
+
+    private async Task EndLassoAsync()
+    {
+        if (!_lassoing)
+            return;
+
+        _lassoing = false;
+        if (PaintHost.IsMouseCaptured)
+            PaintHost.ReleaseMouseCapture();
+
+        var points = _lassoImagePoints.ToArray();
+        _lassoImagePoints.Clear();
+        LassoPolyline.Points.Clear();
+        LassoPolyline.Visibility = Visibility.Collapsed;
+
+        if (points.Length < 3)
+        {
+            StatusText.Text = "Lasso needs a closed loop — drag a larger path.";
+            return;
+        }
+
+        ClearPaintPrompt();
+        FillPolygonIntoPaintMask(points);
+        FlushPaintOverlay();
+        if (CountOpaque(_paintMask) == 0)
+        {
+            StatusText.Text = "Lasso interior was empty — try again.";
+            return;
+        }
+
+        await RunLiveRegionSamAsync("lasso");
     }
 
     private async Task EndStrokeAsync()
@@ -503,61 +632,50 @@ public partial class Sam2MaskPaintWindow : Window
         if (PaintHost.IsMouseCaptured)
             PaintHost.ReleaseMouseCapture();
 
-        if (IsClickMode || _clickBusy)
+        if (!IsPaintMode || _samBusy)
             return;
 
-        await RunLivePaintSamAsync();
+        await RunLiveRegionSamAsync("paint");
     }
 
-    /// <summary>
-    /// After a paint/erase stroke, run SAM on the current amber prompt and union into
-    /// the cyan working selection, then clear the prompt.
-    /// </summary>
-    private async Task RunLivePaintSamAsync()
+    private async Task RunLiveRegionSamAsync(string sourceLabel)
     {
         if (CountOpaque(_paintMask) == 0)
         {
             StatusText.Text = CountOpaque(_workingClickMask) == 0
-                ? "Paint a region, release to run SAM 2, then Apply."
-                : "Paint prompt empty. Paint more or Apply the cyan selection.";
+                ? $"Draw a {sourceLabel} region, release to run SAM 2."
+                : $"{sourceLabel} prompt empty. Continue or Apply.";
             return;
         }
 
-        var generation = ++_clickGeneration;
-        _clickBusy = true;
-        ApplyButton.IsEnabled = false;
-        ClearMaskButton.IsEnabled = false;
-        ClearClickPreviewButton.IsEnabled = false;
-        PaintModeRadio.IsEnabled = false;
-        ClickModeRadio.IsEnabled = false;
-        Cursor = Cursors.Wait;
-        StatusText.Text = "SAM 2: segmenting painted region…";
+        var generation = ++_samGeneration;
+        SetSamBusy(true);
+        StatusText.Text = $"SAM 2: segmenting {sourceLabel} region…";
 
-        Image<L8>? paintClone = null;
+        Image<L8>? promptClone = null;
         try
         {
             if (!File.Exists(_artPath))
                 throw new FileNotFoundException("Card art temp file was removed.", _artPath);
 
-            paintClone = _paintMask.Clone();
+            promptClone = _paintMask.Clone();
             var progress = new Progress<string>(msg =>
             {
-                if (generation == _clickGeneration)
+                if (generation == _samGeneration)
                     StatusText.Text = msg;
             });
 
             var prepared = await _sam2.PrepareSubjectWithPaintedRegionAsync(
-                _artPath,
-                paintClone,
-                progress);
+                _artPath, promptClone, progress);
 
-            if (generation != _clickGeneration)
+            if (generation != _samGeneration)
             {
                 prepared.Source.Dispose();
                 prepared.Mask.Dispose();
                 return;
             }
 
+            PushWorkingHistory();
             var next = Sam2PointCutoutService.UnionMasks(_workingClickMask, prepared.Mask);
             prepared.Mask.Dispose();
             prepared.Source.Dispose();
@@ -566,16 +684,16 @@ public partial class Sam2MaskPaintWindow : Window
             ClearPaintPrompt();
             RefreshWorkingClickOverlay();
             StatusText.Text =
-                "Cyan updated from paint. Paint more (release to add), or Apply.";
+                $"Cyan updated from {sourceLabel}. Continue, Undo, or Apply.";
         }
         catch (Exception ex)
         {
-            if (generation == _clickGeneration)
+            if (generation == _samGeneration)
             {
-                StatusText.Text = "SAM 2 paint failed: " + ex.Message;
+                StatusText.Text = $"SAM 2 {sourceLabel} failed: " + ex.Message;
                 MessageBox.Show(
                     this,
-                    "Could not run SAM 2 on the painted region:\n\n" + ex.Message,
+                    $"Could not run SAM 2 on the {sourceLabel} region:\n\n" + ex.Message,
                     Title,
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
@@ -583,45 +701,28 @@ public partial class Sam2MaskPaintWindow : Window
         }
         finally
         {
-            paintClone?.Dispose();
-            if (generation == _clickGeneration)
+            promptClone?.Dispose();
+            if (generation == _samGeneration)
             {
-                _clickBusy = false;
-                ApplyButton.IsEnabled = true;
-                ClearMaskButton.IsEnabled = true;
-                ClearClickPreviewButton.IsEnabled = true;
-                PaintModeRadio.IsEnabled = true;
-                ClickModeRadio.IsEnabled = true;
-                Cursor = Cursors.Arrow;
-                if (!IsClickMode)
+                SetSamBusy(false);
+                if (IsPaintMode)
                     PaintHost.Cursor = Cursors.None;
+                else
+                    PaintHost.Cursor = Cursors.Cross;
             }
         }
     }
 
-    private async Task RunClickSamAtAsync(System.Windows.Point hostPos, bool subtract)
+    private async Task RunClickSamAtAsync(WpfPoint hostPos, bool subtract)
     {
-        if (!Sam2PointCutoutService.TryMapPreviewClickToImage(
-                hostPos.X,
-                hostPos.Y,
-                PaintHost.ActualWidth,
-                PaintHost.ActualHeight,
-                _art.Width,
-                _art.Height,
-                out var imageX,
-                out var imageY))
+        if (!TryMapHostToImage(hostPos, out var imageX, out var imageY))
         {
             StatusText.Text = "Click inside the card art.";
             return;
         }
 
-        var generation = ++_clickGeneration;
-        _clickBusy = true;
-        ApplyButton.IsEnabled = false;
-        ClearClickPreviewButton.IsEnabled = false;
-        PaintModeRadio.IsEnabled = false;
-        ClickModeRadio.IsEnabled = false;
-        Cursor = Cursors.Wait;
+        var generation = ++_samGeneration;
+        SetSamBusy(true);
         var verb = subtract ? "removing" : "adding";
         StatusText.Text = $"SAM 2: {verb} at ({imageX:0},{imageY:0})…";
 
@@ -632,42 +733,36 @@ public partial class Sam2MaskPaintWindow : Window
 
             var progress = new Progress<string>(msg =>
             {
-                if (generation == _clickGeneration)
+                if (generation == _samGeneration)
                     StatusText.Text = msg;
             });
 
             var prepared = await _sam2.PrepareSubjectWithPointAsync(
-                _artPath,
-                imageX,
-                imageY,
-                progress);
+                _artPath, imageX, imageY, progress);
 
-            if (generation != _clickGeneration)
+            if (generation != _samGeneration)
             {
                 prepared.Source.Dispose();
                 prepared.Mask.Dispose();
                 return;
             }
 
-            Image<L8> next;
-            if (subtract)
-                next = Sam2PointCutoutService.SubtractMasks(_workingClickMask, prepared.Mask);
-            else
-                next = Sam2PointCutoutService.UnionMasks(_workingClickMask, prepared.Mask);
-
+            PushWorkingHistory();
+            var next = subtract
+                ? Sam2PointCutoutService.SubtractMasks(_workingClickMask, prepared.Mask)
+                : Sam2PointCutoutService.UnionMasks(_workingClickMask, prepared.Mask);
             prepared.Mask.Dispose();
             prepared.Source.Dispose();
             _workingClickMask.Dispose();
             _workingClickMask = next;
             RefreshWorkingClickOverlay();
-
             StatusText.Text = subtract
-                ? $"Removed SAM region at ({imageX:0},{imageY:0}). Left-click adds, right-click removes, or Apply."
-                : $"Added SAM region at ({imageX:0},{imageY:0}). Left-click adds, right-click removes, or Apply.";
+                ? $"Removed at ({imageX:0},{imageY:0}). Continue, Undo, or Apply."
+                : $"Added at ({imageX:0},{imageY:0}). Continue, Undo, or Apply.";
         }
         catch (Exception ex)
         {
-            if (generation == _clickGeneration)
+            if (generation == _samGeneration)
             {
                 StatusText.Text = "SAM 2 click failed: " + ex.Message;
                 MessageBox.Show(
@@ -680,34 +775,25 @@ public partial class Sam2MaskPaintWindow : Window
         }
         finally
         {
-            if (generation == _clickGeneration)
+            if (generation == _samGeneration)
             {
-                _clickBusy = false;
-                ApplyButton.IsEnabled = true;
-                ClearClickPreviewButton.IsEnabled = true;
-                PaintModeRadio.IsEnabled = true;
-                ClickModeRadio.IsEnabled = true;
-                Cursor = Cursors.Arrow;
+                SetSamBusy(false);
                 PaintHost.Cursor = Cursors.Cross;
             }
         }
     }
 
-    private bool TryStrokeAt(System.Windows.Point hostPos, bool erase)
-    {
-        if (!Sam2PointCutoutService.TryMapPreviewClickToImage(
-                hostPos.X,
-                hostPos.Y,
-                PaintHost.ActualWidth,
-                PaintHost.ActualHeight,
-                _art.Width,
-                _art.Height,
-                out var imageX,
-                out var imageY))
-        {
-            return false;
-        }
+    private bool TryMapHostToImage(WpfPoint hostPos, out float imageX, out float imageY) =>
+        Sam2PointCutoutService.TryMapPreviewClickToImage(
+            hostPos.X, hostPos.Y,
+            PaintHost.ActualWidth, PaintHost.ActualHeight,
+            _art.Width, _art.Height,
+            out imageX, out imageY);
 
+    private bool TryStrokeAt(WpfPoint hostPos, bool erase)
+    {
+        if (!TryMapHostToImage(hostPos, out var imageX, out var imageY))
+            return false;
         StampBrush((int)MathF.Round(imageX), (int)MathF.Round(imageY), erase);
         FlushPaintOverlay();
         return true;
@@ -717,12 +803,10 @@ public partial class Sam2MaskPaintWindow : Window
     {
         var r = _brushRadius;
         var r2 = r * r;
-        var w = _paintMask.Width;
-        var h = _paintMask.Height;
         var minX = Math.Max(cx - r, 0);
-        var maxX = Math.Min(cx + r, w - 1);
+        var maxX = Math.Min(cx + r, _paintMask.Width - 1);
         var minY = Math.Max(cy - r, 0);
-        var maxY = Math.Min(cy + r, h - 1);
+        var maxY = Math.Min(cy + r, _paintMask.Height - 1);
 
         for (var y = minY; y <= maxY; y++)
         {
@@ -751,6 +835,56 @@ public partial class Sam2MaskPaintWindow : Window
                     _overlayPixels[i + 1] = 190;
                     _overlayPixels[i + 2] = 255;
                     _overlayPixels[i + 3] = 180;
+                }
+            }
+        }
+    }
+
+    /// <summary>Scanline fill of a closed polygon into the amber paint prompt mask.</summary>
+    private void FillPolygonIntoPaintMask(IReadOnlyList<(float X, float Y)> points)
+    {
+        var n = points.Count;
+        if (n < 3)
+            return;
+
+        var minY = (int)Math.Floor(points.Min(p => p.Y));
+        var maxY = (int)Math.Ceiling(points.Max(p => p.Y));
+        minY = Math.Clamp(minY, 0, _paintMask.Height - 1);
+        maxY = Math.Clamp(maxY, 0, _paintMask.Height - 1);
+
+        for (var y = minY; y <= maxY; y++)
+        {
+            var crossings = new List<float>(8);
+            for (var i = 0; i < n; i++)
+            {
+                var (x0, y0) = points[i];
+                var (x1, y1) = points[(i + 1) % n];
+                if (Math.Abs(y1 - y0) < 1e-4f)
+                    continue;
+                if (y < Math.Min(y0, y1) || y >= Math.Max(y0, y1))
+                    continue;
+                var t = (y - y0) / (y1 - y0);
+                crossings.Add(x0 + t * (x1 - x0));
+            }
+
+            crossings.Sort();
+            var maskRow = _paintMask.DangerousGetPixelRowMemory(y).Span;
+            var overlayRow = y * _overlayStride;
+            for (var c = 0; c + 1 < crossings.Count; c += 2)
+            {
+                var xStart = (int)Math.Ceiling(crossings[c]);
+                var xEnd = (int)Math.Floor(crossings[c + 1]);
+                xStart = Math.Clamp(xStart, 0, _paintMask.Width - 1);
+                xEnd = Math.Clamp(xEnd, 0, _paintMask.Width - 1);
+                for (var x = xStart; x <= xEnd; x++)
+                {
+                    maskRow[x] = new L8(255);
+                    var i = overlayRow + x * 4;
+                    // Magenta-amber for lasso fill (distinct from paint brush yellow).
+                    _overlayPixels[i] = 180;
+                    _overlayPixels[i + 1] = 120;
+                    _overlayPixels[i + 2] = 255;
+                    _overlayPixels[i + 3] = 160;
                 }
             }
         }
@@ -809,15 +943,7 @@ public partial class Sam2MaskPaintWindow : Window
             }
         }
 
-        var bmp = BitmapSource.Create(
-            w,
-            h,
-            96,
-            96,
-            PixelFormats.Bgra32,
-            null,
-            pixels,
-            stride);
+        var bmp = BitmapSource.Create(w, h, 96, 96, PixelFormats.Bgra32, null, pixels, stride);
         bmp.Freeze();
         return bmp;
     }
@@ -842,15 +968,7 @@ public partial class Sam2MaskPaintWindow : Window
             }
         }
 
-        var bmp = BitmapSource.Create(
-            w,
-            h,
-            96,
-            96,
-            PixelFormats.Bgra32,
-            null,
-            pixels,
-            stride);
+        var bmp = BitmapSource.Create(w, h, 96, 96, PixelFormats.Bgra32, null, pixels, stride);
         bmp.Freeze();
         return bmp;
     }
