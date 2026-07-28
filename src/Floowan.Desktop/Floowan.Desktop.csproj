@@ -6,8 +6,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <ApplicationIcon />
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <RootNamespace>Floowan.Desktop</RootNamespace>
+    <Version>0.0.2</Version>
+    <AssemblyVersion>0.0.2.0</AssemblyVersion>
+    <FileVersion>0.0.2.0</FileVersion>
+    <InformationalVersion>0.0.2</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,6 +21,10 @@
 
   <ItemGroup>
     <None Include="..\Floowan.Core\Resources\classdata.tpk" Link="classdata.tpk" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database.db" Link="database.db" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\THIRD_PARTY_NOTICES.txt" Link="THIRD_PARTY_NOTICES.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Resource Include="Assets\AppIcon.ico" />
+    <Resource Include="Assets\AppIcon.png" />
   </ItemGroup>
 
 </Project>

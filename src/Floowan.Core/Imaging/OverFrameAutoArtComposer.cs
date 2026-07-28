@@ -175,17 +175,9 @@ public static class OverFrameAutoArtComposer
     /// Per-style Pendulum layout fallbacks (art hole + monster lore + cut). Values are
     /// measured from each <c>card_frame*</c> PNG; current MD builds share the same hole.
     /// </summary>
-    public static FrameLayout GetPendulumLayout(CardFrameStyle style) => style switch
-    {
-        CardFrameStyle.PendulumNormal => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
-        CardFrameStyle.PendulumEffect => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
-        CardFrameStyle.PendulumFusion => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
-        CardFrameStyle.PendulumSynchro => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
-        CardFrameStyle.PendulumXyz => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
-        CardFrameStyle.PendulumRitual => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
-        CardFrameStyle.PendulumToken => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop),
-        _ => new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop)
-    };
+    public static FrameLayout GetPendulumLayout(CardFrameStyle style) =>
+        // Solid + OF-gradient Pendulum presets share the same measured hole / dual-lore.
+        new FrameLayout(PendulumArtWindow, PendulumLoreCream, PendulumLoreCutTop);
 
     public readonly record struct FrameLayout(Rectangle ArtWindow, Rectangle LoreCream, int LoreCutTop);
 
@@ -304,6 +296,50 @@ public static class OverFrameAutoArtComposer
     /// </summary>
     public static Rectangle ResolveCustomBackgroundArtWindow(CardFrameStyle frameStyle) =>
         CardFrameTemplates.IsPendulumStyle(frameStyle) ? PendulumArtWindow : ArtWindow;
+
+    /// <summary>
+    /// Canvas-Y bias baked into Custom/Auto subject placement for the frame style.
+    /// Pendulum subjects are shifted down by <see cref="PendulumVerticalOffset"/> while
+    /// Cover background stays hole-centered — Match must add this bias on Y.
+    /// </summary>
+    public static int GetSubjectPlacementBiasY(CardFrameStyle frameStyle) =>
+        CardFrameTemplates.IsPendulumStyle(frameStyle) ? PendulumVerticalOffset : 0;
+
+    /// <summary>
+    /// Converts Custom OF subject drag offsets into Cover background pan so the art-hole
+    /// crop tracks Card Art. Effect: 1:1 copy. Pendulum: Y += <see cref="PendulumVerticalOffset"/>
+    /// because subject placement includes that nudge and Cover fill does not.
+    /// Caller should clamp with <see cref="ClampBackgroundPan"/> / pan limits.
+    /// </summary>
+    public static (int PanX, int PanY) ResolveMatchedBackgroundPan(
+        int subjectOffsetX,
+        int subjectOffsetY,
+        CardFrameStyle frameStyle) =>
+        (subjectOffsetX, subjectOffsetY + GetSubjectPlacementBiasY(frameStyle));
+
+    /// <summary>
+    /// Shared Match-background-to-subject transform: copy subject Cover scale, then pan
+    /// (with Pendulum Y bias) clamped so the hole stays covered.
+    /// </summary>
+    public static (float BackgroundScale, int PanX, int PanY) MatchBackgroundToSubject(
+        float subjectScale,
+        int subjectOffsetX,
+        int subjectOffsetY,
+        CardFrameStyle frameStyle,
+        int backgroundWidth,
+        int backgroundHeight)
+    {
+        var scale = ClampBackgroundScale(subjectScale);
+        var artWindow = ResolveCustomBackgroundArtWindow(frameStyle);
+        var (maxPanX, maxPanY) = GetBackgroundPanLimits(
+            backgroundWidth, backgroundHeight, artWindow, scale);
+        var (rawX, rawY) = ResolveMatchedBackgroundPan(
+            subjectOffsetX, subjectOffsetY, frameStyle);
+        return (
+            scale,
+            ClampBackgroundPan(rawX, maxPanX),
+            ClampBackgroundPan(rawY, maxPanY));
+    }
 
     public static Image<Rgba32> Compose(
         Image<Rgba32> source,

@@ -9,9 +9,9 @@ public class CardDatabaseTests
     {
         var candidates = new[]
         {
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "database.db")),
-            Path.Combine(Directory.GetCurrentDirectory(), "database.db"),
-            @"C:\Users\user\Documents\Projects\Floowan-copy\database.db"
+            Path.Combine(AppContext.BaseDirectory, MasterDatabasePaths.FileName),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", MasterDatabasePaths.FileName)),
+            Path.Combine(Directory.GetCurrentDirectory(), MasterDatabasePaths.FileName),
         };
         return candidates.FirstOrDefault(File.Exists);
     }
@@ -275,6 +275,82 @@ VALUES ('Alpha', 'Summons a unique token', 'aaa11111', 'Mod Alpha', NULL, 0, 1, 
             var page = db.QueryCards(new CardQueryFilters { Limit = 50, Offset = 0 });
             Assert.True(page.Count <= 50);
             Assert.True(page.Count < db.CountCards());
+        }
+        finally
+        {
+            TryDelete(user);
+        }
+    }
+
+    [Fact]
+    public void QueryCards_SortsFullFilteredSet_BeforePaging()
+    {
+        var dbPath = FindDatabase();
+        if (dbPath is null)
+            return;
+
+        var user = TempPath("floowan-sort-user-");
+        try
+        {
+            using var db = new CardDatabase(dbPath, user);
+            const int pageSize = 50;
+            var total = db.CountCards();
+            Assert.True(total > pageSize * 2, "Need enough cards to span multiple pages.");
+
+            var page0Asc = db.QueryCards(new CardQueryFilters
+            {
+                Limit = pageSize,
+                Offset = 0,
+                SortBy = CardSortColumn.Id,
+                SortDescending = false
+            });
+            var page1Asc = db.QueryCards(new CardQueryFilters
+            {
+                Limit = pageSize,
+                Offset = pageSize,
+                SortBy = CardSortColumn.Id,
+                SortDescending = false
+            });
+
+            Assert.Equal(pageSize, page0Asc.Count);
+            Assert.Equal(pageSize, page1Asc.Count);
+            Assert.True(page0Asc[^1].Id < page1Asc[0].Id);
+            Assert.True(page0Asc.Zip(page0Asc.Skip(1), (a, b) => a.Id <= b.Id).All(x => x));
+
+            var page0Desc = db.QueryCards(new CardQueryFilters
+            {
+                Limit = pageSize,
+                Offset = 0,
+                SortBy = CardSortColumn.Id,
+                SortDescending = true
+            });
+            Assert.Equal(pageSize, page0Desc.Count);
+            Assert.True(page0Desc[0].Id > page0Asc[0].Id);
+            Assert.True(page0Desc.Zip(page0Desc.Skip(1), (a, b) => a.Id >= b.Id).All(x => x));
+
+            var namePage0 = db.QueryCards(new CardQueryFilters
+            {
+                Limit = pageSize,
+                Offset = 0,
+                SortBy = CardSortColumn.Name,
+                SortDescending = false
+            });
+            var namePage1 = db.QueryCards(new CardQueryFilters
+            {
+                Limit = pageSize,
+                Offset = pageSize,
+                SortBy = CardSortColumn.Name,
+                SortDescending = false
+            });
+
+            Assert.Equal(pageSize, namePage0.Count);
+            Assert.Equal(pageSize, namePage1.Count);
+            var bridge = string.Compare(namePage0[^1].Name, namePage1[0].Name, StringComparison.OrdinalIgnoreCase);
+            Assert.True(bridge <= 0);
+            Assert.True(namePage0
+                .Zip(namePage0.Skip(1), (a, b) =>
+                    string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase) <= 0)
+                .All(x => x));
         }
         finally
         {

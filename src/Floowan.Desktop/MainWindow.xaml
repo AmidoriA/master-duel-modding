@@ -1,9 +1,10 @@
 ﻿<Window x:Class="Floowan.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Floowan — Master Duel Card Art"
+        Title="Masterduel modding tool by AmidoriA"
         Height="800" Width="1400"
         MinHeight="620" MinWidth="1100"
+        Icon="Assets/AppIcon.ico"
         Background="{StaticResource BgBrush}"
         Foreground="{StaticResource TextBrush}"
         FontFamily="Segoe UI">
@@ -47,7 +48,7 @@
       <Expander x:Name="HomePathsExpander" IsExpanded="True" ExpandDirection="Down">
         <Expander.Header>
           <StackPanel Orientation="Vertical" Margin="4,0,0,0">
-            <TextBlock Text="Floowan" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
+            <TextBlock Text="Masterduel modding tool by AmidoriA" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
             <TextBlock Text="Card art replacement for Yu-Gi-Oh! Master Duel"
                        Foreground="{StaticResource MutedBrush}" Margin="0,2,0,0"/>
           </StackPanel>
@@ -62,19 +63,10 @@
               <TextBlock Text="LocalData path" Width="100" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
               <TextBox x:Name="GamePathBox" IsReadOnly="True"/>
             </DockPanel>
-            <DockPanel Margin="0,6,0,0">
-              <TextBlock Text="Master DB" Width="100" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-              <TextBox x:Name="DatabasePathBox" IsReadOnly="True"/>
-            </DockPanel>
-            <DockPanel Margin="0,6,0,0">
-              <TextBlock Text="User DB" Width="100" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-              <TextBox x:Name="UserDatabasePathBox" IsReadOnly="True"/>
-            </DockPanel>
           </StackPanel>
           <StackPanel Grid.Column="1" Orientation="Vertical" Margin="12,0,0,0">
             <Button Content="Discover Steam" Click="DiscoverSteam_Click" Margin="0,0,0,6"/>
-            <Button Content="Browse LocalData…" Click="BrowseGamePath_Click" Margin="0,0,0,6"/>
-            <Button Content="Browse database…" Click="BrowseDatabase_Click"/>
+            <Button Content="Browse LocalData…" Click="BrowseGamePath_Click"/>
           </StackPanel>
         </Grid>
       </Expander>
@@ -127,6 +119,10 @@
                         ToolTip="Opens a before/after comparison. Confirm writes to the game (with backup); Cancel aborts."/>
                 <Button Content="Extract PNG" Click="Extract_Click"/>
                 <Button Content="Restore backup" Click="Restore_Click"/>
+                <Button Content="Open in Over-Frame" Click="CardArtOpenInOverFrame_Click" Margin="12,0,0,0"
+                        ToolTip="Switch to Over-frame with this card selected."/>
+                <Button Content="Open in Database View" Click="CardArtOpenInDatabase_Click"
+                        ToolTip="Switch to Database with this card selected."/>
               </StackPanel>
               <Grid>
                 <Grid.RowDefinitions>
@@ -141,8 +137,15 @@
                 </StackPanel>
                 <Border Grid.Row="1" Background="#12161A" Margin="0,12,0,0" CornerRadius="4">
                   <Grid>
-                    <Image x:Name="CurrentArtImage" Stretch="Uniform" Margin="8"/>
-                    <Image x:Name="ReplacementImage" Stretch="Uniform" Margin="8" Opacity="0.0"/>
+                    <Image x:Name="CurrentArtImage" Stretch="Uniform" Margin="8"
+                           Cursor="Hand"
+                           ToolTip="Click to enlarge"
+                           MouseLeftButtonUp="CardPreviewImage_MouseLeftButtonUp"/>
+                    <Image x:Name="ReplacementImage" Stretch="Uniform" Margin="8" Opacity="0.0"
+                           IsHitTestVisible="False"
+                           Cursor="Hand"
+                           ToolTip="Click to enlarge"
+                           MouseLeftButtonUp="CardPreviewImage_MouseLeftButtonUp"/>
                   </Grid>
                 </Border>
                 <TextBlock Grid.Row="2" x:Name="DetailText" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
@@ -185,7 +188,6 @@
                 <RadioButton x:Name="OfViewThumbRadio" Content="Thumbnails" GroupName="OfResultsView"
                              Checked="OfResultsViewMode_Changed"/>
               </StackPanel>
-              <Button DockPanel.Dock="Top" Content="Scan / locate of_card_asset…" Click="OfScanGate_Click" Margin="0,0,0,8" HorizontalAlignment="Left"/>
               <ListBox x:Name="OfCardList"
                        ItemTemplate="{StaticResource OfCardListItemTemplate}"
                        ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -200,6 +202,10 @@
                 <Button Content="Auto-create &amp; apply" Click="OfAutoCreateAndApply_Click" Background="{StaticResource AccentBrush}"/>
                 <Button Content="Preview" Click="OfPreview_Click"/>
                 <Button Content="Restore backups" Click="OfRestore_Click"/>
+                <Button Content="Open in Card Art" Click="OfOpenInCardArt_Click" Margin="12,0,0,0"
+                        ToolTip="Switch to Card Art with this card selected."/>
+                <Button Content="Open in Database View" Click="OfOpenInDatabase_Click"
+                        ToolTip="Switch to Database with this card selected."/>
               </WrapPanel>
               <Expander DockPanel.Dock="Bottom"
                         Header="Advanced (manual apply / gate)"
@@ -211,11 +217,14 @@
                 <WrapPanel Margin="0,8,0,0">
                   <Button Content="Custom overframe art" Click="OfCustomOverframeArt_Click"/>
                   <Button Content="Enable gate only" Click="OfEnableGate_Click"/>
+                  <Button Content="Force disable gate"
+                          Click="OfForceDisableGate_Click"
+                          ToolTip="Remove this card's art-id from of_card_asset so the game no longer treats it as over-framed. Does not restore the card texture — use Restore backups for that."/>
                 </WrapPanel>
               </Expander>
               <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
                 <TextBlock Text="Frame" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,8,0"/>
-                <ComboBox x:Name="OfFrameStyleBox" Width="170">
+                <ComboBox x:Name="OfFrameStyleBox" Width="220">
                   <ComboBoxItem Content="Effect" Tag="Effect"/>
                   <ComboBoxItem Content="Normal" Tag="Normal"/>
                   <ComboBoxItem Content="Fusion" Tag="Fusion"/>
@@ -234,6 +243,14 @@
                   <ComboBoxItem Content="Pendulum Ritual" Tag="PendulumRitual"/>
                   <ComboBoxItem Content="Pendulum Token" Tag="PendulumToken"/>
                 </ComboBox>
+                <TextBlock x:Name="OfActionStatusText"
+                           VerticalAlignment="Center"
+                           Margin="12,0,0,0"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           Foreground="{StaticResource AccentBrush}"
+                           TextWrapping="Wrap"
+                           MaxWidth="360"/>
               </StackPanel>
               <Grid>
                 <Grid.RowDefinitions>
@@ -261,8 +278,15 @@
                       <ColumnDefinition x:Name="OfCurrentPreviewCol" Width="*"/>
                       <ColumnDefinition x:Name="OfReplacementPreviewCol" Width="0"/>
                     </Grid.ColumnDefinitions>
-                    <Image x:Name="OfCurrentArtImage" Stretch="Uniform" Margin="8"/>
-                    <Image x:Name="OfReplacementImage" Grid.Column="1" Stretch="Uniform" Margin="8" Opacity="0.0"/>
+                    <Image x:Name="OfCurrentArtImage" Stretch="Uniform" Margin="8"
+                           Cursor="Hand"
+                           ToolTip="Click to enlarge"
+                           MouseLeftButtonUp="CardPreviewImage_MouseLeftButtonUp"/>
+                    <Image x:Name="OfReplacementImage" Grid.Column="1" Stretch="Uniform" Margin="8" Opacity="0.0"
+                           IsHitTestVisible="False"
+                           Cursor="Hand"
+                           ToolTip="Click to enlarge"
+                           MouseLeftButtonUp="CardPreviewImage_MouseLeftButtonUp"/>
                   </Grid>
                 </Border>
               </Grid>
@@ -271,7 +295,7 @@
         </Grid>
       </TabItem>
 
-      <TabItem Header="Database">
+      <TabItem x:Name="DatabaseTab" Header="Database">
         <Grid Margin="0,8,0,0">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -285,19 +309,20 @@
               <WrapPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Card ID" Width="70" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <TextBox x:Name="DbFilterIdBox" Width="100" KeyDown="DbFilter_KeyDown"/>
+                  <TextBox x:Name="DbFilterIdBox" Width="100" KeyDown="DbFilter_KeyDown" TextChanged="DbFilterText_Changed"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Name" Width="50" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <TextBox x:Name="DbFilterNameBox" Width="180" KeyDown="DbFilter_KeyDown"/>
+                  <TextBox x:Name="DbFilterNameBox" Width="180" KeyDown="DbFilter_KeyDown" TextChanged="DbFilterText_Changed"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Description" Width="80" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <TextBox x:Name="DbFilterDescBox" Width="180" KeyDown="DbFilter_KeyDown"/>
+                  <TextBox x:Name="DbFilterDescBox" Width="180" KeyDown="DbFilter_KeyDown" TextChanged="DbFilterText_Changed"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Favorite" Width="60" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <ComboBox x:Name="DbFilterFavoriteBox" Width="110" SelectedIndex="0">
+                  <ComboBox x:Name="DbFilterFavoriteBox" Width="110" SelectedIndex="0"
+                            SelectionChanged="DbFilterCombo_Changed">
                     <ComboBoxItem Content="Any"/>
                     <ComboBoxItem Content="Yes"/>
                     <ComboBoxItem Content="No"/>
@@ -305,7 +330,8 @@
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Backup" Width="55" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <ComboBox x:Name="DbFilterBackupBox" Width="110" SelectedIndex="0">
+                  <ComboBox x:Name="DbFilterBackupBox" Width="110" SelectedIndex="0"
+                            SelectionChanged="DbFilterCombo_Changed">
                     <ComboBoxItem Content="Any"/>
                     <ComboBoxItem Content="Has backup"/>
                     <ComboBoxItem Content="No backup"/>
@@ -313,7 +339,8 @@
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Modded name" Width="90" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <ComboBox x:Name="DbFilterModdedNameBox" Width="110" SelectedIndex="0">
+                  <ComboBox x:Name="DbFilterModdedNameBox" Width="110" SelectedIndex="0"
+                            SelectionChanged="DbFilterCombo_Changed">
                     <ComboBoxItem Content="Any"/>
                     <ComboBoxItem Content="Populated"/>
                     <ComboBoxItem Content="Empty"/>
@@ -321,7 +348,8 @@
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
                   <TextBlock Text="Modded desc" Width="90" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
-                  <ComboBox x:Name="DbFilterModdedDescBox" Width="110" SelectedIndex="0">
+                  <ComboBox x:Name="DbFilterModdedDescBox" Width="110" SelectedIndex="0"
+                            SelectionChanged="DbFilterCombo_Changed">
                     <ComboBoxItem Content="Any"/>
                     <ComboBoxItem Content="Populated"/>
                     <ComboBoxItem Content="Empty"/>
@@ -352,19 +380,24 @@
                 <TextBlock DockPanel.Dock="Top" Text="Cards" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                 <DataGrid x:Name="DbCardGrid"
                           SelectionChanged="DbCardGrid_SelectionChanged"
-                          HeadersVisibility="Column">
+                          Sorting="DbCardGrid_Sorting"
+                          CanUserSortColumns="True"
+                          HeadersVisibility="Column"
+                          IsReadOnly="True"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False">
                   <DataGrid.Columns>
-                    <DataGridTextColumn Header="id" Binding="{Binding Id}" Width="70"/>
-                    <DataGridTextColumn Header="name" Binding="{Binding Name}" Width="140"/>
-                    <DataGridTextColumn x:Name="DbColCardType" Header="card_type" Binding="{Binding CardType}" Width="90"/>
-                    <DataGridTextColumn x:Name="DbColCreatedAt" Header="created_at" Binding="{Binding CreatedAtDisplay}" Width="140"/>
-                    <DataGridTextColumn Header="description" Binding="{Binding Description}" Width="180"/>
-                    <DataGridTextColumn Header="modded_name" Binding="{Binding ModdedName}" Width="120"/>
-                    <DataGridTextColumn Header="modded_description" Binding="{Binding ModdedDescription}" Width="140"/>
-                    <DataGridTextColumn Header="bundle" Binding="{Binding Bundle}" Width="80"/>
-                    <DataGridTextColumn Header="data_index" Binding="{Binding DataIndex}" Width="80"/>
-                    <DataGridCheckBoxColumn Header="favorite" Binding="{Binding Favorite}" Width="70"/>
-                    <DataGridCheckBoxColumn Header="has_backup" Binding="{Binding HasBackup}" Width="80"/>
+                    <DataGridTextColumn Header="id" Binding="{Binding Id}" SortMemberPath="Id" Width="70"/>
+                    <DataGridTextColumn Header="name" Binding="{Binding Name}" SortMemberPath="Name" Width="140"/>
+                    <DataGridTextColumn x:Name="DbColCardType" Header="card_type" Binding="{Binding CardType}" SortMemberPath="CardType" Width="90"/>
+                    <DataGridTextColumn x:Name="DbColCreatedAt" Header="created_at" Binding="{Binding CreatedAtDisplay}" SortMemberPath="CreatedAt" Width="140"/>
+                    <DataGridTextColumn Header="description" Binding="{Binding Description}" SortMemberPath="Description" Width="180"/>
+                    <DataGridTextColumn Header="modded_name" Binding="{Binding ModdedName}" SortMemberPath="ModdedName" Width="120"/>
+                    <DataGridTextColumn Header="modded_description" Binding="{Binding ModdedDescription}" SortMemberPath="ModdedDescription" Width="140"/>
+                    <DataGridTextColumn Header="bundle" Binding="{Binding Bundle}" SortMemberPath="Bundle" Width="80"/>
+                    <DataGridTextColumn Header="data_index" Binding="{Binding DataIndex}" SortMemberPath="DataIndex" Width="80"/>
+                    <DataGridCheckBoxColumn Header="favorite" Binding="{Binding Favorite}" SortMemberPath="Favorite" Width="70" IsReadOnly="True"/>
+                    <DataGridCheckBoxColumn Header="has_backup" Binding="{Binding HasBackup}" SortMemberPath="HasBackup" Width="80" IsReadOnly="True"/>
                   </DataGrid.Columns>
                 </DataGrid>
               </DockPanel>
@@ -372,11 +405,9 @@
 
             <Border Grid.Column="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
               <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="Edit record" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock DockPanel.Dock="Top" Text="Record details" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                 <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,12,0,0">
-                  <Button Content="Save" Click="DbSave_Click" Background="{StaticResource AccentBrush}"/>
-                  <Button Content="Discard" Click="DbDiscard_Click"/>
-                  <Button Content="Open in Card Art" Click="DbOpenInCardArt_Click" Margin="12,0,0,0"/>
+                  <Button Content="Open in Card Art" Click="DbOpenInCardArt_Click"/>
                   <Button Content="Open in Over-frame" Click="DbOpenInOverFrame_Click"/>
                 </StackPanel>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -403,18 +434,18 @@
                     <TextBox x:Name="DbEditIdBox" Grid.Row="0" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
 
                     <TextBlock Grid.Row="1" Text="name" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                    <TextBox x:Name="DbEditNameBox" Grid.Row="1" Grid.Column="1" Margin="0,0,0,8"/>
+                    <TextBox x:Name="DbEditNameBox" Grid.Row="1" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
 
                     <TextBlock Grid.Row="2" Text="description" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Top" Margin="0,6,0,8"/>
                     <TextBox x:Name="DbEditDescBox" Grid.Row="2" Grid.Column="1" Height="90" TextWrapping="Wrap"
-                             AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Margin="0,0,0,8"/>
+                             AcceptsReturn="True" VerticalScrollBarVisibility="Auto" IsReadOnly="True" Margin="0,0,0,8"/>
 
                     <TextBlock Grid.Row="3" Text="modded_name" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                    <TextBox x:Name="DbEditModdedNameBox" Grid.Row="3" Grid.Column="1" Margin="0,0,0,8"/>
+                    <TextBox x:Name="DbEditModdedNameBox" Grid.Row="3" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
 
                     <TextBlock Grid.Row="4" Text="modded_description" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Top" Margin="0,6,0,8"/>
                     <TextBox x:Name="DbEditModdedDescBox" Grid.Row="4" Grid.Column="1" Height="90" TextWrapping="Wrap"
-                             AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Margin="0,0,0,8"/>
+                             AcceptsReturn="True" VerticalScrollBarVisibility="Auto" IsReadOnly="True" Margin="0,0,0,8"/>
 
                     <TextBlock x:Name="DbEditCardTypeLabel" Grid.Row="5" Text="card_type" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
                     <TextBox x:Name="DbEditCardTypeBox" Grid.Row="5" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
@@ -429,7 +460,7 @@
                     <TextBox x:Name="DbEditDataIndexBox" Grid.Row="8" Grid.Column="1" IsReadOnly="True" Margin="0,0,0,8"/>
 
                     <TextBlock Grid.Row="9" Text="favorite" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                    <CheckBox x:Name="DbEditFavoriteBox" Grid.Row="9" Grid.Column="1" Content="Favorite" Margin="0,0,0,8"/>
+                    <CheckBox x:Name="DbEditFavoriteBox" Grid.Row="9" Grid.Column="1" Content="Favorite" IsEnabled="False" Margin="0,0,0,8"/>
 
                     <TextBlock Grid.Row="10" Text="has_backup" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
                     <TextBox x:Name="DbEditHasBackupBox" Grid.Row="10" Grid.Column="1" IsReadOnly="True"/>
@@ -458,6 +489,7 @@
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
           </Grid.RowDefinitions>
 
@@ -483,22 +515,39 @@
 
           <Border Grid.Row="1" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
             <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Text="of_card_asset gate" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <TextBlock DockPanel.Dock="Top"
+                         Text="Locate the AssetBundle that contains TextAsset of_card_asset under LocalData/0000 and StreamingAssets, cache its id in user.db, and sync is_overframe flags from the live gate. Runs off the UI thread so the app stays responsive during the scan."
+                         Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <Button x:Name="ToolsScanOfCardAssetButton" Content="Scan / locate of_card_asset…"
+                        Click="ToolsScanOfCardAsset_Click" Background="{StaticResource AccentBrush}"
+                        Padding="12,4" Margin="0,0,8,0"
+                        ToolTip="Find of_card_asset, cache the bundle id, and sync Over-frame flags from the gate. Long filesystem/AssetBundle work runs in the background."/>
+              </StackPanel>
+              <TextBlock x:Name="ToolsScanOfCardAssetStatusText"
+                         Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+            </DockPanel>
+          </Border>
+
+          <Border Grid.Row="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
+            <DockPanel>
               <TextBlock DockPanel.Dock="Top" Text="Over-frames after patch" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
               <TextBlock DockPanel.Dock="Top"
-                         Text="After a Master Duel update replaces of_card_asset, Floowan over-frames can drop out of the gate even when art backups remain. This scans user.db for cards Floowan previously applied OF to, re-writes applied OF canvases into live art bundles when needed, and appends gate entries without wiping official Konami over-frames."
+                         Text="After a Master Duel update replaces of_card_asset, modded over-frames can drop out of the gate even when art backups remain. This scans user.db for cards this tool previously applied OF to, re-writes applied OF canvases into live art bundles when needed, and appends gate entries without wiping official Konami over-frames."
                          Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
               <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                 <Button x:Name="ToolsRestoreOverframesButton" Content="Restore overframes after patch"
                         Click="ToolsRestoreOverframesAfterPatch_Click" Background="{StaticResource AccentBrush}"
                         Padding="12,4" Margin="0,0,8,0"
-                        ToolTip="Scan user.db for Floowan-applied over-frames, merge each art id into the current of_card_asset gate (additive — official OF entries are kept), and re-apply 704x1024 art from backups/cards/*-applied-overframe.png when live texture was reset. Skips cards that are already gated with OF-sized art. Does not restore the whole gate backup file."/>
+                        ToolTip="Scan user.db for previously applied over-frames, merge each art id into the current of_card_asset gate (additive — official OF entries are kept), and re-apply 704x1024 art from backups/cards/*-applied-overframe.png when live texture was reset. Skips cards that are already gated with OF-sized art. Does not restore the whole gate backup file."/>
               </StackPanel>
               <TextBlock x:Name="ToolsRestoreOverframesStatusText"
                          Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
             </DockPanel>
           </Border>
 
-          <Border Grid.Row="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+          <Border Grid.Row="3" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
             <DockPanel>
               <TextBlock DockPanel.Dock="Top" Text="Backups" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
               <TextBlock DockPanel.Dock="Top"
@@ -526,6 +575,70 @@
             </DockPanel>
           </Border>
         </Grid>
+      </TabItem>
+
+      <TabItem x:Name="AboutTab" Header="About">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
+          <StackPanel>
+            <Border Background="{StaticResource PanelBrush}" Padding="16" CornerRadius="4" Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock Text="Masterduel modding tool by AmidoriA"
+                           FontSize="20" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock Text="Version 0.0.2"
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+                <TextBlock Text="Card art and over-frame modding for Yu-Gi-Oh! Master Duel."
+                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                <StackPanel Orientation="Horizontal">
+                  <Button Content="Open on GitHub" Click="AboutOpenProjectGitHub_Click"
+                          Background="{StaticResource AccentBrush}" Padding="12,4" Margin="0,0,8,0"
+                          ToolTip="https://github.com/AmidoriA/master-duel-modding"/>
+                  <TextBlock VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}">
+                    <Hyperlink NavigateUri="https://github.com/AmidoriA/master-duel-modding"
+                               RequestNavigate="AboutHyperlink_RequestNavigate">
+                      github.com/AmidoriA/master-duel-modding
+                    </Hyperlink>
+                  </TextBlock>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <Border Background="{StaticResource PanelBrush}" Padding="16" CornerRadius="4" Margin="0,0,0,12"
+                    BorderBrush="#5B8DEF" BorderThickness="1">
+              <StackPanel>
+                <TextBlock Text="Credits — Floowandereeze and Modding"
+                           FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock TextWrapping="Wrap" Margin="0,0,0,10" LineHeight="22">
+                  <Run Text="This tool is heavily inspired by and based on the"/>
+                  <Run FontWeight="SemiBold" Text=" Floowandereeze and Modding "/>
+                  <Run Text="project by Nauder. The original Qt modding app pioneered practical Master Duel card-art replacement (path layout, Texture2D workflow, backups). AmidoriA’s C# tool reimplements related behaviors independently — please give Floowandereeze the credit it deserves."/>
+                </TextBlock>
+                <StackPanel Orientation="Horizontal">
+                  <Button Content="Open Floowandereeze on GitHub" Click="AboutOpenFloowandereezeGitHub_Click"
+                          Background="{StaticResource AccentBrush}" Padding="12,4" Margin="0,0,8,0"
+                          ToolTip="https://github.com/Nauder/floowandereeze-and-modding-qt"/>
+                  <TextBlock VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}">
+                    <Hyperlink NavigateUri="https://github.com/Nauder/floowandereeze-and-modding-qt"
+                               RequestNavigate="AboutHyperlink_RequestNavigate">
+                      github.com/Nauder/floowandereeze-and-modding-qt
+                    </Hyperlink>
+                  </TextBlock>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <Border Background="{StaticResource PanelBrush}" Padding="16" CornerRadius="4">
+              <StackPanel>
+                <TextBlock Text="Third-party notices" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock Text="Licenses and attributions for libraries and inspiration used by this app."
+                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                <Button Content="Open third-party notices"
+                        Click="AboutOpenThirdPartyNotices_Click"
+                        HorizontalAlignment="Left"
+                        Padding="12,4"/>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
       </TabItem>
     </TabControl>
   </DockPanel>

@@ -20,7 +20,6 @@ namespace Floowan.Desktop;
 public partial class CustomOverframeWindow : Window
 {
     private readonly AutoOverFrameArtService _autoArt;
-    private readonly Sam2PointCutoutService _sam2Cutout = new();
     private readonly OverFrameModService _overFrameService;
     private readonly CardRecord _card;
     private readonly string _gamePath;
@@ -34,6 +33,10 @@ public partial class CustomOverframeWindow : Window
     private string? _composedTempPath;
     private int _offsetX;
     private int _offsetY;
+    /// <summary>True when Cover background is live card art (default / "Use card art").</summary>
+    private bool _backgroundIsCardArt;
+    /// <summary>True when subject is rembg cutout from this card's live art.</summary>
+    private bool _subjectIsCardArtRembg;
     private const float DefaultSubjectScale = 1.5f;
     private const float DefaultBackgroundScale = 1.0f;
 
@@ -42,8 +45,6 @@ public partial class CustomOverframeWindow : Window
     private int _backgroundOffsetX;
     private int _backgroundOffsetY;
     private bool _busy;
-    private bool _samPointPickMode;
-    private Image<Rgba32>? _samPickSource;
     private bool _dragging;
     private bool _scaleDragging;
     private bool _bgTransformDragging;
@@ -74,10 +75,6 @@ public partial class CustomOverframeWindow : Window
         _linkMarkers = linkMarkers;
         Title = $"Custom overframe art — {card.DisplayName}";
         SelectFrameStyle(initialFrameStyle);
-        FromCurrentArtSam2Button.Visibility = Sam2PointCutoutService.IsFeatureEnabled
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        PreviewKeyDown += CustomOverframeWindow_PreviewKeyDown;
         // Do not sync-load CARD_Prop here — that freezes the dialog. Parent may have
         // pre-resolved markers; otherwise load async on first Link frame selection / Loaded.
         if (LinkArrowOverlay.NeedsArrowOverlay(initialFrameStyle) && _linkMarkers is null)
@@ -138,12 +135,14 @@ public partial class CustomOverframeWindow : Window
 
     private void SelectFrameStyle(CardFrameStyle style)
     {
+        // Dropdown lists solid type names only; OF compose maps to OfGradient*.
+        var solid = CardFrameTemplates.GetSolidBaseStyle(style);
         for (var i = 0; i < FrameStyleBox.Items.Count; i++)
         {
             if (FrameStyleBox.Items[i] is ComboBoxItem item
                 && item.Tag is string tag
                 && Enum.TryParse<CardFrameStyle>(tag, out var parsed)
-                && parsed == style)
+                && parsed == solid)
             {
                 FrameStyleBox.SelectedIndex = i;
                 return;
@@ -161,16 +160,19 @@ public partial class CustomOverframeWindow : Window
         await RefreshLinkMarkersForFrameAsync(GetSelectedFrameStyle());
     }
 
+    /// <summary>
+    /// Frame style for OF compose — always the OfGradient* equivalent of the dropdown selection.
+    /// </summary>
     private CardFrameStyle GetSelectedFrameStyle()
     {
         if (FrameStyleBox.SelectedItem is ComboBoxItem item
             && item.Tag is string tag
             && Enum.TryParse<CardFrameStyle>(tag, out var selected))
         {
-            return selected;
+            return CardFrameTemplates.ToOfGradientStyle(selected);
         }
 
-        return CardFrameStyle.Effect;
+        return CardFrameTemplates.ToOfGradientStyle(CardFrameStyle.Effect);
     }
 
     private async Task RefreshLinkMarkersForFrameAsync(CardFrameStyle frameStyle)
@@ -341,33 +343,61 @@ public partial class CustomOverframeWindow : Window
         await ApplyBackgroundTransformChangeAsync();
     }
 
-    private async void MatchBackgroundToSubject_Click(object sender, RoutedEventArgs e)
-    {
-        if (_busy || _backgroundSource is null)
-            return;
+    /// <summary>
+    /// Auto-match Cover background to subject only when both come from card art
+    /// (live-art rembg subject + card-art background). Re-applies on subject drag/scale
+    /// while that pairing holds; skipped for custom BG/subject / Cover-only.
+    /// </summary>
+    private bool ShouldAutoMatchBackgroundToSubject() =>
+        _backgroundIsCardArt
+        && _subjectIsCardArtRembg
+        && _backgroundSource is not null
+        && _subjectSource is not null;
 
-        var subjectScale = GetSubjectScale();
+    /// <summary>
+    /// Copies subject Cover scale/offset into background sliders and fields via Core
+    /// <see cref="OverFrameAutoArtComposer.MatchBackgroundToSubject"/> (Pendulum Y bias).
+    /// Writes BG controls under <see cref="_updatingBgPanSliders"/> so pan/scale handlers
+    /// do not re-enter. Does not recompose; caller must refresh preview afterward.
+    /// </summary>
+    private bool TryApplyAutoMatchBackgroundTransforms()
+    {
+        if (!ShouldAutoMatchBackgroundToSubject() || _backgroundSource is null)
+            return false;
+
+        // Core Match accounts for PendulumVerticalOffset: subject Cover is nudged +200 on
+        // Pendulum while hole-only Cover background is not — copying offset 1:1 misaligns.
+        var (matchedScale, matchedPanX, matchedPanY) =
+            OverFrameAutoArtComposer.MatchBackgroundToSubject(
+                GetSubjectScale(),
+                _offsetX,
+                _offsetY,
+                GetSelectedFrameStyle(),
+                _backgroundSource.Width,
+                _backgroundSource.Height);
+
         _updatingBgPanSliders = true;
         try
         {
-            BgScaleSlider.Value = subjectScale;
+            BgScaleSlider.Value = matchedScale;
         }
         finally
         {
             _updatingBgPanSliders = false;
         }
 
-        // Pan limits depend on the new shared Cover scale — sync ranges first, then
-        // copy subject offset (clamped to overflow so the hole stays covered when ≥ ×1).
-        // Do not write _backgroundOffset* here; ApplyBackgroundTransformChangeAsync owns that.
+        // Pan limits depend on the new shared Cover scale — sync ranges first, then apply
+        // matched pan (already clamped in Core; re-clamp to live slider max for safety).
         SyncBackgroundPanSliderRanges();
+        int panX;
+        int panY;
         _updatingBgPanSliders = true;
         try
         {
-            var panX = OverFrameAutoArtComposer.ClampBackgroundPan(
-                _offsetX, (int)Math.Round(BgPanHSlider.Maximum));
-            var panY = OverFrameAutoArtComposer.ClampBackgroundPan(
-                _offsetY, (int)Math.Round(BgPanVSlider.Maximum));
+            panX = OverFrameAutoArtComposer.ClampBackgroundPan(
+                matchedPanX, (int)Math.Round(BgPanHSlider.Maximum));
+            panY = OverFrameAutoArtComposer.ClampBackgroundPan(
+                matchedPanY, (int)Math.Round(BgPanVSlider.Maximum));
             BgPanHSlider.Value = panX;
             BgPanVSlider.Value = panY;
         }
@@ -376,14 +406,11 @@ public partial class CustomOverframeWindow : Window
             _updatingBgPanSliders = false;
         }
 
+        _backgroundScale = matchedScale;
+        _backgroundOffsetX = panX;
+        _backgroundOffsetY = panY;
         UpdateBackgroundTransformLabels();
-        await ApplyBackgroundTransformChangeAsync();
-        if (!_busy)
-        {
-            StatusText.Text =
-                $"Matched background to subject: scale ×{_backgroundScale:0.00}, " +
-                $"pan {_backgroundOffsetX}, {_backgroundOffsetY}.";
-        }
+        return true;
     }
 
     private async Task ApplyArtScaleChangeAsync()
@@ -404,9 +431,11 @@ public partial class CustomOverframeWindow : Window
         StatusText.Text = $"Recomposing at art scale ×{_subjectScale:0.00}…";
         try
         {
+            var matched = TryApplyAutoMatchBackgroundTransforms();
             await RecomposePreviewAsync();
-            StatusText.Text =
-                $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}. Drag or Apply.";
+            StatusText.Text = matched
+                ? $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}; background matched. Drag or Apply."
+                : $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}. Drag or Apply.";
         }
         catch (Exception ex)
         {
@@ -514,6 +543,7 @@ public partial class CustomOverframeWindow : Window
         try
         {
             DisposeBackground();
+            _backgroundIsCardArt = false;
             _backgroundSource = await Task.Run(() => ImageSharpImage.Load<Rgba32>(dlg.FileName));
             ResetBackgroundPlacement();
             await RefreshPreviewAfterBackgroundChangeAsync(
@@ -568,11 +598,15 @@ public partial class CustomOverframeWindow : Window
             await Task.Run(() => _overFrameService.ExtractCardArt(gamePath, card, outputPath));
 
             DisposeBackground();
+            _backgroundIsCardArt = true;
             _backgroundSource = await Task.Run(() => ImageSharpImage.Load<Rgba32>(liveTemp));
             ResetBackgroundPlacement();
 
+            var matched = TryApplyAutoMatchBackgroundTransforms();
             var subjectStatus = readyStatus
-                ?? "Background: current card art (Cover). Preview updated — drag Card Art or Apply.";
+                ?? (matched
+                    ? $"Background: current card art (Cover), matched to rembg subject ×{_backgroundScale:0.00}. Drag Card Art or Apply."
+                    : "Background: current card art (Cover). Preview updated — drag Card Art or Apply.");
             var backgroundOnlyStatus = readyStatus
                 ?? "Background: current card art (Cover). Pick a subject…";
             await RefreshPreviewAfterBackgroundChangeAsync(subjectStatus, backgroundOnlyStatus);
@@ -644,11 +678,24 @@ public partial class CustomOverframeWindow : Window
         CleanupComposedTemp();
     }
 
-    private async void PickImage_Click(object sender, RoutedEventArgs e)
+    private async void SubjectAutoRadio_Click(object sender, RoutedEventArgs e)
     {
         if (_busy)
             return;
 
+        await PrepareSubjectFromLiveArtRembgAsync();
+    }
+
+    private async void SubjectManualRadio_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy)
+            return;
+
+        await PickSubjectImageAsync();
+    }
+
+    private async Task PickSubjectImageAsync()
+    {
         var dlg = new OpenFileDialog
         {
             Title = "Select subject image with alpha for custom overframe",
@@ -674,188 +721,6 @@ public partial class CustomOverframeWindow : Window
         await PrepareFromImageAsync(dlg.FileName, sizeNote);
     }
 
-    private async void FromCurrentArtRembg_Click(object sender, RoutedEventArgs e)
-    {
-        if (_busy)
-            return;
-
-        await PrepareSubjectFromLiveArtRembgAsync();
-    }
-
-    private void CustomOverframeWindow_PreviewKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key != Key.Escape || !_samPointPickMode)
-            return;
-
-        CancelSamPointPick();
-        StatusText.Text = "SAM 2 point pick cancelled.";
-        e.Handled = true;
-    }
-
-    private async void FromCurrentArtSam2_Click(object sender, RoutedEventArgs e)
-    {
-        if (_busy || !Sam2PointCutoutService.IsFeatureEnabled)
-            return;
-
-        await BeginSamPointPickAsync();
-    }
-
-    /// <summary>
-    /// Extracts live card art into the preview and waits for a click that becomes the
-    /// SAM 2 positive point prompt.
-    /// </summary>
-    private async Task BeginSamPointPickAsync()
-    {
-        SetBusy(true);
-        string? liveTemp = null;
-        try
-        {
-            CancelSamPointPick(clearStatus: false);
-            liveTemp = Path.Combine(
-                Path.GetTempPath(),
-                $"floowan-custom-of-sam2-{Guid.NewGuid():N}.png");
-            StatusText.Text = "Extracting live card art for SAM 2…";
-            var gamePath = _gamePath;
-            var card = _card;
-            var outputPath = liveTemp;
-            await Task.Run(() => _overFrameService.ExtractCardArt(gamePath, card, outputPath));
-
-            var progress = new Progress<string>(msg => StatusText.Text = msg);
-            // Download / SHA-256 / extract / ONNX session load — all off UI (Core).
-            await _sam2Cutout.EnsureModelsAsync(progress);
-
-            var imagePath = liveTemp;
-            var pickSource = await Task.Run(() =>
-            {
-                using var loaded = ImageSharpImage.Load<Rgba32>(imagePath);
-                var clean = OverFrameAutoArtComposer.RequireCleanIllustrationSource(loaded);
-                var clone = clean.Clone();
-                if (!ReferenceEquals(loaded, clean))
-                    clean.Dispose();
-                return clone;
-            });
-
-            _samPickSource?.Dispose();
-            _samPickSource = pickSource;
-
-            ClearSubjectOverlay();
-            PreviewImage.Source = await Task.Run(() => ToPreviewBitmap(pickSource));
-            PreviewImage.Cursor = Cursors.Cross;
-            PreviewHintText.Visibility = Visibility.Collapsed;
-            ApplyButton.IsEnabled = false;
-            _samPointPickMode = true;
-            StatusText.Text =
-                "SAM 2: click the subject on the preview (e.g. dragon, not rider). Esc cancels.";
-        }
-        catch (Exception ex)
-        {
-            CancelSamPointPick(clearStatus: false);
-            StatusText.Text = "SAM 2 prepare failed: " + ex.Message;
-            MessageBox.Show(
-                this,
-                "Could not prepare SAM 2 point cutout:\n\n" + ex.Message,
-                "Custom overframe art",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
-        }
-        finally
-        {
-            if (liveTemp is not null && File.Exists(liveTemp))
-            {
-                try { File.Delete(liveTemp); } catch { /* ignore */ }
-            }
-
-            SetBusy(false);
-            if (_samPointPickMode)
-                PreviewImage.Cursor = Cursors.Cross;
-        }
-    }
-
-    private void CancelSamPointPick(bool clearStatus = true)
-    {
-        _samPointPickMode = false;
-        _samPickSource?.Dispose();
-        _samPickSource = null;
-        PreviewImage.Cursor = Cursors.SizeAll;
-        if (clearStatus && StatusText.Text.StartsWith("SAM 2:", StringComparison.Ordinal))
-            StatusText.Text = "Ready.";
-    }
-
-    private async Task RunSam2AtPreviewPointAsync(System.Windows.Point hostPos)
-    {
-        if (_samPickSource is null || _busy)
-            return;
-
-        if (!Sam2PointCutoutService.TryMapPreviewClickToImage(
-                hostPos.X,
-                hostPos.Y,
-                PreviewHost.ActualWidth,
-                PreviewHost.ActualHeight,
-                _samPickSource.Width,
-                _samPickSource.Height,
-                out var imageX,
-                out var imageY))
-        {
-            StatusText.Text = "SAM 2: click inside the card art.";
-            return;
-        }
-
-        SetBusy(true);
-        StatusText.Text = $"SAM 2: segmenting at ({imageX:0},{imageY:0})…";
-        string? tempPath = null;
-        try
-        {
-            tempPath = Path.Combine(
-                Path.GetTempPath(),
-                $"floowan-sam2-src-{Guid.NewGuid():N}.png");
-            var savePath = tempPath;
-            var pickSource = _samPickSource;
-            await Task.Run(() =>
-                pickSource.Save(savePath, new SixLabors.ImageSharp.Formats.Png.PngEncoder()));
-
-            var progress = new Progress<string>(msg => StatusText.Text = msg);
-            var prepared = await _sam2Cutout.PrepareSubjectWithPointAsync(
-                tempPath,
-                imageX,
-                imageY,
-                progress);
-
-            CancelSamPointPick(clearStatus: false);
-            ResetSubjectPlacement();
-            _subjectSource = prepared.Source;
-            _subjectMask = prepared.Mask;
-
-            await RecomposePreviewAsync();
-            StatusText.Text =
-                $"Subject from SAM 2 point ({imageX:0},{imageY:0}). Drag or scale the art, then Apply.";
-            PreviewHintText.Visibility = Visibility.Collapsed;
-            ApplyButton.IsEnabled = true;
-        }
-        catch (Exception ex)
-        {
-            await FailSubjectPrepareAsync(ex);
-            if (_samPickSource is not null)
-            {
-                var retrySource = _samPickSource;
-                _samPointPickMode = true;
-                PreviewImage.Source = await Task.Run(() => ToPreviewBitmap(retrySource));
-                PreviewImage.Cursor = Cursors.Cross;
-                StatusText.Text =
-                    "SAM 2 failed — click another point, or Esc to cancel. " + ex.Message;
-            }
-        }
-        finally
-        {
-            if (tempPath is not null && File.Exists(tempPath))
-            {
-                try { File.Delete(tempPath); } catch { /* ignore */ }
-            }
-
-            SetBusy(false);
-        }
-    }
-
-
     private async Task PrepareFromImageAsync(string imagePath, string sizeNote)
     {
         SetBusy(true);
@@ -869,6 +734,8 @@ public partial class CustomOverframeWindow : Window
                 () => AutoOverFrameArtService.LoadSubjectFromAlpha(imagePath, progress));
             _subjectSource = prepared.Source;
             _subjectMask = prepared.Mask;
+            _subjectIsCardArtRembg = false;
+            SubjectManualRadio.IsChecked = true;
 
             await RecomposePreviewAsync();
             StatusText.Text =
@@ -888,7 +755,7 @@ public partial class CustomOverframeWindow : Window
 
     /// <summary>
     /// Extracts live card art, runs rembg, and installs the cutout as the Card Art
-    /// subject layer (same preview path as Select subject…).
+    /// subject layer (same preview path as Pick manually…).
     /// </summary>
     private async Task PrepareSubjectFromLiveArtRembgAsync()
     {
@@ -910,10 +777,14 @@ public partial class CustomOverframeWindow : Window
             var prepared = await _autoArt.PrepareSubjectWithRembgAsync(liveTemp, progress);
             _subjectSource = prepared.Source;
             _subjectMask = prepared.Mask;
+            _subjectIsCardArtRembg = true;
+            SubjectAutoRadio.IsChecked = true;
 
+            var matched = TryApplyAutoMatchBackgroundTransforms();
             await RecomposePreviewAsync();
-            StatusText.Text =
-                "Subject from live art (rembg). Drag or scale the art, then Apply.";
+            StatusText.Text = matched
+                ? $"Subject from live art (rembg); background matched ×{_backgroundScale:0.00}. Drag or Apply."
+                : "Subject from live art (rembg). Drag or scale the art, then Apply.";
             PreviewHintText.Visibility = Visibility.Collapsed;
             ApplyButton.IsEnabled = true;
         }
@@ -935,6 +806,7 @@ public partial class CustomOverframeWindow : Window
     private void ResetSubjectPlacement()
     {
         DisposeSubject();
+        _subjectIsCardArtRembg = false;
         _offsetX = 0;
         _offsetY = 0;
         _subjectScale = DefaultSubjectScale;
@@ -997,7 +869,7 @@ public partial class CustomOverframeWindow : Window
                 SyncBackgroundPanSliderRanges();
                 await ShowBackgroundOnlyPreviewAsync();
                 StatusText.Text =
-                    $"Background preview ({GetSelectedFrameStyle()}). Pick a subject…";
+                    $"Background preview ({CardTypeLabels.ToLabel(CardFrameTemplates.GetSolidBaseStyle(GetSelectedFrameStyle()))}). Pick a subject…";
             }
             catch (Exception ex)
             {
@@ -1023,7 +895,7 @@ public partial class CustomOverframeWindow : Window
             SyncBackgroundPanSliderRanges();
             await RecomposePreviewAsync();
             StatusText.Text =
-                $"Preview updated ({GetSelectedFrameStyle()}). Drag or scale the art, then Apply.";
+                $"Preview updated ({CardTypeLabels.ToLabel(CardFrameTemplates.GetSolidBaseStyle(GetSelectedFrameStyle()))}). Drag or scale the art, then Apply.";
         }
         catch (Exception ex)
         {
@@ -1135,19 +1007,9 @@ public partial class CustomOverframeWindow : Window
         SubjectOverlay.Visibility = Visibility.Visible;
     }
 
-    private async void Preview_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void Preview_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (_busy || PreviewImage.Source is null)
-            return;
-
-        if (_samPointPickMode)
-        {
-            e.Handled = true;
-            await RunSam2AtPreviewPointAsync(e.GetPosition(PreviewHost));
-            return;
-        }
-
-        if (_subjectSource is null)
+        if (_subjectSource is null || _busy || PreviewImage.Source is null)
             return;
 
         _dragging = true;
@@ -1232,9 +1094,11 @@ public partial class CustomOverframeWindow : Window
         StatusText.Text = $"Recomposing at offset {_offsetX}, {_offsetY}…";
         try
         {
+            var matched = TryApplyAutoMatchBackgroundTransforms();
             await RecomposePreviewAsync();
-            StatusText.Text =
-                $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}. Drag or Apply.";
+            StatusText.Text = matched
+                ? $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}; background matched. Drag or Apply."
+                : $"Preview at scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}. Drag or Apply.";
         }
         catch (Exception ex)
         {
@@ -1340,10 +1204,8 @@ public partial class CustomOverframeWindow : Window
         _busy = busy;
         PickBackgroundButton.IsEnabled = !busy;
         UseCardArtBackgroundButton.IsEnabled = !busy;
-        MatchBackgroundToSubjectButton.IsEnabled = !busy && _backgroundSource is not null;
-        PickImageButton.IsEnabled = !busy;
-        FromCurrentArtRembgButton.IsEnabled = !busy;
-        FromCurrentArtSam2Button.IsEnabled = !busy && Sam2PointCutoutService.IsFeatureEnabled;
+        SubjectAutoRadio.IsEnabled = !busy;
+        SubjectManualRadio.IsEnabled = !busy;
         FrameStyleBox.IsEnabled = !busy;
         ArtScaleSlider.IsEnabled = !busy;
         BgScaleSlider.IsEnabled = !busy;
@@ -1377,12 +1239,14 @@ public partial class CustomOverframeWindow : Window
         _subjectMask?.Dispose();
         _subjectSource = null;
         _subjectMask = null;
+        _subjectIsCardArtRembg = false;
     }
 
     private void DisposeBackground()
     {
         _backgroundSource?.Dispose();
         _backgroundSource = null;
+        _backgroundIsCardArt = false;
     }
 
     private void CleanupComposedTemp()
@@ -1397,11 +1261,9 @@ public partial class CustomOverframeWindow : Window
 
     private void Cleanup()
     {
-        CancelSamPointPick(clearStatus: false);
         DisposeSubject();
         DisposeBackground();
         CleanupComposedTemp();
-        _sam2Cutout.Dispose();
     }
 
     private static BitmapImage LoadOfComposePreview(string path)

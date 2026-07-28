@@ -58,6 +58,9 @@ public sealed class AutoOverFrameArtService : IDisposable
         if (!File.Exists(sourceImagePath))
             throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
 
+        // OF always uses gradient chrome; solid dropdown / inference styles are mapped here.
+        frameStyle = CardFrameTemplates.ToOfGradientStyle(frameStyle);
+
         await EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
         progress?.Report("Removing background with isnet-anime…");
 
@@ -200,6 +203,7 @@ public sealed class AutoOverFrameArtService : IDisposable
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(mask);
+        frameStyle = CardFrameTemplates.ToOfGradientStyle(frameStyle);
         using var result = OverFrameAutoArtComposer.Compose(
             source,
             mask,

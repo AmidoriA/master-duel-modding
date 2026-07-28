@@ -30,10 +30,87 @@ public static class CardFrameTemplates
             [CardFrameStyle.PendulumRitual] = "PendulumRitual.png",
             // Same MD asset as PendulumRitual (card_frame19); legacy filename retained.
             [CardFrameStyle.PendulumToken] = "PendulumToken.png",
+
+            [CardFrameStyle.OfGradientEffect] = "OfGradientEffect.png",
+            [CardFrameStyle.OfGradientNormal] = "OfGradientNormal.png",
+            [CardFrameStyle.OfGradientFusion] = "OfGradientFusion.png",
+            [CardFrameStyle.OfGradientSynchro] = "OfGradientSynchro.png",
+            [CardFrameStyle.OfGradientXyz] = "OfGradientXyz.png",
+            [CardFrameStyle.OfGradientRitual] = "OfGradientRitual.png",
+            [CardFrameStyle.OfGradientSpell] = "OfGradientSpell.png",
+            [CardFrameStyle.OfGradientTrap] = "OfGradientTrap.png",
+            [CardFrameStyle.OfGradientLink] = "OfGradientLink.png",
+            [CardFrameStyle.OfGradientToken] = "OfGradientToken.png",
+            [CardFrameStyle.OfGradientPendulumNormal] = "OfGradientPendulumNormal.png",
+            [CardFrameStyle.OfGradientPendulumEffect] = "OfGradientPendulumEffect.png",
+            [CardFrameStyle.OfGradientPendulumFusion] = "OfGradientPendulumFusion.png",
+            [CardFrameStyle.OfGradientPendulumSynchro] = "OfGradientPendulumSynchro.png",
+            [CardFrameStyle.OfGradientPendulumXyz] = "OfGradientPendulumXyz.png",
+            [CardFrameStyle.OfGradientPendulumRitual] = "OfGradientPendulumRitual.png",
+            [CardFrameStyle.OfGradientPendulumToken] = "OfGradientPendulumToken.png",
         };
 
     public static string GetFileName(CardFrameStyle style) =>
         FileNames.TryGetValue(style, out var name) ? name : FileNames[CardFrameStyle.Effect];
+
+    /// <summary>
+    /// True for Floowan OF-premium gradient outer-border presets (not MD solid chrome).
+    /// </summary>
+    public static bool IsOfGradientStyle(CardFrameStyle style) =>
+        style is >= CardFrameStyle.OfGradientEffect and <= CardFrameStyle.OfGradientPendulumToken;
+
+    /// <summary>
+    /// Maps an OF-gradient preset back to its solid MD base style (layout / inference base / UI).
+    /// Solid styles return themselves.
+    /// </summary>
+    public static CardFrameStyle GetSolidBaseStyle(CardFrameStyle style) => style switch
+    {
+        CardFrameStyle.OfGradientEffect => CardFrameStyle.Effect,
+        CardFrameStyle.OfGradientNormal => CardFrameStyle.Normal,
+        CardFrameStyle.OfGradientFusion => CardFrameStyle.Fusion,
+        CardFrameStyle.OfGradientSynchro => CardFrameStyle.Synchro,
+        CardFrameStyle.OfGradientXyz => CardFrameStyle.Xyz,
+        CardFrameStyle.OfGradientRitual => CardFrameStyle.Ritual,
+        CardFrameStyle.OfGradientSpell => CardFrameStyle.Spell,
+        CardFrameStyle.OfGradientTrap => CardFrameStyle.Trap,
+        CardFrameStyle.OfGradientLink => CardFrameStyle.Link,
+        CardFrameStyle.OfGradientToken => CardFrameStyle.Token,
+        CardFrameStyle.OfGradientPendulumNormal => CardFrameStyle.PendulumNormal,
+        CardFrameStyle.OfGradientPendulumEffect => CardFrameStyle.PendulumEffect,
+        CardFrameStyle.OfGradientPendulumFusion => CardFrameStyle.PendulumFusion,
+        CardFrameStyle.OfGradientPendulumSynchro => CardFrameStyle.PendulumSynchro,
+        CardFrameStyle.OfGradientPendulumXyz => CardFrameStyle.PendulumXyz,
+        CardFrameStyle.OfGradientPendulumRitual => CardFrameStyle.PendulumRitual,
+        CardFrameStyle.OfGradientPendulumToken => CardFrameStyle.PendulumToken,
+        _ => style,
+    };
+
+    /// <summary>
+    /// Maps a solid MD frame style to its OF-gradient chrome preset.
+    /// Already-gradient styles return themselves. Used by all Over-frame compose paths —
+    /// card-art replace continues to use solid templates via <see cref="Load"/> directly.
+    /// </summary>
+    public static CardFrameStyle ToOfGradientStyle(CardFrameStyle style) => style switch
+    {
+        CardFrameStyle.Effect => CardFrameStyle.OfGradientEffect,
+        CardFrameStyle.Normal => CardFrameStyle.OfGradientNormal,
+        CardFrameStyle.Fusion => CardFrameStyle.OfGradientFusion,
+        CardFrameStyle.Synchro => CardFrameStyle.OfGradientSynchro,
+        CardFrameStyle.Xyz => CardFrameStyle.OfGradientXyz,
+        CardFrameStyle.Ritual => CardFrameStyle.OfGradientRitual,
+        CardFrameStyle.Spell => CardFrameStyle.OfGradientSpell,
+        CardFrameStyle.Trap => CardFrameStyle.OfGradientTrap,
+        CardFrameStyle.Link => CardFrameStyle.OfGradientLink,
+        CardFrameStyle.Token => CardFrameStyle.OfGradientToken,
+        CardFrameStyle.PendulumNormal => CardFrameStyle.OfGradientPendulumNormal,
+        CardFrameStyle.PendulumEffect => CardFrameStyle.OfGradientPendulumEffect,
+        CardFrameStyle.PendulumFusion => CardFrameStyle.OfGradientPendulumFusion,
+        CardFrameStyle.PendulumSynchro => CardFrameStyle.OfGradientPendulumSynchro,
+        CardFrameStyle.PendulumXyz => CardFrameStyle.OfGradientPendulumXyz,
+        CardFrameStyle.PendulumRitual => CardFrameStyle.OfGradientPendulumRitual,
+        CardFrameStyle.PendulumToken => CardFrameStyle.OfGradientPendulumToken,
+        _ => style,
+    };
 
     public static bool IsPendulumStyle(CardFrameStyle style) =>
         style is CardFrameStyle.PendulumNormal
@@ -42,7 +119,14 @@ public static class CardFrameTemplates
             or CardFrameStyle.PendulumSynchro
             or CardFrameStyle.PendulumXyz
             or CardFrameStyle.PendulumRitual
-            or CardFrameStyle.PendulumToken;
+            or CardFrameStyle.PendulumToken
+            or CardFrameStyle.OfGradientPendulumNormal
+            or CardFrameStyle.OfGradientPendulumEffect
+            or CardFrameStyle.OfGradientPendulumFusion
+            or CardFrameStyle.OfGradientPendulumSynchro
+            or CardFrameStyle.OfGradientPendulumXyz
+            or CardFrameStyle.OfGradientPendulumRitual
+            or CardFrameStyle.OfGradientPendulumToken;
 
     public static string ResolveTemplatePath(CardFrameStyle style, string? overrideDirectory = null)
     {
@@ -60,6 +144,11 @@ public static class CardFrameTemplates
                 return candidate;
         }
 
+        // OF-gradient presets can be derived on the fly from the solid base when the
+        // shipped PNG is missing (dev / partial installs).
+        if (IsOfGradientStyle(style))
+            return ResolveTemplatePath(GetSolidBaseStyle(style), overrideDirectory);
+
         throw new FileNotFoundException(
             $"Card frame template '{fileName}' was not found. Expected it next to the app or under Resources/frames.",
             fileName);
@@ -67,6 +156,37 @@ public static class CardFrameTemplates
 
     public static Image<Rgba32> Load(CardFrameStyle style, string? overrideDirectory = null)
     {
+        if (IsOfGradientStyle(style))
+        {
+            var fileName = GetFileName(style);
+            string? found = null;
+            if (!string.IsNullOrWhiteSpace(overrideDirectory))
+            {
+                var custom = Path.Combine(overrideDirectory, fileName);
+                if (File.Exists(custom))
+                    found = custom;
+            }
+
+            if (found is null)
+            {
+                foreach (var candidate in GetSearchPaths(fileName))
+                {
+                    if (File.Exists(candidate))
+                    {
+                        found = candidate;
+                        break;
+                    }
+                }
+            }
+
+            if (found is not null)
+                return Image.Load<Rgba32>(found);
+
+            // Derive from solid base when the preset PNG has not been generated yet.
+            using var solid = Load(GetSolidBaseStyle(style), overrideDirectory);
+            return OfGradientBorderComposer.Apply(solid, style);
+        }
+
         var path = ResolveTemplatePath(style, overrideDirectory);
         return Image.Load<Rgba32>(path);
     }
