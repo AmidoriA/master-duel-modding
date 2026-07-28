@@ -185,7 +185,6 @@
                 <RadioButton x:Name="OfViewThumbRadio" Content="Thumbnails" GroupName="OfResultsView"
                              Checked="OfResultsViewMode_Changed"/>
               </StackPanel>
-              <Button DockPanel.Dock="Top" Content="Scan / locate of_card_asset…" Click="OfScanGate_Click" Margin="0,0,0,8" HorizontalAlignment="Left"/>
               <ListBox x:Name="OfCardList"
                        ItemTemplate="{StaticResource OfCardListItemTemplate}"
                        ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -469,6 +468,7 @@
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
           </Grid.RowDefinitions>
 
@@ -494,6 +494,23 @@
 
           <Border Grid.Row="1" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
             <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Text="of_card_asset gate" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <TextBlock DockPanel.Dock="Top"
+                         Text="Locate the AssetBundle that contains TextAsset of_card_asset under LocalData/0000 and StreamingAssets, cache its id in user.db, and sync is_overframe flags from the live gate. Runs off the UI thread so the app stays responsive during the scan."
+                         Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <Button x:Name="ToolsScanOfCardAssetButton" Content="Scan / locate of_card_asset…"
+                        Click="ToolsScanOfCardAsset_Click" Background="{StaticResource AccentBrush}"
+                        Padding="12,4" Margin="0,0,8,0"
+                        ToolTip="Find of_card_asset, cache the bundle id, and sync Over-frame flags from the gate. Long filesystem/AssetBundle work runs in the background."/>
+              </StackPanel>
+              <TextBlock x:Name="ToolsScanOfCardAssetStatusText"
+                         Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+            </DockPanel>
+          </Border>
+
+          <Border Grid.Row="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
+            <DockPanel>
               <TextBlock DockPanel.Dock="Top" Text="Over-frames after patch" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
               <TextBlock DockPanel.Dock="Top"
                          Text="After a Master Duel update replaces of_card_asset, Floowan over-frames can drop out of the gate even when art backups remain. This scans user.db for cards Floowan previously applied OF to, re-writes applied OF canvases into live art bundles when needed, and appends gate entries without wiping official Konami over-frames."
@@ -509,7 +526,7 @@
             </DockPanel>
           </Border>
 
-          <Border Grid.Row="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+          <Border Grid.Row="3" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
             <DockPanel>
               <TextBlock DockPanel.Dock="Top" Text="Backups" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
               <TextBlock DockPanel.Dock="Top"

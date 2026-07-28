@@ -722,7 +722,7 @@ public partial class MainWindow : Window
             var latest = _database.GetLatestCreatedAtUtc();
             var latestText = latest is DateTimeOffset dto
                 ? dto.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " UTC"
-                : "(none โ€” run Update entire DB first)";
+                : "(none — run Update entire DB first)";
             confirmBody =
                 "Upsert only cards from AssetBundles whose File.GetCreationTimeUtc is after the latest created_at in:\n" +
                 _database.MasterDatabasePath +
@@ -748,11 +748,10 @@ public partial class MainWindow : Window
         if (confirm != MessageBoxResult.Yes)
             return;
 
-        ToolsUpdateEntireDbButton.IsEnabled = false;
-        ToolsUpdateNewFilesDbButton.IsEnabled = false;
+        SetToolsLongRunningButtonsEnabled(false);
         SetUiBusy(true);
-        ToolsUpdateDbStatusText.Text = "Startingโ€ฆ";
-        Status(incremental ? "Updating new catalog files from gameโ€ฆ" : "Updating entire card database from gameโ€ฆ");
+        ToolsUpdateDbStatusText.Text = "Starting…";
+        Status(incremental ? "Updating new catalog files from game…" : "Updating entire card database from game…");
 
         var database = _database;
         var progress = new Progress<string>(msg =>
@@ -800,8 +799,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            ToolsUpdateEntireDbButton.IsEnabled = true;
-            ToolsUpdateNewFilesDbButton.IsEnabled = true;
+            SetToolsLongRunningButtonsEnabled(true);
             SetUiBusy(false);
         }
     }
@@ -845,12 +843,10 @@ public partial class MainWindow : Window
         if (confirm != MessageBoxResult.Yes)
             return;
 
-        ToolsRestoreOverframesButton.IsEnabled = false;
-        ToolsUpdateEntireDbButton.IsEnabled = false;
-        ToolsUpdateNewFilesDbButton.IsEnabled = false;
+        SetToolsLongRunningButtonsEnabled(false);
         SetUiBusy(true);
-        ToolsRestoreOverframesStatusText.Text = "Starting...";
-        Status("Restoring Floowan over-frames after patch...");
+        ToolsRestoreOverframesStatusText.Text = "Starting…";
+        Status("Restoring Floowan over-frames after patch…");
 
         var database = _database;
         var service = _overFrameService;
@@ -882,9 +878,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            ToolsRestoreOverframesButton.IsEnabled = true;
-            ToolsUpdateEntireDbButton.IsEnabled = true;
-            ToolsUpdateNewFilesDbButton.IsEnabled = true;
+            SetToolsLongRunningButtonsEnabled(true);
             SetUiBusy(false);
         }
     }
@@ -1368,7 +1362,22 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void OfScanGate_Click(object sender, RoutedEventArgs e) =>
+    private void SetToolsLongRunningButtonsEnabled(bool enabled)
+    {
+        ToolsUpdateEntireDbButton.IsEnabled = enabled;
+        ToolsUpdateNewFilesDbButton.IsEnabled = enabled;
+        ToolsScanOfCardAssetButton.IsEnabled = enabled;
+        ToolsRestoreOverframesButton.IsEnabled = enabled;
+    }
+
+    private void ReportOfGateScanStatus(string message)
+    {
+        OfGateStatusText.Text = message;
+        ToolsScanOfCardAssetStatusText.Text = message;
+        Status(message);
+    }
+
+    private async void ToolsScanOfCardAsset_Click(object sender, RoutedEventArgs e) =>
         await EnsureOfGateAsync(showErrors: true);
 
     private async Task EnsureOfGateAsync(bool showErrors)
@@ -1382,37 +1391,52 @@ public partial class MainWindow : Window
             return;
         }
 
+        SetToolsLongRunningButtonsEnabled(false);
         SetUiBusy(true);
-        OfGateStatusText.Text = "Scanning for of_card_asset?";
-        Status("Scanning for of_card_asset?");
+        ReportOfGateScanStatus("Scanning for of_card_asset…");
+
         var gamePath = GamePathBox.Text;
-        var progress = new Progress<string>(msg =>
-        {
-            OfGateStatusText.Text = msg;
-            Status(msg);
-        });
+        var database = _database;
+        var service = _overFrameService;
+        var progress = new Progress<string>(ReportOfGateScanStatus);
 
         try
         {
-            var result = await Task.Run(() =>
-                _overFrameService.EnsureGateLocated(gamePath, _database, progress));
+            // Locate + gate sync (art-id matching across card bundles) must stay off the UI thread.
+            var work = await Task.Run(() =>
+            {
+                var locate = service.EnsureGateLocated(gamePath, database, progress);
+                if (!locate.Success || database is null)
+                    return (Locate: locate, Synced: (int?)null, SyncError: (string?)null);
+
+                try
+                {
+                    var marked = service.SyncDatabaseFromGate(gamePath, database, progress);
+                    return (Locate: locate, Synced: (int?)marked, SyncError: (string?)null);
+                }
+                catch (Exception syncEx)
+                {
+                    return (Locate: locate, Synced: (int?)null, SyncError: syncEx.Message);
+                }
+            });
+
+            var result = work.Locate;
             if (result.Success)
             {
                 _ofGateReady = true;
-                OfGateStatusText.Text = result.Message + (result.BundleId is null ? "" : $" ({result.BundleId})");
-                Status(result.Message);
-                if (_database is not null)
+                var detail = result.Message + (result.BundleId is null ? "" : $" ({result.BundleId})");
+                if (work.SyncError is not null)
                 {
-                    try
-                    {
-                        var marked = _overFrameService.SyncDatabaseFromGate(gamePath, _database, progress);
-                        Status($"{result.Message} Synced {marked} over-frame flag(s).");
-                        RunOfSearch();
-                    }
-                    catch (Exception syncEx)
-                    {
-                        Status(result.Message + " Sync skipped: " + syncEx.Message);
-                    }
+                    ReportOfGateScanStatus(detail + " Sync skipped: " + work.SyncError);
+                }
+                else if (work.Synced is int marked)
+                {
+                    ReportOfGateScanStatus($"{result.Message} Synced {marked} over-frame flag(s).");
+                    RunOfSearch();
+                }
+                else
+                {
+                    ReportOfGateScanStatus(detail);
                 }
 
                 RefreshOfGateEntryStatus();
@@ -1420,8 +1444,7 @@ public partial class MainWindow : Window
             else
             {
                 _ofGateReady = false;
-                OfGateStatusText.Text = result.Message;
-                Status(result.Message);
+                ReportOfGateScanStatus(result.Message);
                 if (showErrors)
                     MessageBox.Show(result.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
@@ -1429,13 +1452,13 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             _ofGateReady = false;
-            OfGateStatusText.Text = "Scan failed: " + ex.Message;
-            Status(OfGateStatusText.Text);
+            ReportOfGateScanStatus("Scan failed: " + ex.Message);
             if (showErrors)
                 MessageBox.Show(ex.Message, "Floowan", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
+            SetToolsLongRunningButtonsEnabled(true);
             SetUiBusy(false);
         }
     }
