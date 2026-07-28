@@ -9,10 +9,9 @@ public class CardDatabaseTests
     {
         var candidates = new[]
         {
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "database.db")),
-            Path.Combine(Directory.GetCurrentDirectory(), "database.db"),
-            @"C:\Users\user\Documents\Projects\Floowan-db-sort-all\database.db",
-            @"C:\Users\user\Documents\Projects\Floowan-copy\database.db"
+            Path.Combine(AppContext.BaseDirectory, MasterDatabasePaths.FileName),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", MasterDatabasePaths.FileName)),
+            Path.Combine(Directory.GetCurrentDirectory(), MasterDatabasePaths.FileName),
         };
         return candidates.FirstOrDefault(File.Exists);
     }
