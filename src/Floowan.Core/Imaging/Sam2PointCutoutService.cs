@@ -11,13 +11,15 @@ using SixLabors.ImageSharp.Processing;
 namespace Floowan.Core.Imaging;
 
 /// <summary>
-/// Point-prompt subject cutout via Meta SAM 2 (Hiera-Tiny) ONNX encoder + decoder.
+/// SAM 2 (Hiera-Tiny) ONNX subject cutout: paint-region or point prompts.
 /// Runs in-process with Microsoft.ML.OnnxRuntime (no Python sidecar). Models are
 /// downloaded on first use into <c>%LOCALAPPDATA%\Floowan\models\sam2</c> and are
 /// not committed to the repo.
 /// </summary>
 public sealed class Sam2PointCutoutService : IDisposable
 {
+    /// <summary>Image-space prompt for the SAM 2 decoder (label 1 = positive, 2/3 = box corners).</summary>
+    public readonly record struct PromptPoint(float X, float Y, float Label);
     public const string ModelVariant = "sam2_hiera_tiny";
     public const string EncoderFileName = "sam2_hiera_tiny.encoder.onnx";
     public const string DecoderFileName = "sam2_hiera_tiny.decoder.onnx";
@@ -37,7 +39,7 @@ public sealed class Sam2PointCutoutService : IDisposable
     public const long BundleZipExpectedBytes = 154_902_833;
 
     /// <summary>
-    /// When false, Desktop hides the SAM point-cutout entry. Default true; set env
+    /// When false, Desktop hides the SAM paint-selection entry. Default true; set env
     /// <c>FLOOWAN_SAM2=0</c> to disable without rebuilding.
     /// </summary>
     public static bool IsFeatureEnabled
@@ -50,6 +52,9 @@ public sealed class Sam2PointCutoutService : IDisposable
             return !(env is "0" or "false" or "False" or "FALSE" or "off" or "OFF");
         }
     }
+
+    /// <summary>Minimum painted alpha treated as brush coverage when deriving SAM prompts.</summary>
+    public const byte PaintKeepThreshold = 32;
 
     private static readonly float[] Mean = [0.485f, 0.456f, 0.406f];
     private static readonly float[] StdDev = [0.229f, 0.224f, 0.225f];
@@ -86,19 +91,84 @@ public sealed class Sam2PointCutoutService : IDisposable
     /// <paramref name="pointX"/>/<paramref name="pointY"/> source-pixel coordinates.
     /// Returns RGB source + L8 mask (caller disposes both).
     /// </summary>
-    public async Task<(Image<Rgba32> Source, Image<L8> Mask)> PrepareSubjectWithPointAsync(
+    public Task<(Image<Rgba32> Source, Image<L8> Mask)> PrepareSubjectWithPointAsync(
         string sourceImagePath,
         float pointX,
         float pointY,
         IProgress<string>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        return PrepareSubjectWithPromptsAsync(
+            sourceImagePath,
+            [new PromptPoint(pointX, pointY, Label: 1f)],
+            progress,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs SAM2 using prompts derived from a user-painted region (bounding box +
+    /// positive points inside the paint). Returns RGB source + L8 mask (caller disposes both).
+    /// </summary>
+    public async Task<(Image<Rgba32> Source, Image<L8> Mask)> PrepareSubjectWithPaintedRegionAsync(
+        string sourceImagePath,
+        Image<L8> paintMask,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(paintMask);
         if (!File.Exists(sourceImagePath))
             throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
 
-        await EnsureModelsAsync(progress, cancellationToken).ConfigureAwait(false);
-        progress?.Report("Running SAM 2 point cutout…");
+        // Validate paint vs cleaned art size off the UI thread before prompting.
+        var sizeOk = await Task.Run(
+            () =>
+            {
+                using var prepared = PrepareCleanSource(sourceImagePath, progress: null);
+                return prepared.Source.Width == paintMask.Width
+                       && prepared.Source.Height == paintMask.Height;
+            },
+            cancellationToken).ConfigureAwait(false);
 
+        if (!sizeOk)
+        {
+            throw new ArgumentException(
+                "Paint mask size does not match cleaned card art. Re-open the paint editor and try again.");
+        }
+
+        var prompts = BuildPromptsFromPaintMask(paintMask);
+        if (prompts.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "Paint a region on the art before running SAM 2.");
+        }
+
+        progress?.Report($"SAM 2: {prompts.Count} prompt(s) from painted region…");
+        return await PrepareSubjectWithPromptsAsync(
+            sourceImagePath,
+            prompts,
+            progress,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs SAM2 with explicit image-space prompts (positive points and/or box corners).
+    /// </summary>
+    public async Task<(Image<Rgba32> Source, Image<L8> Mask)> PrepareSubjectWithPromptsAsync(
+        string sourceImagePath,
+        IReadOnlyList<PromptPoint> prompts,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(sourceImagePath))
+            throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
+        if (prompts is null || prompts.Count == 0)
+            throw new ArgumentException("At least one SAM 2 prompt is required.", nameof(prompts));
+
+        await EnsureModelsAsync(progress, cancellationToken).ConfigureAwait(false);
+        progress?.Report("Running SAM 2 cutout…");
+
+        // Capture for Task.Run closure.
+        var promptList = prompts.ToArray();
         return await Task.Run(() =>
         {
             using var prepared = PrepareCleanSource(sourceImagePath, progress);
@@ -107,15 +177,14 @@ public sealed class Sam2PointCutoutService : IDisposable
             try
             {
                 EnsureSessions();
-                var clampedX = Math.Clamp(pointX, 0f, Math.Max(source.Width - 1, 0));
-                var clampedY = Math.Clamp(pointY, 0f, Math.Max(source.Height - 1, 0));
-                mask = PredictMask(source, clampedX, clampedY);
+                var clamped = ClampPrompts(promptList, source.Width, source.Height);
+                mask = PredictMask(source, clamped);
 
                 var keep = CountOpaque(mask);
                 if (keep == 0)
                 {
                     throw new InvalidOperationException(
-                        "SAM 2 found no opaque subject for that point. Click a different part of the art.");
+                        "SAM 2 found no opaque subject for that painted region. Paint a different area.");
                 }
 
                 progress?.Report("SAM 2 subject mask ready.");
@@ -128,6 +197,103 @@ public sealed class Sam2PointCutoutService : IDisposable
                 throw;
             }
         }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Builds SAM prompts from a painted L8 region: box corners (labels 2/3) plus
+    /// positive points (centroid and grid samples) inside the paint.
+    /// </summary>
+    public static IReadOnlyList<PromptPoint> BuildPromptsFromPaintMask(
+        Image<L8> paintMask,
+        byte paintThreshold = PaintKeepThreshold)
+    {
+        ArgumentNullException.ThrowIfNull(paintMask);
+        var w = paintMask.Width;
+        var h = paintMask.Height;
+        if (w <= 0 || h <= 0)
+            return Array.Empty<PromptPoint>();
+
+        var minX = w;
+        var minY = h;
+        var maxX = -1;
+        var maxY = -1;
+        long sumX = 0;
+        long sumY = 0;
+        var count = 0;
+
+        for (var y = 0; y < h; y++)
+        {
+            var row = paintMask.DangerousGetPixelRowMemory(y).Span;
+            for (var x = 0; x < w; x++)
+            {
+                if (row[x].PackedValue < paintThreshold)
+                    continue;
+
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+                sumX += x;
+                sumY += y;
+                count++;
+            }
+        }
+
+        if (count == 0 || maxX < minX || maxY < minY)
+            return Array.Empty<PromptPoint>();
+
+        var prompts = new List<PromptPoint>(10)
+        {
+            // SAM box corners (samexporter / SAM labels 2 = top-left, 3 = bottom-right).
+            new((float)minX, (float)minY, Label: 2f),
+            new((float)maxX, (float)maxY, Label: 3f),
+            new(sumX / (float)count, sumY / (float)count, Label: 1f)
+        };
+
+        // Up to 4 additional positives on a 2×2 grid inside the bbox, only if painted.
+        var grid = new (float U, float V)[]
+        {
+            (0.25f, 0.25f), (0.75f, 0.25f), (0.25f, 0.75f), (0.75f, 0.75f)
+        };
+        var boxW = Math.Max(maxX - minX, 1);
+        var boxH = Math.Max(maxY - minY, 1);
+        foreach (var (u, v) in grid)
+        {
+            var x = minX + u * boxW;
+            var y = minY + v * boxH;
+            var ix = (int)Math.Clamp(MathF.Round(x), 0, w - 1);
+            var iy = (int)Math.Clamp(MathF.Round(y), 0, h - 1);
+            if (paintMask[ix, iy].PackedValue < paintThreshold)
+                continue;
+            prompts.Add(new PromptPoint(x, y, Label: 1f));
+        }
+
+        return prompts;
+    }
+
+    /// <summary>
+    /// Per-pixel max alpha — used to add a new SAM selection onto an existing subject.
+    /// </summary>
+    public static Image<L8> UnionMasks(Image<L8> existing, Image<L8> addition)
+    {
+        ArgumentNullException.ThrowIfNull(existing);
+        ArgumentNullException.ThrowIfNull(addition);
+        if (existing.Width != addition.Width || existing.Height != addition.Height)
+            throw new ArgumentException("Mask dimensions must match for union.");
+
+        var result = existing.Clone();
+        for (var y = 0; y < result.Height; y++)
+        {
+            var dst = result.DangerousGetPixelRowMemory(y).Span;
+            var add = addition.DangerousGetPixelRowMemory(y).Span;
+            for (var x = 0; x < dst.Length; x++)
+            {
+                if (add[x].PackedValue > dst[x].PackedValue)
+                    dst[x] = add[x];
+            }
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -341,13 +507,13 @@ public sealed class Sam2PointCutoutService : IDisposable
         }
     }
 
-    private Image<L8> PredictMask(Image<Rgba32> source, float pointX, float pointY)
+    private Image<L8> PredictMask(Image<Rgba32> source, IReadOnlyList<PromptPoint> prompts)
     {
         EnsureSessions();
         var embeddings = EncodeImage(source);
         try
         {
-            return DecodeMask(source, embeddings, pointX, pointY);
+            return DecodeMask(source, embeddings, prompts);
         }
         finally
         {
@@ -390,23 +556,24 @@ public sealed class Sam2PointCutoutService : IDisposable
     private Image<L8> DecodeMask(
         Image<Rgba32> source,
         EncoderOutputs embeddings,
-        float pointX,
-        float pointY)
+        IReadOnlyList<PromptPoint> prompts)
     {
-        var (encX, encY) = ScalePointToEncoder(
-            pointX,
-            pointY,
-            source.Width,
-            source.Height,
-            _encoderWidth,
-            _encoderHeight);
-
-        var pointCoords = new DenseTensor<float>([1, 1, 2]);
-        pointCoords[0, 0, 0] = encX;
-        pointCoords[0, 0, 1] = encY;
-
-        var pointLabels = new DenseTensor<float>([1, 1]);
-        pointLabels[0, 0] = 1f; // positive
+        var n = prompts.Count;
+        var pointCoords = new DenseTensor<float>([1, n, 2]);
+        var pointLabels = new DenseTensor<float>([1, n]);
+        for (var i = 0; i < n; i++)
+        {
+            var (encX, encY) = ScalePointToEncoder(
+                prompts[i].X,
+                prompts[i].Y,
+                source.Width,
+                source.Height,
+                _encoderWidth,
+                _encoderHeight);
+            pointCoords[0, i, 0] = encX;
+            pointCoords[0, i, 1] = encY;
+            pointLabels[0, i] = prompts[i].Label;
+        }
 
         var maskH = Math.Max(_encoderHeight / 4, 1);
         var maskW = Math.Max(_encoderWidth / 4, 1);
@@ -441,6 +608,23 @@ public sealed class Sam2PointCutoutService : IDisposable
             Sampler = KnownResamplers.Lanczos3
         }));
         return mask;
+    }
+
+    private static PromptPoint[] ClampPrompts(IReadOnlyList<PromptPoint> prompts, int width, int height)
+    {
+        var maxX = Math.Max(width - 1, 0);
+        var maxY = Math.Max(height - 1, 0);
+        var clamped = new PromptPoint[prompts.Count];
+        for (var i = 0; i < prompts.Count; i++)
+        {
+            var p = prompts[i];
+            clamped[i] = new PromptPoint(
+                Math.Clamp(p.X, 0f, maxX),
+                Math.Clamp(p.Y, 0f, maxY),
+                p.Label);
+        }
+
+        return clamped;
     }
 
     private List<NamedOnnxValue> BuildDecoderFeeds(

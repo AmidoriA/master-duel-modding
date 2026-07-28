@@ -1,0 +1,97 @@
+<Window x:Class="Floowan.Desktop.Sam2MaskPaintWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SAM 2 — paint selection"
+        Height="720" Width="640"
+        MinHeight="520" MinWidth="480"
+        Background="{StaticResource BgBrush}"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        PreviewKeyDown="Window_PreviewKeyDown">
+  <DockPanel Margin="14">
+    <TextBlock DockPanel.Dock="Top"
+               Text="Paint over the area that contains the subject you want. SAM 2 segments objects inside that region. Esc cancels."
+               Foreground="{StaticResource MutedBrush}"
+               TextWrapping="Wrap"
+               Margin="0,0,0,10"/>
+
+    <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+      <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+        <TextBlock Text="Brush"
+                   VerticalAlignment="Center"
+                   Foreground="{StaticResource MutedBrush}"
+                   Width="48"
+                   Margin="0,0,8,0"/>
+        <Slider x:Name="BrushSizeSlider"
+                Width="180"
+                Minimum="4"
+                Maximum="96"
+                Value="28"
+                TickFrequency="1"
+                IsSnapToTickEnabled="True"
+                VerticalAlignment="Center"
+                ValueChanged="BrushSizeSlider_ValueChanged"
+                ToolTip="Brush diameter in image pixels."/>
+        <TextBlock x:Name="BrushSizeValueText"
+                   Text="28 px"
+                   Width="56"
+                   VerticalAlignment="Center"
+                   Margin="8,0,0,0"
+                   Foreground="{StaticResource TextBrush}"/>
+        <Button x:Name="ClearMaskButton"
+                Content="Clear mask"
+                Click="ClearMask_Click"
+                Margin="16,0,0,0"
+                ToolTip="Erase the painted region and start over."/>
+      </StackPanel>
+      <DockPanel>
+        <TextBlock x:Name="StatusText"
+                   DockPanel.Dock="Left"
+                   Text="Paint a region, then Apply."
+                   Foreground="{StaticResource MutedBrush}"
+                   TextWrapping="Wrap"
+                   VerticalAlignment="Center"
+                   Margin="0,0,12,0"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+          <Button x:Name="ApplyButton"
+                  Content="Apply selection"
+                  Click="Apply_Click"
+                  Background="{StaticResource AccentBrush}"
+                  Margin="0,0,8,0"
+                  ToolTip="Run SAM 2 on the painted region."/>
+          <Button Content="Cancel" IsCancel="True" Click="Cancel_Click"/>
+        </StackPanel>
+      </DockPanel>
+    </StackPanel>
+
+    <Border Background="{StaticResource ControlBgBrush}"
+            BorderBrush="{StaticResource ControlBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="4"
+            Padding="8"
+            ClipToBounds="True">
+      <Grid x:Name="PaintHost"
+            Background="Transparent"
+            Cursor="Cross"
+            MouseLeftButtonDown="PaintHost_MouseLeftButtonDown"
+            MouseMove="PaintHost_MouseMove"
+            MouseLeftButtonUp="PaintHost_MouseLeftButtonUp"
+            MouseLeave="PaintHost_MouseLeave"
+            LostMouseCapture="PaintHost_LostMouseCapture">
+        <Image x:Name="ArtImage"
+               Stretch="Uniform"
+               HorizontalAlignment="Center"
+               VerticalAlignment="Center"
+               IsHitTestVisible="False"
+               RenderOptions.BitmapScalingMode="HighQuality"/>
+        <Image x:Name="MaskOverlay"
+               Stretch="Uniform"
+               HorizontalAlignment="Center"
+               VerticalAlignment="Center"
+               IsHitTestVisible="False"
+               Opacity="0.45"
+               RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+      </Grid>
+    </Border>
+  </DockPanel>
+</Window>

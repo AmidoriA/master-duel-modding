@@ -79,6 +79,48 @@ public class Sam2PointCutoutServiceTests
     }
 
     [Fact]
+    public void BuildPromptsFromPaintMask_ReturnsBoxAndPositives()
+    {
+        using var paint = new Image<L8>(20, 20);
+        for (var y = 4; y <= 12; y++)
+        {
+            for (var x = 6; x <= 14; x++)
+                paint[x, y] = new L8(255);
+        }
+
+        var prompts = Sam2PointCutoutService.BuildPromptsFromPaintMask(paint);
+
+        Assert.Contains(prompts, p => p.Label == 2f && p.X == 6f && p.Y == 4f);
+        Assert.Contains(prompts, p => p.Label == 3f && p.X == 14f && p.Y == 12f);
+        Assert.Contains(prompts, p => p.Label == 1f);
+        Assert.True(prompts.Count >= 3);
+    }
+
+    [Fact]
+    public void BuildPromptsFromPaintMask_EmptyWhenNothingPainted()
+    {
+        using var paint = new Image<L8>(8, 8);
+        Assert.Empty(Sam2PointCutoutService.BuildPromptsFromPaintMask(paint));
+    }
+
+    [Fact]
+    public void UnionMasks_TakesPerPixelMaximum()
+    {
+        using var a = new Image<L8>(3, 1);
+        using var b = new Image<L8>(3, 1);
+        a[0, 0] = new L8(40);
+        a[1, 0] = new L8(200);
+        b[1, 0] = new L8(100);
+        b[2, 0] = new L8(255);
+
+        using var union = Sam2PointCutoutService.UnionMasks(a, b);
+
+        Assert.Equal(40, union[0, 0].PackedValue);
+        Assert.Equal(200, union[1, 0].PackedValue);
+        Assert.Equal(255, union[2, 0].PackedValue);
+    }
+
+    [Fact]
     public void BundleConstants_MatchDocumentedTinyPackage()
     {
         Assert.Equal("sam2_hiera_tiny.encoder.onnx", Sam2PointCutoutService.EncoderFileName);
