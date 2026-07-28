@@ -53,13 +53,14 @@ In **Custom overframe art**:
    and start from Advanced only.
 2. Open **Advanced** → **Add more selection…** (hidden if `FLOOWAN_SAM2=0`).
 3. Floowan extracts live card art, warms SAM 2 models off the UI thread, and opens
-   the paint editor (brush size, clear paint, cancel, apply). If a Card Art subject
-   already exists, it is shown as a **green** highlight under new strokes.
-4. **Left-drag** paints the prompt region (**amber**); **right-drag** erases paint.
-   A circle cursor tracks the mouse at the current brush diameter.
-5. **Apply selection** runs SAM 2. Result becomes the Card Art subject; if a subject
-   already exists at the same size, the new SAM mask is **unioned** (added) onto the
-   existing alpha.
+   the editor with two modes:
+   - **Paint** — brush size, clear paint, left-drag amber strokes / right-drag erase.
+     A circle cursor tracks brush diameter. Apply runs SAM 2 on the painted region.
+   - **Click object** — click a point; SAM 2 runs async and shows a **cyan** preview
+     mask in-editor. Click again replaces the preview. Apply uses that pending mask.
+4. If a Card Art subject already exists, it is shown as a **green** highlight under
+   pending overlays.
+5. Apply installs or **unions** the SAM mask onto Card Art (same as before).
 
 ## Feature flag
 

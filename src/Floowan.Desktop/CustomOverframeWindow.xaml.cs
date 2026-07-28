@@ -711,14 +711,16 @@ public partial class CustomOverframeWindow : Window
     }
 
     /// <summary>
-    /// Extracts live card art, opens the paint-mask editor, runs SAM 2 on the painted
-    /// region, and installs or unions the result into the Card Art subject layer.
+    /// Extracts live card art, opens the SAM editor (Paint or Click object), and
+    /// installs or unions the result into the Card Art subject layer.
     /// </summary>
     private async Task RunSam2PaintSelectionAsync()
     {
         SetBusy(true);
         string? liveTemp = null;
         Image<L8>? paintMask = null;
+        Image<L8>? clickMask = null;
+        Image<Rgba32>? clickSource = null;
         try
         {
             liveTemp = Path.Combine(
@@ -735,35 +737,67 @@ public partial class CustomOverframeWindow : Window
             await _sam2Cutout.EnsureModelsAsync(progress);
 
             SetBusy(false);
-            StatusText.Text = "Paint a masking area, then Apply selection.";
-            var paintWindow = Sam2MaskPaintWindow.FromImagePath(liveTemp, _subjectMask);
+            StatusText.Text = "SAM 2 editor: Paint or Click object, then Apply selection.";
+            var paintWindow = Sam2MaskPaintWindow.FromImagePath(liveTemp, _sam2Cutout, _subjectMask);
             paintWindow.Owner = this;
             var accepted = paintWindow.ShowDialog() == true;
-            paintMask = paintWindow.ResultPaintMask;
-            if (!accepted || paintMask is null)
+            if (!accepted)
             {
-                StatusText.Text = "SAM 2 paint selection cancelled.";
+                StatusText.Text = "SAM 2 selection cancelled.";
                 return;
             }
 
-            SetBusy(true);
-            StatusText.Text = "Running SAM 2 on painted region…";
-            var prepared = await _sam2Cutout.PrepareSubjectWithPaintedRegionAsync(
-                liveTemp,
-                paintMask,
-                progress);
+            Image<Rgba32> preparedSource;
+            Image<L8> preparedMask;
+            string modeNote;
+            if (paintWindow.ResultKind == Sam2EditorResultKind.ClickSamMask)
+            {
+                clickMask = paintWindow.ResultSamMask;
+                clickSource = paintWindow.ResultSamSource;
+                if (clickMask is null || clickSource is null)
+                {
+                    StatusText.Text = "SAM 2 click selection cancelled.";
+                    return;
+                }
 
+                preparedSource = clickSource;
+                preparedMask = clickMask;
+                clickSource = null;
+                clickMask = null;
+                modeNote = "click";
+            }
+            else
+            {
+                paintMask = paintWindow.ResultPaintMask;
+                if (paintMask is null)
+                {
+                    StatusText.Text = "SAM 2 paint selection cancelled.";
+                    return;
+                }
+
+                SetBusy(true);
+                StatusText.Text = "Running SAM 2 on painted region…";
+                var prepared = await _sam2Cutout.PrepareSubjectWithPaintedRegionAsync(
+                    liveTemp,
+                    paintMask,
+                    progress);
+                preparedSource = prepared.Source;
+                preparedMask = prepared.Mask;
+                modeNote = "paint";
+            }
+
+            SetBusy(true);
             var unioned = false;
             if (_subjectSource is not null
                 && _subjectMask is not null
-                && _subjectSource.Width == prepared.Source.Width
-                && _subjectSource.Height == prepared.Source.Height
-                && _subjectMask.Width == prepared.Mask.Width
-                && _subjectMask.Height == prepared.Mask.Height)
+                && _subjectSource.Width == preparedSource.Width
+                && _subjectSource.Height == preparedSource.Height
+                && _subjectMask.Width == preparedMask.Width
+                && _subjectMask.Height == preparedMask.Height)
             {
-                var merged = Sam2PointCutoutService.UnionMasks(_subjectMask, prepared.Mask);
-                prepared.Mask.Dispose();
-                prepared.Source.Dispose();
+                var merged = Sam2PointCutoutService.UnionMasks(_subjectMask, preparedMask);
+                preparedMask.Dispose();
+                preparedSource.Dispose();
                 _subjectMask.Dispose();
                 _subjectMask = merged;
                 // Keep existing RGB source; only grow the alpha subject.
@@ -774,8 +808,8 @@ public partial class CustomOverframeWindow : Window
                 if (_subjectSource is not null || _subjectMask is not null)
                     ResetSubjectPlacement();
 
-                _subjectSource = prepared.Source;
-                _subjectMask = prepared.Mask;
+                _subjectSource = preparedSource;
+                _subjectMask = preparedMask;
                 // SAM ran on live card art — same BG auto-match path as rembg.
                 _subjectIsFromCardArt = true;
             }
@@ -784,11 +818,11 @@ public partial class CustomOverframeWindow : Window
             await RecomposePreviewAsync();
             StatusText.Text = unioned
                 ? (matched
-                    ? $"Added SAM 2 selection to subject; background matched ×{_backgroundScale:0.00}. Drag or Apply."
-                    : "Added SAM 2 selection to existing subject. Drag or scale the art, then Apply.")
+                    ? $"Added SAM 2 {modeNote} selection; background matched ×{_backgroundScale:0.00}. Drag or Apply."
+                    : $"Added SAM 2 {modeNote} selection to existing subject. Drag or scale the art, then Apply.")
                 : (matched
-                    ? $"Subject from SAM 2 paint; background matched ×{_backgroundScale:0.00}. Drag or Apply."
-                    : "Subject from SAM 2 paint selection. Drag or scale the art, then Apply.");
+                    ? $"Subject from SAM 2 {modeNote}; background matched ×{_backgroundScale:0.00}. Drag or Apply."
+                    : $"Subject from SAM 2 {modeNote} selection. Drag or scale the art, then Apply.");
             PreviewHintText.Visibility = Visibility.Collapsed;
             ApplyButton.IsEnabled = true;
         }
@@ -813,6 +847,8 @@ public partial class CustomOverframeWindow : Window
         finally
         {
             paintMask?.Dispose();
+            clickMask?.Dispose();
+            clickSource?.Dispose();
             if (liveTemp is not null && File.Exists(liveTemp))
             {
                 try { File.Delete(liveTemp); } catch { /* ignore */ }
