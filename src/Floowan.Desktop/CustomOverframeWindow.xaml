@@ -60,44 +60,59 @@
                            Foreground="{StaticResource MutedBrush}"
                            Margin="0,0,0,6"/>
                 <StackPanel Orientation="Vertical" Margin="0,0,0,10">
+                  <!-- Full card is the radio hit-target: RadioButton fills Border; Transparent bg enables hit-test. -->
                   <Border Background="{StaticResource ControlBgBrush}"
                           BorderBrush="{StaticResource ControlBorderBrush}"
                           BorderThickness="1"
                           CornerRadius="3"
-                          Padding="8,8"
-                          Margin="0,0,0,6">
-                    <StackPanel>
-                      <RadioButton x:Name="SubjectAutoRadio"
-                                   GroupName="CustomOfSubjectSource"
-                                   Content="Auto detect"
+                          Margin="0,0,0,6"
+                          Cursor="Hand">
+                    <RadioButton x:Name="SubjectAutoRadio"
+                                 GroupName="CustomOfSubjectSource"
+                                 HorizontalAlignment="Stretch"
+                                 VerticalContentAlignment="Top"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 Padding="8,8"
+                                 Cursor="Hand"
+                                 ToolTip="Cut out the subject from this card's live art (rembg)."
+                                 Click="SubjectAutoRadio_Click">
+                      <StackPanel>
+                        <TextBlock Text="Auto detect"
                                    Margin="0,0,0,4"
-                                   ToolTip="Cut out the subject from this card's live art (rembg)."
-                                   Click="SubjectAutoRadio_Click"/>
-                      <TextBlock Text="Cut out from this card's current art (rembg)."
-                                 Foreground="{StaticResource MutedBrush}"
-                                 TextWrapping="Wrap"
-                                 Margin="22,0,0,0"
-                                 FontSize="11"/>
-                    </StackPanel>
+                                   Foreground="{StaticResource TextBrush}"/>
+                        <TextBlock Text="Cut out from this card's current art (rembg)."
+                                   Foreground="{StaticResource MutedBrush}"
+                                   TextWrapping="Wrap"
+                                   FontSize="11"/>
+                      </StackPanel>
+                    </RadioButton>
                   </Border>
                   <Border Background="{StaticResource ControlBgBrush}"
                           BorderBrush="{StaticResource ControlBorderBrush}"
                           BorderThickness="1"
                           CornerRadius="3"
-                          Padding="8,8">
-                    <StackPanel>
-                      <RadioButton x:Name="SubjectManualRadio"
-                                   GroupName="CustomOfSubjectSource"
-                                   Content="Pick manually…"
+                          Cursor="Hand">
+                    <RadioButton x:Name="SubjectManualRadio"
+                                 GroupName="CustomOfSubjectSource"
+                                 HorizontalAlignment="Stretch"
+                                 VerticalContentAlignment="Top"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 Padding="8,8"
+                                 Cursor="Hand"
+                                 ToolTip="Pick a PNG with existing alpha (no rembg)."
+                                 Click="SubjectManualRadio_Click">
+                      <StackPanel>
+                        <TextBlock Text="Pick manually…"
                                    Margin="0,0,0,4"
-                                   ToolTip="Pick a PNG with existing alpha (no rembg)."
-                                   Click="SubjectManualRadio_Click"/>
-                      <TextBlock Text="Use a PNG that already has transparency."
-                                 Foreground="{StaticResource MutedBrush}"
-                                 TextWrapping="Wrap"
-                                 Margin="22,0,0,0"
-                                 FontSize="11"/>
-                    </StackPanel>
+                                   Foreground="{StaticResource TextBrush}"/>
+                        <TextBlock Text="Use a PNG that already has transparency."
+                                   Foreground="{StaticResource MutedBrush}"
+                                   TextWrapping="Wrap"
+                                   FontSize="11"/>
+                      </StackPanel>
+                    </RadioButton>
                   </Border>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
