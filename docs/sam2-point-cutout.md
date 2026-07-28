@@ -54,8 +54,9 @@ In **Custom overframe art**:
 2. Open **Advanced** → **Add more selection…** (hidden if `FLOOWAN_SAM2=0`).
 3. Floowan extracts live card art, warms SAM 2 models off the UI thread, and opens
    the editor with two modes:
-   - **Paint** — brush size, clear paint, left-drag amber strokes / right-drag erase.
-     A circle cursor tracks brush diameter. Apply runs SAM 2 on the painted region.
+   - **Paint** — left-drag amber prompt / right-drag erase amber. On **stroke release**,
+     SAM 2 runs on the paint region async and **unions** into the cyan working selection
+     (then clears amber). Multi-stroke adds accumulate like Click left-add.
    - **Click object** — cyan working selection starts from any prior-session subject.
      **Left-click** runs point-prompt SAM and **unions** into the working set;
      **right-click** runs SAM and **subtracts** that region (including prior subject).

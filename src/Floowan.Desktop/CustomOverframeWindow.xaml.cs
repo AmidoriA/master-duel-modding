@@ -750,7 +750,7 @@ public partial class CustomOverframeWindow : Window
             Image<Rgba32> preparedSource;
             Image<L8> preparedMask;
             string modeNote;
-            if (paintWindow.ResultKind == Sam2EditorResultKind.ClickSamMask)
+            if (paintWindow.ResultKind == Sam2EditorResultKind.WorkingSamMask)
             {
                 clickMask = paintWindow.ResultSamMask;
                 clickSource = paintWindow.ResultSamSource;
@@ -787,7 +787,7 @@ public partial class CustomOverframeWindow : Window
             }
 
             SetBusy(true);
-            if (paintWindow.ResultKind == Sam2EditorResultKind.ClickSamMask)
+            if (paintWindow.ResultKind == Sam2EditorResultKind.WorkingSamMask)
             {
                 // Working selection already includes prior subject ± add/remove — replace mask.
                 if (_subjectSource is not null

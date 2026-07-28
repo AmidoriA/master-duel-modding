@@ -11,7 +11,7 @@
   <DockPanel Margin="14">
     <TextBlock x:Name="HelpText"
                DockPanel.Dock="Top"
-               Text="Green = already in Card Art (Paint). Click mode: cyan working selection — left-click adds, right-click removes."
+               Text="Cyan = working selection. Paint: amber prompt → SAM on release → union. Click: left-add / right-remove."
                Foreground="{StaticResource MutedBrush}"
                TextWrapping="Wrap"
                Margin="0,0,0,10"/>
@@ -30,7 +30,7 @@
                      VerticalAlignment="Center"
                      Margin="0,0,12,0"
                      Checked="ModeRadio_Checked"
-                     ToolTip="Left-drag paints, right-drag erases. Apply runs SAM 2 on the painted region."/>
+                     ToolTip="Left-drag paints, right-drag erases amber. On release, SAM 2 runs and unions into the cyan working selection."/>
         <RadioButton x:Name="ClickModeRadio"
                      GroupName="SamEditorMode"
                      Content="Click object"
@@ -64,7 +64,7 @@
                 Content="Clear paint"
                 Click="ClearMask_Click"
                 Margin="16,0,0,0"
-                ToolTip="Erase the new paint strokes only (keeps the green already-added highlight)."/>
+                ToolTip="Clear the amber paint prompt only (keeps the cyan working selection)."/>
       </StackPanel>
       <StackPanel x:Name="ClickToolsPanel" Orientation="Horizontal" Margin="0,0,0,8" Visibility="Collapsed">
         <Button x:Name="ClearClickPreviewButton"
