@@ -296,7 +296,8 @@
               Padding="10"
               ClipToBounds="True">
         <Grid x:Name="PreviewHost" Background="Transparent"
-              MouseLeftButtonDown="Preview_MouseLeftButtonDown"
+              Cursor="SizeAll"
+              PreviewMouseLeftButtonDown="Preview_MouseLeftButtonDown"
               MouseMove="Preview_MouseMove"
               MouseLeftButtonUp="Preview_MouseLeftButtonUp"
               MouseLeave="Preview_MouseLeave"
@@ -306,8 +307,8 @@
                  Stretch="Uniform"
                  HorizontalAlignment="Center"
                  VerticalAlignment="Center"
-                 RenderOptions.BitmapScalingMode="HighQuality"
-                 Cursor="SizeAll"/>
+                 IsHitTestVisible="False"
+                 RenderOptions.BitmapScalingMode="HighQuality"/>
           <Image x:Name="SubjectOverlay"
                  Stretch="Uniform"
                  HorizontalAlignment="Center"
