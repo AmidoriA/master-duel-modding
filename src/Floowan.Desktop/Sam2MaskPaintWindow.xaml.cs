@@ -7,6 +7,7 @@ using Floowan.Core.Imaging;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Advanced;
 using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 using ImageSharpImage = SixLabors.ImageSharp.Image;
 using WpfPoint = System.Windows.Point;
 
@@ -124,23 +125,55 @@ public partial class Sam2MaskPaintWindow : Window
     {
         using var loaded = ImageSharpImage.Load<Rgba32>(imagePath);
         var clean = OverFrameAutoArtComposer.RequireCleanIllustrationSource(loaded);
+        Image<L8>? alignedOwned = null;
         try
         {
             Image<L8>? highlight = null;
-            if (existingSubjectMask is not null
-                && existingSubjectMask.Width == clean.Width
-                && existingSubjectMask.Height == clean.Height)
+            if (existingSubjectMask is not null)
             {
-                highlight = existingSubjectMask;
+                if (existingSubjectMask.Width == clean.Width
+                    && existingSubjectMask.Height == clean.Height)
+                {
+                    highlight = existingSubjectMask;
+                }
+                else
+                {
+                    // Restored Custom OF stages (or Pick manually PNGs) may differ from a
+                    // freshly exported live illustration — align rather than silently drop.
+                    alignedOwned = ResizeMaskTo(existingSubjectMask, clean.Width, clean.Height);
+                    highlight = alignedOwned;
+                }
             }
 
             return new Sam2MaskPaintWindow(clean, imagePath, sam2, highlight);
         }
         finally
         {
+            alignedOwned?.Dispose();
             if (!ReferenceEquals(loaded, clean))
                 clean.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Aligns an existing subject mask to the SAM art canvas (nearest-neighbor).
+    /// Caller owns the returned image.
+    /// </summary>
+    public static Image<L8> ResizeMaskTo(Image<L8> mask, int width, int height)
+    {
+        ArgumentNullException.ThrowIfNull(mask);
+        if (width <= 0 || height <= 0)
+            throw new ArgumentOutOfRangeException(nameof(width), "Mask size must be positive.");
+
+        if (mask.Width == width && mask.Height == height)
+            return mask.Clone();
+
+        return mask.Clone(ctx => ctx.Resize(new ResizeOptions
+        {
+            Size = new SixLabors.ImageSharp.Size(width, height),
+            Mode = SixLabors.ImageSharp.Processing.ResizeMode.Stretch,
+            Sampler = KnownResamplers.NearestNeighbor
+        }));
     }
 
     private void CleanupOwnedImages()

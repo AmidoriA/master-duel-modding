@@ -13,6 +13,7 @@ using Floowan.Core.Models;
 using Floowan.Core.Services;
 using Microsoft.Win32;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Advanced;
 using SixLabors.ImageSharp.PixelFormats;
 using ImageSharpImage = SixLabors.ImageSharp.Image;
 
@@ -893,8 +894,9 @@ public partial class CustomOverframeWindow : Window
     }
 
     /// <summary>
-    /// Extracts live card art, opens the SAM editor (Paint or Click object), and
-    /// installs or unions the result into the Card Art subject layer.
+    /// Opens the SAM editor. When a subject is already loaded (including a restored
+    /// Custom OF stage), seeds green/cyan selection from that mask (or subject alpha).
+    /// Prefer the in-memory subject canvas so the mask aligns 1:1 with the SAM art.
     /// </summary>
     private async Task RunSam2PaintSelectionAsync()
     {
@@ -903,22 +905,31 @@ public partial class CustomOverframeWindow : Window
         Image<L8>? paintMask = null;
         Image<L8>? clickMask = null;
         Image<Rgba32>? clickSource = null;
+        Image<L8>? derivedSelectionMask = null;
         try
         {
             liveTemp = Path.Combine(
                 Path.GetTempPath(),
                 $"floowan-custom-of-sam2-{Guid.NewGuid():N}.png");
-            StatusText.Text = "Extracting card art for SAM 2…";
-            var outputPath = liveTemp;
-            await ExportIllustrationForEditingAsync(outputPath);
+
+            var selectionMask = ResolveSamExistingSelectionMask(out derivedSelectionMask);
+            var usedSubjectCanvas = await PrepareSamArtCanvasAsync(liveTemp, selectionMask);
+            StatusText.Text = usedSubjectCanvas
+                ? "Opening SAM 2 with current subject selection…"
+                : "Extracting card art for SAM 2…";
 
             var progress = new Progress<string>(msg => StatusText.Text = msg);
             // Download / SHA-256 / extract / ONNX session load — all off UI (Core).
             await _sam2Cutout.EnsureModelsAsync(progress);
 
             SetBusy(false);
-            StatusText.Text = "SAM 2 editor: Paint or Click object, then Apply selection.";
-            var paintWindow = Sam2MaskPaintWindow.FromImagePath(liveTemp, _sam2Cutout, _subjectMask);
+            StatusText.Text = selectionMask is not null
+                ? "SAM 2 editor: current subject loaded. Paint or Click to edit, then Apply."
+                : "SAM 2 editor: Paint or Click object, then Apply selection.";
+            var paintWindow = Sam2MaskPaintWindow.FromImagePath(
+                liveTemp,
+                _sam2Cutout,
+                selectionMask);
             paintWindow.Owner = this;
             var accepted = paintWindow.ShowDialog() == true;
             if (!accepted)
@@ -1070,6 +1081,7 @@ public partial class CustomOverframeWindow : Window
         }
         finally
         {
+            derivedSelectionMask?.Dispose();
             paintMask?.Dispose();
             clickMask?.Dispose();
             clickSource?.Dispose();
@@ -1080,6 +1092,75 @@ public partial class CustomOverframeWindow : Window
 
             SetBusy(false);
         }
+    }
+
+    /// <summary>
+    /// Prefers the in-memory subject canvas (restored stage / rembg / prior SAM) so the
+    /// existing selection mask aligns 1:1 with the SAM art. Falls back to exporting
+    /// illustration from game/backup.
+    /// </summary>
+    private async Task<bool> PrepareSamArtCanvasAsync(string outputPngPath, Image<L8>? selectionMask)
+    {
+        if (_subjectSource is not null
+            && selectionMask is not null
+            && _subjectSource.Width == selectionMask.Width
+            && _subjectSource.Height == selectionMask.Height)
+        {
+            var source = _subjectSource;
+            await Task.Run(() =>
+                source.Save(outputPngPath, new SixLabors.ImageSharp.Formats.Png.PngEncoder()));
+            return true;
+        }
+
+        await ExportIllustrationForEditingAsync(outputPngPath);
+        return false;
+    }
+
+    /// <summary>
+    /// Prefer the persisted/in-session L8 mask; else derive from subject RGBA alpha
+    /// (Pick manually / stages that only carried subject alpha).
+    /// </summary>
+    private Image<L8>? ResolveSamExistingSelectionMask(out Image<L8>? ownedDerivedMask)
+    {
+        ownedDerivedMask = null;
+        if (_subjectMask is not null && MaskHasOpaquePixels(_subjectMask))
+            return _subjectMask;
+
+        if (_subjectSource is null)
+            return null;
+
+        var derived = DeriveMaskFromSubjectAlpha(_subjectSource);
+        if (derived is null)
+            return null;
+
+        ownedDerivedMask = derived;
+        return derived;
+    }
+
+    private static Image<L8>? DeriveMaskFromSubjectAlpha(Image<Rgba32> subject)
+    {
+        var mask = new Image<L8>(subject.Width, subject.Height);
+        var keep = 0;
+        for (var y = 0; y < subject.Height; y++)
+        {
+            var pixels = subject.DangerousGetPixelRowMemory(y).Span;
+            var row = mask.DangerousGetPixelRowMemory(y).Span;
+            for (var x = 0; x < pixels.Length; x++)
+            {
+                var alpha = pixels[x].A;
+                row[x] = new L8(alpha);
+                if (alpha >= OverFrameAutoArtComposer.MaskKeepThreshold)
+                    keep++;
+            }
+        }
+
+        if (keep == 0)
+        {
+            mask.Dispose();
+            return null;
+        }
+
+        return mask;
     }
 
     private static bool MaskHasOpaquePixels(Image<L8> mask)
