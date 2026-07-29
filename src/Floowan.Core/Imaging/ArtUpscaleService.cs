@@ -116,7 +116,11 @@ public sealed class ArtUpscaleService : IDisposable
         if (!IsFeatureEnabled)
             return;
 
-        if (File.Exists(_modelPath) && HasExpectedChecksum(_modelPath))
+        // Hashing / existence must not run on the WPF UI thread.
+        var ready = await Task.Run(
+            () => File.Exists(_modelPath) && HasExpectedChecksum(_modelPath),
+            cancellationToken).ConfigureAwait(false);
+        if (ready)
             return;
 
         Directory.CreateDirectory(Path.GetDirectoryName(_modelPath)!);
@@ -131,7 +135,7 @@ public sealed class ArtUpscaleService : IDisposable
                 cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
 
-            var total = response.Content.Headers.ContentLength;
+            var total = response.Content.Headers.ContentLength ?? ModelExpectedBytes;
             await using var input = await response.Content.ReadAsStreamAsync(cancellationToken)
                 .ConfigureAwait(false);
             await using var output = new FileStream(
@@ -144,23 +148,38 @@ public sealed class ArtUpscaleService : IDisposable
 
             var buffer = new byte[81920];
             long downloaded = 0;
+            var lastPercent = -1;
             int read;
             while ((read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
             {
                 await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
                 downloaded += read;
-                if (total is > 0)
-                    progress?.Report($"Downloading Real-ESRGAN model… {downloaded * 100 / total.Value}%");
+                if (total > 0)
+                {
+                    var percent = (int)(downloaded * 100 / total);
+                    if (percent != lastPercent)
+                    {
+                        lastPercent = percent;
+                        progress?.Report($"Downloading Real-ESRGAN model… {percent}%");
+                    }
+                }
             }
 
             await output.FlushAsync(cancellationToken).ConfigureAwait(false);
             output.Close();
 
-            if (!HasExpectedChecksum(tempPath))
-                throw new InvalidDataException(
-                    "Downloaded Real-ESRGAN model failed its SHA-256 integrity check.");
+            await Task.Run(
+                () =>
+                {
+                    if (!HasExpectedChecksum(tempPath))
+                    {
+                        throw new InvalidDataException(
+                            "Downloaded Real-ESRGAN model failed its SHA-256 integrity check.");
+                    }
 
-            File.Move(tempPath, _modelPath, overwrite: true);
+                    File.Move(tempPath, _modelPath, overwrite: true);
+                },
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {

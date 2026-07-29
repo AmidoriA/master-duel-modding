@@ -462,6 +462,7 @@ public sealed class Sam2PointCutoutService : IDisposable
                     {
                         var buffer = new byte[81920];
                         long downloaded = 0;
+                        var lastPercent = -1;
                         int read;
                         while ((read = await input.ReadAsync(buffer, cancellationToken)
                                        .ConfigureAwait(false)) > 0)
@@ -471,8 +472,12 @@ public sealed class Sam2PointCutoutService : IDisposable
                             downloaded += read;
                             if (total > 0)
                             {
-                                progress?.Report(
-                                    $"Downloading SAM 2 Tiny… {downloaded * 100 / total}%");
+                                var percent = (int)(downloaded * 100 / total);
+                                if (percent != lastPercent)
+                                {
+                                    lastPercent = percent;
+                                    progress?.Report($"Downloading SAM 2 Tiny… {percent}%");
+                                }
                             }
                         }
 
@@ -503,6 +508,18 @@ public sealed class Sam2PointCutoutService : IDisposable
                             throw new FileNotFoundException(
                                 $"SAM 2 zip did not contain {EncoderFileName} and {DecoderFileName}.");
                         }
+
+                        // Keep only the ONNX pair — remove the archive so models/ stays tidy
+                        // (same spirit as rembg/.download temp cleanup).
+                        try
+                        {
+                            if (File.Exists(zipPath))
+                                File.Delete(zipPath);
+                        }
+                        catch
+                        {
+                            /* best effort */
+                        }
                     },
                     cancellationToken).ConfigureAwait(false);
             }
@@ -518,6 +535,25 @@ public sealed class Sam2PointCutoutService : IDisposable
                     /* best effort */
                 }
             }
+        }
+        else
+        {
+            // Prior runs may have left the zip beside the extracted ONNX files.
+            await Task.Run(
+                () =>
+                {
+                    var leftoverZip = Path.Combine(_modelDirectory, BundleZipName);
+                    try
+                    {
+                        if (File.Exists(leftoverZip))
+                            File.Delete(leftoverZip);
+                    }
+                    catch
+                    {
+                        /* best effort */
+                    }
+                },
+                cancellationToken).ConfigureAwait(false);
         }
 
         // Warm encoder/decoder sessions during prepare (not on first preview click).

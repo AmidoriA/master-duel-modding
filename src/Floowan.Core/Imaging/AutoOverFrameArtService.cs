@@ -421,7 +421,11 @@ public sealed class AutoOverFrameArtService : IDisposable
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
-        if (File.Exists(_modelPath) && HasExpectedChecksum(_modelPath))
+        // MD5 of ~168 MB must not run on the WPF UI thread.
+        var ready = await Task.Run(
+            () => File.Exists(_modelPath) && HasExpectedChecksum(_modelPath),
+            cancellationToken).ConfigureAwait(false);
+        if (ready)
             return;
 
         Directory.CreateDirectory(Path.GetDirectoryName(_modelPath)!);
@@ -447,22 +451,38 @@ public sealed class AutoOverFrameArtService : IDisposable
 
             var buffer = new byte[81920];
             long downloaded = 0;
+            var lastPercent = -1;
             int read;
             while ((read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
             {
                 await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
                 downloaded += read;
                 if (total > 0)
-                    progress?.Report($"Downloading isnet-anime model… {downloaded * 100 / total.Value}%");
+                {
+                    var percent = (int)(downloaded * 100 / total.Value);
+                    if (percent != lastPercent)
+                    {
+                        lastPercent = percent;
+                        progress?.Report($"Downloading isnet-anime model… {percent}%");
+                    }
+                }
             }
 
             await output.FlushAsync(cancellationToken).ConfigureAwait(false);
             output.Close();
 
-            if (!HasExpectedChecksum(tempPath))
-                throw new InvalidDataException("Downloaded isnet-anime model failed its MD5 integrity check.");
+            await Task.Run(
+                () =>
+                {
+                    if (!HasExpectedChecksum(tempPath))
+                    {
+                        throw new InvalidDataException(
+                            "Downloaded isnet-anime model failed its MD5 integrity check.");
+                    }
 
-            File.Move(tempPath, _modelPath, overwrite: true);
+                    File.Move(tempPath, _modelPath, overwrite: true);
+                },
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {
