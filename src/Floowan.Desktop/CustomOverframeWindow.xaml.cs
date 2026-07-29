@@ -20,6 +20,7 @@ namespace Floowan.Desktop;
 public partial class CustomOverframeWindow : Window
 {
     private readonly AutoOverFrameArtService _autoArt;
+    private readonly Sam2PointCutoutService _sam2Cutout = new();
     private readonly OverFrameModService _overFrameService;
     private readonly CardRecord _card;
     private readonly string _gamePath;
@@ -35,8 +36,12 @@ public partial class CustomOverframeWindow : Window
     private int _offsetY;
     /// <summary>True when Cover background is live card art (default / "Use card art").</summary>
     private bool _backgroundIsCardArt;
-    /// <summary>True when subject is rembg cutout from this card's live art.</summary>
-    private bool _subjectIsCardArtRembg;
+    /// <summary>
+    /// True when the Card Art subject came from this card's live art (rembg Auto detect
+    /// or SAM Add more selection). Used with <see cref="_backgroundIsCardArt"/> to
+    /// auto-match background scale/pan on drag/scale. False for Pick manually… PNGs.
+    /// </summary>
+    private bool _subjectIsFromCardArt;
     private const float DefaultSubjectScale = 1.5f;
     private const float DefaultBackgroundScale = 1.0f;
 
@@ -75,6 +80,9 @@ public partial class CustomOverframeWindow : Window
         _linkMarkers = linkMarkers;
         Title = $"Custom overframe art — {card.DisplayName}";
         SelectFrameStyle(initialFrameStyle);
+        AdvancedSamExpander.Visibility = Sam2PointCutoutService.IsFeatureEnabled
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         // Do not sync-load CARD_Prop here — that freezes the dialog. Parent may have
         // pre-resolved markers; otherwise load async on first Link frame selection / Loaded.
         if (LinkArrowOverlay.NeedsArrowOverlay(initialFrameStyle) && _linkMarkers is null)
@@ -345,12 +353,12 @@ public partial class CustomOverframeWindow : Window
 
     /// <summary>
     /// Auto-match Cover background to subject only when both come from card art
-    /// (live-art rembg subject + card-art background). Re-applies on subject drag/scale
-    /// while that pairing holds; skipped for custom BG/subject / Cover-only.
+    /// (live-art rembg/SAM subject + card-art background). Re-applies on subject drag/scale
+    /// while that pairing holds; skipped for custom BG / Pick manually… subject.
     /// </summary>
     private bool ShouldAutoMatchBackgroundToSubject() =>
         _backgroundIsCardArt
-        && _subjectIsCardArtRembg
+        && _subjectIsFromCardArt
         && _backgroundSource is not null
         && _subjectSource is not null;
 
@@ -605,7 +613,7 @@ public partial class CustomOverframeWindow : Window
             var matched = TryApplyAutoMatchBackgroundTransforms();
             var subjectStatus = readyStatus
                 ?? (matched
-                    ? $"Background: current card art (Cover), matched to rembg subject ×{_backgroundScale:0.00}. Drag Card Art or Apply."
+                    ? $"Background: current card art (Cover), matched to card-art subject ×{_backgroundScale:0.00}. Drag Card Art or Apply."
                     : "Background: current card art (Cover). Preview updated — drag Card Art or Apply.");
             var backgroundOnlyStatus = readyStatus
                 ?? "Background: current card art (Cover). Pick a subject…";
@@ -694,6 +702,221 @@ public partial class CustomOverframeWindow : Window
         await PickSubjectImageAsync();
     }
 
+    private async void AddMoreSelection_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || !Sam2PointCutoutService.IsFeatureEnabled)
+            return;
+
+        await RunSam2PaintSelectionAsync();
+    }
+
+    /// <summary>
+    /// Extracts live card art, opens the SAM editor (Paint or Click object), and
+    /// installs or unions the result into the Card Art subject layer.
+    /// </summary>
+    private async Task RunSam2PaintSelectionAsync()
+    {
+        SetBusy(true);
+        string? liveTemp = null;
+        Image<L8>? paintMask = null;
+        Image<L8>? clickMask = null;
+        Image<Rgba32>? clickSource = null;
+        try
+        {
+            liveTemp = Path.Combine(
+                Path.GetTempPath(),
+                $"floowan-custom-of-sam2-{Guid.NewGuid():N}.png");
+            StatusText.Text = "Extracting live card art for SAM 2…";
+            var gamePath = _gamePath;
+            var card = _card;
+            var outputPath = liveTemp;
+            await Task.Run(() => _overFrameService.ExtractCardArt(gamePath, card, outputPath));
+
+            var progress = new Progress<string>(msg => StatusText.Text = msg);
+            // Download / SHA-256 / extract / ONNX session load — all off UI (Core).
+            await _sam2Cutout.EnsureModelsAsync(progress);
+
+            SetBusy(false);
+            StatusText.Text = "SAM 2 editor: Paint or Click object, then Apply selection.";
+            var paintWindow = Sam2MaskPaintWindow.FromImagePath(liveTemp, _sam2Cutout, _subjectMask);
+            paintWindow.Owner = this;
+            var accepted = paintWindow.ShowDialog() == true;
+            if (!accepted)
+            {
+                StatusText.Text = "SAM 2 selection cancelled.";
+                return;
+            }
+
+            Image<Rgba32> preparedSource;
+            Image<L8> preparedMask;
+            string modeNote;
+            if (paintWindow.ResultKind == Sam2EditorResultKind.WorkingSamMask)
+            {
+                clickMask = paintWindow.ResultSamMask;
+                clickSource = paintWindow.ResultSamSource;
+                if (clickMask is null || clickSource is null)
+                {
+                    StatusText.Text = "SAM 2 click selection cancelled.";
+                    return;
+                }
+
+                preparedSource = clickSource;
+                preparedMask = clickMask;
+                clickSource = null;
+                clickMask = null;
+                modeNote = "click";
+            }
+            else
+            {
+                paintMask = paintWindow.ResultPaintMask;
+                if (paintMask is null)
+                {
+                    StatusText.Text = "SAM 2 paint selection cancelled.";
+                    return;
+                }
+
+                SetBusy(true);
+                StatusText.Text = "Running SAM 2 on painted region…";
+                var prepared = await _sam2Cutout.PrepareSubjectWithPaintedRegionAsync(
+                    liveTemp,
+                    paintMask,
+                    progress);
+                preparedSource = prepared.Source;
+                preparedMask = prepared.Mask;
+                modeNote = "paint";
+            }
+
+            SetBusy(true);
+            if (paintWindow.ResultKind == Sam2EditorResultKind.WorkingSamMask)
+            {
+                // Working selection already includes prior subject ± add/remove — replace mask.
+                if (_subjectSource is not null
+                    && _subjectMask is not null
+                    && _subjectSource.Width == preparedSource.Width
+                    && _subjectSource.Height == preparedSource.Height
+                    && _subjectMask.Width == preparedMask.Width
+                    && _subjectMask.Height == preparedMask.Height)
+                {
+                    _subjectMask.Dispose();
+                    _subjectMask = preparedMask;
+                    preparedSource.Dispose();
+                }
+                else
+                {
+                    if (_subjectSource is not null || _subjectMask is not null)
+                        ResetSubjectPlacement();
+
+                    _subjectSource = preparedSource;
+                    _subjectMask = preparedMask;
+                    _subjectIsFromCardArt = true;
+                }
+
+                // Empty working selection after removals → clear subject.
+                if (!MaskHasOpaquePixels(_subjectMask))
+                {
+                    ResetSubjectPlacement();
+                    if (_backgroundSource is not null)
+                        await ShowBackgroundOnlyPreviewAsync();
+                    StatusText.Text = "SAM 2 click selection cleared the subject.";
+                    ApplyButton.IsEnabled = false;
+                    return;
+                }
+
+                var matchedClick = TryApplyAutoMatchBackgroundTransforms();
+                await RecomposePreviewAsync();
+                StatusText.Text = matchedClick
+                    ? $"Subject from SAM 2 click selection; background matched ×{_backgroundScale:0.00}. Drag or Apply."
+                    : "Subject from SAM 2 click selection. Drag or scale the art, then Apply.";
+                PreviewHintText.Visibility = Visibility.Collapsed;
+                ApplyButton.IsEnabled = true;
+            }
+            else
+            {
+                var unioned = false;
+                if (_subjectSource is not null
+                    && _subjectMask is not null
+                    && _subjectSource.Width == preparedSource.Width
+                    && _subjectSource.Height == preparedSource.Height
+                    && _subjectMask.Width == preparedMask.Width
+                    && _subjectMask.Height == preparedMask.Height)
+                {
+                    var merged = Sam2PointCutoutService.UnionMasks(_subjectMask, preparedMask);
+                    preparedMask.Dispose();
+                    preparedSource.Dispose();
+                    _subjectMask.Dispose();
+                    _subjectMask = merged;
+                    unioned = true;
+                }
+                else
+                {
+                    if (_subjectSource is not null || _subjectMask is not null)
+                        ResetSubjectPlacement();
+
+                    _subjectSource = preparedSource;
+                    _subjectMask = preparedMask;
+                    _subjectIsFromCardArt = true;
+                }
+
+                var matched = TryApplyAutoMatchBackgroundTransforms();
+                await RecomposePreviewAsync();
+                StatusText.Text = unioned
+                    ? (matched
+                        ? $"Added SAM 2 {modeNote} selection; background matched ×{_backgroundScale:0.00}. Drag or Apply."
+                        : $"Added SAM 2 {modeNote} selection to existing subject. Drag or scale the art, then Apply.")
+                    : (matched
+                        ? $"Subject from SAM 2 {modeNote}; background matched ×{_backgroundScale:0.00}. Drag or Apply."
+                        : $"Subject from SAM 2 {modeNote} selection. Drag or scale the art, then Apply.");
+                PreviewHintText.Visibility = Visibility.Collapsed;
+                ApplyButton.IsEnabled = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            // Keep an existing subject when "Add more selection" fails mid-flight.
+            if (_subjectSource is not null && _subjectMask is not null)
+            {
+                StatusText.Text = "SAM 2 add failed (existing subject kept): " + ex.Message;
+                MessageBox.Show(
+                    this,
+                    "Could not add SAM 2 selection (existing subject was kept):\n\n" + ex.Message,
+                    "Custom overframe art",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            else
+            {
+                await FailSubjectPrepareAsync(ex);
+            }
+        }
+        finally
+        {
+            paintMask?.Dispose();
+            clickMask?.Dispose();
+            clickSource?.Dispose();
+            if (liveTemp is not null && File.Exists(liveTemp))
+            {
+                try { File.Delete(liveTemp); } catch { /* ignore */ }
+            }
+
+            SetBusy(false);
+        }
+    }
+
+    private static bool MaskHasOpaquePixels(Image<L8> mask)
+    {
+        var threshold = OverFrameAutoArtComposer.MaskKeepThreshold;
+        for (var y = 0; y < mask.Height; y++)
+        {
+            for (var x = 0; x < mask.Width; x++)
+            {
+                if (mask[x, y].PackedValue >= threshold)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
     private async Task PickSubjectImageAsync()
     {
         var dlg = new OpenFileDialog
@@ -734,7 +957,7 @@ public partial class CustomOverframeWindow : Window
                 () => AutoOverFrameArtService.LoadSubjectFromAlpha(imagePath, progress));
             _subjectSource = prepared.Source;
             _subjectMask = prepared.Mask;
-            _subjectIsCardArtRembg = false;
+            _subjectIsFromCardArt = false;
             SubjectManualRadio.IsChecked = true;
 
             await RecomposePreviewAsync();
@@ -777,7 +1000,7 @@ public partial class CustomOverframeWindow : Window
             var prepared = await _autoArt.PrepareSubjectWithRembgAsync(liveTemp, progress);
             _subjectSource = prepared.Source;
             _subjectMask = prepared.Mask;
-            _subjectIsCardArtRembg = true;
+            _subjectIsFromCardArt = true;
             SubjectAutoRadio.IsChecked = true;
 
             var matched = TryApplyAutoMatchBackgroundTransforms();
@@ -806,7 +1029,7 @@ public partial class CustomOverframeWindow : Window
     private void ResetSubjectPlacement()
     {
         DisposeSubject();
-        _subjectIsCardArtRembg = false;
+        _subjectIsFromCardArt = false;
         _offsetX = 0;
         _offsetY = 0;
         _subjectScale = DefaultSubjectScale;
@@ -1206,6 +1429,7 @@ public partial class CustomOverframeWindow : Window
         UseCardArtBackgroundButton.IsEnabled = !busy;
         SubjectAutoRadio.IsEnabled = !busy;
         SubjectManualRadio.IsEnabled = !busy;
+        AddMoreSelectionButton.IsEnabled = !busy && Sam2PointCutoutService.IsFeatureEnabled;
         FrameStyleBox.IsEnabled = !busy;
         ArtScaleSlider.IsEnabled = !busy;
         BgScaleSlider.IsEnabled = !busy;
@@ -1239,7 +1463,7 @@ public partial class CustomOverframeWindow : Window
         _subjectMask?.Dispose();
         _subjectSource = null;
         _subjectMask = null;
-        _subjectIsCardArtRembg = false;
+        _subjectIsFromCardArt = false;
     }
 
     private void DisposeBackground()
@@ -1264,6 +1488,7 @@ public partial class CustomOverframeWindow : Window
         DisposeSubject();
         DisposeBackground();
         CleanupComposedTemp();
+        _sam2Cutout.Dispose();
     }
 
     private static BitmapImage LoadOfComposePreview(string path)
