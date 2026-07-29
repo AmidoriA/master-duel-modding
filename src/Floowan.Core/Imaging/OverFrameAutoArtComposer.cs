@@ -737,6 +737,10 @@ public static class OverFrameAutoArtComposer
             Mode = ResizeMode.Stretch,
             Sampler = KnownResamplers.Lanczos3
         }));
+        // Subtle 1-2px inward alpha feather in final texture space (after scale) so
+        // silhouette AA does not shift crop/placement. Keep-threshold 1 treats Lanczos
+        // soft fringe as interior (MaskKeepThreshold would erode it).
+        SubjectMaskFeather.ApplyToRgbaAlphaInPlace(resized, keepThreshold: 1);
 
         var xOffset = bgX + (int)MathF.Round(bounds.Left * scale) + subjectOffsetX;
         var yOffset = bgY + (int)MathF.Round(bounds.Top * scale) + subjectOffsetY;
@@ -1528,10 +1532,11 @@ public static class OverFrameAutoArtComposer
 
                 var src = srcRow[sx];
                 // Alpha cutouts: do not write zero-alpha RGB (often black) as foil underlay.
-                if (src.A <= VisibleAlphaThreshold)
+                var foilA = ScaleFoilCoverageAlpha(src.A);
+                if (foilA == 0)
                     continue;
 
-                dstRow[dx] = new Rgba32(src.R, src.G, src.B, FoilMaskAlpha);
+                dstRow[dx] = new Rgba32(src.R, src.G, src.B, foilA);
             }
         }
     }
@@ -1559,7 +1564,8 @@ public static class OverFrameAutoArtComposer
             for (var x = 0; x < srcRow.Length; x++)
             {
                 var src = srcRow[x];
-                if (src.A <= VisibleAlphaThreshold)
+                var foilA = ScaleFoilCoverageAlpha(src.A);
+                if (foilA == 0)
                     continue;
 
                 var dx = xOffset + x;
@@ -1591,16 +1597,30 @@ public static class OverFrameAutoArtComposer
                             // CustomArtOnly: subject is the only Card Art — soft lore underlay
                             // where the silhouette covers cream (do not mark occupied).
                             if (writeLoreCreamUnderlay)
-                                dstRow[dx] = new Rgba32(src.R, src.G, src.B, FoilMaskAlpha);
+                                dstRow[dx] = new Rgba32(src.R, src.G, src.B, foilA);
                             continue;
                         }
                     }
                 }
 
-                dstRow[dx] = new Rgba32(src.R, src.G, src.B, FoilMaskAlpha);
+                dstRow[dx] = new Rgba32(src.R, src.G, src.B, foilA);
                 occupied[dy * canvas.Width + dx] = true;
             }
         }
+    }
+
+    /// <summary>
+    /// Maps subject cutout alpha onto the game foil coverage range (1..<see cref="FoilMaskAlpha"/>).
+    /// Opaque interior stays at <see cref="FoilMaskAlpha"/>; subtle feather/AA fringes keep
+    /// proportional softer coverage so hard silhouettes do not stair-step after scale.
+    /// </summary>
+    private static byte ScaleFoilCoverageAlpha(byte subjectAlpha)
+    {
+        if (subjectAlpha <= VisibleAlphaThreshold)
+            return 0;
+
+        var a = (int)MathF.Round(FoilMaskAlpha * (subjectAlpha / 255f));
+        return (byte)Math.Clamp(a, 1, FoilMaskAlpha);
     }
 
     private static void DrawFramePunchedByRectangleAndSilhouette(
@@ -1840,7 +1860,11 @@ public static class OverFrameAutoArtComposer
                 var p = row[x];
                 if (p.A > 0 && p.A <= VisibleAlphaThreshold)
                 {
-                    p.A = 255;
+                    // Preserve soft foil fringe proportionally (A=1..FoilMaskAlpha → soft..opaque).
+                    p.A = (byte)Math.Clamp(
+                        (int)MathF.Round(p.A * (255f / FoilMaskAlpha)),
+                        1,
+                        255);
                     row[x] = p;
                 }
             }

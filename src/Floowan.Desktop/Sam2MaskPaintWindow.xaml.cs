@@ -51,6 +51,9 @@ public partial class Sam2MaskPaintWindow : Window
     /// <summary>App-session preference for the active selection highlight (index into <see cref="SelectionPalette"/>).</summary>
     private static int SessionSelectionColorIndex;
 
+    /// <summary>Soft rim width (image pixels) for paint-brush stamps — display/prompt only.</summary>
+    private const float BrushAaRimPixels = 1.5f;
+
     private readonly Image<Rgba32> _art;
     private readonly string _artPath;
     private readonly Sam2PointCutoutService _sam2;
@@ -671,6 +674,7 @@ public partial class Sam2MaskPaintWindow : Window
 
         ClearPaintPrompt();
         FillPolygonIntoPaintMask(points);
+        SoftenHighlightEdgePixels(_overlayPixels, _art.Width, _art.Height, _overlayStride);
         FlushPaintOverlay();
         if (CountOpaque(_paintMask) == 0)
         {
@@ -858,14 +862,21 @@ public partial class Sam2MaskPaintWindow : Window
         return true;
     }
 
+    /// <summary>
+    /// Soft-rim brush (~1.5 px AA) for paint-prompt overlay. Soft edges are display/prompt
+    /// only — OF composition still binarizes subject masks at <see cref="OverFrameAutoArtComposer.MaskKeepThreshold"/>.
+    /// </summary>
     private void StampBrush(int cx, int cy, bool erase)
     {
         var r = _brushRadius;
-        var r2 = r * r;
-        var minX = Math.Max(cx - r, 0);
-        var maxX = Math.Min(cx + r, _paintMask.Width - 1);
-        var minY = Math.Max(cy - r, 0);
-        var maxY = Math.Min(cy + r, _paintMask.Height - 1);
+        // Include a half-pixel fringe so the outer AA samples land inside the stamp bounds.
+        var searchR = r + 1;
+        var solidR = Math.Max(r - BrushAaRimPixels, 0f);
+        var falloff = Math.Max(r - solidR, 0.001f);
+        var minX = Math.Max(cx - searchR, 0);
+        var maxX = Math.Min(cx + searchR, _paintMask.Width - 1);
+        var minY = Math.Max(cy - searchR, 0);
+        var maxY = Math.Min(cy + searchR, _paintMask.Height - 1);
 
         for (var y = minY; y <= maxY; y++)
         {
@@ -875,25 +886,49 @@ public partial class Sam2MaskPaintWindow : Window
             {
                 var dx = x - cx;
                 var dy = y - cy;
-                if (dx * dx + dy * dy > r2)
+                var dist = MathF.Sqrt(dx * dx + dy * dy);
+                if (dist > r)
+                    continue;
+
+                var coverage = dist <= solidR
+                    ? 1f
+                    : 1f - (dist - solidR) / falloff;
+                coverage = Math.Clamp(coverage, 0f, 1f);
+                if (coverage <= 0f)
                     continue;
 
                 var i = overlayRow + x * 4;
                 if (erase)
                 {
-                    maskRow[x] = new L8(0);
-                    _overlayPixels[i] = 0;
-                    _overlayPixels[i + 1] = 0;
-                    _overlayPixels[i + 2] = 0;
-                    _overlayPixels[i + 3] = 0;
+                    var keep = 1f - coverage;
+                    var next = (byte)Math.Clamp((int)MathF.Round(maskRow[x].PackedValue * keep), 0, 255);
+                    maskRow[x] = new L8(next);
+                    if (next == 0)
+                    {
+                        _overlayPixels[i] = 0;
+                        _overlayPixels[i + 1] = 0;
+                        _overlayPixels[i + 2] = 0;
+                        _overlayPixels[i + 3] = 0;
+                    }
+                    else
+                    {
+                        _overlayPixels[i] = 40;
+                        _overlayPixels[i + 1] = 190;
+                        _overlayPixels[i + 2] = 255;
+                        _overlayPixels[i + 3] = (byte)Math.Clamp((int)MathF.Round(180f * next / 255f), 0, 255);
+                    }
                 }
                 else
                 {
-                    maskRow[x] = new L8(255);
+                    var painted = (byte)Math.Clamp((int)MathF.Round(255f * coverage), 0, 255);
+                    if (painted > maskRow[x].PackedValue)
+                        maskRow[x] = new L8(painted);
+
+                    var overlayA = (byte)Math.Clamp((int)MathF.Round(180f * maskRow[x].PackedValue / 255f), 0, 255);
                     _overlayPixels[i] = 40;
                     _overlayPixels[i + 1] = 190;
                     _overlayPixels[i + 2] = 255;
-                    _overlayPixels[i + 3] = 180;
+                    _overlayPixels[i + 3] = overlayA;
                 }
             }
         }
@@ -975,36 +1010,83 @@ public partial class Sam2MaskPaintWindow : Window
         return keep;
     }
 
+    /// <summary>
+    /// Builds a selection highlight with soft alpha from mask strength (SAM logits are soft).
+    /// Display-only — does not change the L8 subject mask or in-game cutout hardness.
+    /// </summary>
     private static BitmapSource ToMaskHighlightBitmap(Image<L8> mask, byte b, byte g, byte r, byte a)
     {
         var w = mask.Width;
         var h = mask.Height;
         var stride = w * 4;
         var pixels = new byte[stride * h];
-        var threshold = OverFrameAutoArtComposer.MaskKeepThreshold;
         for (var y = 0; y < h; y++)
         {
             var row = mask.DangerousGetPixelRowMemory(y).Span;
             var dest = y * stride;
             for (var x = 0; x < w; x++)
             {
-                if (row[x].PackedValue >= threshold)
-                {
-                    pixels[dest++] = b;
-                    pixels[dest++] = g;
-                    pixels[dest++] = r;
-                    pixels[dest++] = a;
-                }
-                else
+                var m = row[x].PackedValue;
+                if (m == 0)
                 {
                     dest += 4;
+                    continue;
                 }
+
+                // Preserve soft boundary alphas instead of hard-thresholding at MaskKeepThreshold.
+                var ha = (byte)((m * a + 127) / 255);
+                pixels[dest++] = b;
+                pixels[dest++] = g;
+                pixels[dest++] = r;
+                pixels[dest++] = ha;
             }
         }
+
+        SoftenHighlightEdgePixels(pixels, w, h, stride);
 
         var bmp = BitmapSource.Create(w, h, 96, 96, PixelFormats.Bgra32, null, pixels, stride);
         bmp.Freeze();
         return bmp;
+    }
+
+    /// <summary>
+    /// Light 1-px edge soften for hard (binary) masks so HighQuality scaling has soft alphas to blend.
+    /// Purely cosmetic — source L8 masks are unchanged.
+    /// </summary>
+    private static void SoftenHighlightEdgePixels(byte[] pixels, int w, int h, int stride)
+    {
+        if (w < 2 || h < 2)
+            return;
+
+        var alpha = new byte[w * h];
+        for (var y = 0; y < h; y++)
+        {
+            var row = y * stride;
+            var dest = y * w;
+            for (var x = 0; x < w; x++)
+                alpha[dest + x] = pixels[row + x * 4 + 3];
+        }
+
+        for (var y = 0; y < h; y++)
+        {
+            for (var x = 0; x < w; x++)
+            {
+                var i = y * w + x;
+                var a0 = alpha[i];
+                if (a0 == 0)
+                    continue;
+
+                var minN = a0;
+                if (x > 0) minN = Math.Min(minN, alpha[i - 1]);
+                if (x + 1 < w) minN = Math.Min(minN, alpha[i + 1]);
+                if (y > 0) minN = Math.Min(minN, alpha[i - w]);
+                if (y + 1 < h) minN = Math.Min(minN, alpha[i + w]);
+
+                // Interior solid / already-soft pixels untouched; boundary against empty → half alpha.
+                if (minN == 0 && a0 > 0)
+                    pixels[y * stride + x * 4 + 3] = (byte)((a0 + 1) / 2);
+            }
+        }
     }
 
     private static BitmapSource ToBitmap(Image<Rgba32> image)
