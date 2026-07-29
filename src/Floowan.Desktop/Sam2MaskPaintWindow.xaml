@@ -177,7 +177,6 @@
                VerticalAlignment="Center"
                IsHitTestVisible="False"
                RenderOptions.BitmapScalingMode="HighQuality"/>
-        <!-- HighQuality scales soft highlight alphas; overlays are display-only (OF cutout stays binary). -->
         <Image x:Name="ExistingSubjectOverlay"
                Stretch="Uniform"
                HorizontalAlignment="Center"
@@ -185,14 +184,14 @@
                IsHitTestVisible="False"
                Visibility="Collapsed"
                Opacity="0.55"
-               RenderOptions.BitmapScalingMode="HighQuality"/>
+               RenderOptions.BitmapScalingMode="NearestNeighbor"/>
         <Image x:Name="MaskOverlay"
                Stretch="Uniform"
                HorizontalAlignment="Center"
                VerticalAlignment="Center"
                IsHitTestVisible="False"
                Opacity="0.55"
-               RenderOptions.BitmapScalingMode="HighQuality"/>
+               RenderOptions.BitmapScalingMode="NearestNeighbor"/>
         <Image x:Name="ClickPreviewOverlay"
                Stretch="Uniform"
                HorizontalAlignment="Center"
@@ -200,14 +199,11 @@
                IsHitTestVisible="False"
                Visibility="Collapsed"
                Opacity="0.55"
-               RenderOptions.BitmapScalingMode="HighQuality"/>
+               RenderOptions.BitmapScalingMode="NearestNeighbor"/>
         <Polyline x:Name="LassoPolyline"
                   Stroke="#FFC84A"
                   StrokeThickness="2"
                   StrokeLineJoin="Round"
-                  StrokeStartLineCap="Round"
-                  StrokeEndLineCap="Round"
-                  SnapsToDevicePixels="False"
                   IsHitTestVisible="False"
                   Visibility="Collapsed"/>
         <Ellipse x:Name="BrushCursor"
@@ -216,7 +212,6 @@
                  Stroke="#F2F2F2"
                  StrokeThickness="1.5"
                  Fill="#33FFFFFF"
-                 SnapsToDevicePixels="False"
                  IsHitTestVisible="False"
                  Visibility="Collapsed"
                  HorizontalAlignment="Left"
