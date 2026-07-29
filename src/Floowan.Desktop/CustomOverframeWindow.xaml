@@ -29,12 +29,18 @@
           <Button Content="Cancel" IsCancel="True" Click="Cancel_Click" Margin="0"/>
         </StackPanel>
 
-        <TextBlock x:Name="StatusText"
-                   DockPanel.Dock="Bottom"
-                   Text="Loading card art as background…"
-                   Foreground="{StaticResource MutedBrush}"
-                   TextWrapping="Wrap"
-                   Margin="0,8,0,0"/>
+        <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+          <TextBlock x:Name="StatusText"
+                     Text="Loading card art as background…"
+                     Foreground="{StaticResource MutedBrush}"
+                     TextWrapping="Wrap"/>
+          <ProgressBar x:Name="DownloadProgressBar"
+                       Height="8"
+                       Margin="0,8,0,0"
+                       Minimum="0"
+                       Maximum="100"
+                       Visibility="Collapsed"/>
+        </StackPanel>
 
         <ScrollViewer VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
