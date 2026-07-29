@@ -140,7 +140,7 @@
                     <ComboBoxItem Content="Pendulum Token" Tag="PendulumToken"/>
                   </ComboBox>
                 </StackPanel>
-                <StackPanel Orientation="Horizontal">
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                   <TextBlock Text="Art scale"
                              VerticalAlignment="Center"
                              Foreground="{StaticResource MutedBrush}"
@@ -164,6 +164,25 @@
                              Margin="8,0,0,0"
                              Foreground="{StaticResource TextBrush}"/>
                 </StackPanel>
+                <Expander x:Name="AdvancedSamExpander"
+                          Header="Advanced"
+                          IsExpanded="False"
+                          ExpandDirection="Down"
+                          Foreground="{StaticResource MutedBrush}"
+                          ToolTip="Paint a region and let SAM 2 add segmented subjects to Card Art.">
+                  <StackPanel Margin="0,8,0,0">
+                    <TextBlock Text="Paint a masking area on live card art; SAM 2 segments objects inside it into the Card Art subject. If a subject already exists, the new mask is unioned (added), not replaced."
+                               Foreground="{StaticResource MutedBrush}"
+                               TextWrapping="Wrap"
+                               FontSize="11"
+                               Margin="0,0,0,8"/>
+                    <Button x:Name="AddMoreSelectionButton"
+                            Content="Add more selection…"
+                            Click="AddMoreSelection_Click"
+                            HorizontalAlignment="Left"
+                            ToolTip="Open the paint-mask editor, then run Meta SAM 2 (ONNX) on the painted region."/>
+                  </StackPanel>
+                </Expander>
               </StackPanel>
             </Border>
 
