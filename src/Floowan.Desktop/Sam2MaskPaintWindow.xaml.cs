@@ -52,6 +52,12 @@ public partial class Sam2MaskPaintWindow : Window
     /// <summary>App-session preference for the active selection highlight (index into <see cref="SelectionPalette"/>).</summary>
     private static int SessionSelectionColorIndex;
 
+    /// <summary>Default selection-overlay opacity percent (matches prior fixed ~50% Image.Opacity feel).</summary>
+    private const int DefaultOverlayOpacityPercent = 50;
+
+    /// <summary>App-session preference for working-selection / prior-subject overlay opacity (10–100).</summary>
+    private static int SessionOverlayOpacityPercent = DefaultOverlayOpacityPercent;
+
     /// <summary>Soft rim width (image pixels) for paint-brush stamps — display/prompt only.</summary>
     private const float BrushAaRimPixels = 1.5f;
 
@@ -126,6 +132,7 @@ public partial class Sam2MaskPaintWindow : Window
         ArtImage.Source = ToBitmap(_art);
         MaskOverlay.Source = _overlayBitmap;
         ApplySessionHighlightColor();
+        ApplySessionOverlayOpacity();
         ApplyExistingSubjectHighlight(_baselineExistingMask);
         RefreshWorkingClickOverlay();
         UpdateBrushLabel();
@@ -172,6 +179,33 @@ public partial class Sam2MaskPaintWindow : Window
         RefreshWorkingClickOverlay();
         if (IsLoaded)
             StatusText.Text = $"Selection highlight: {ActiveSelectionColor.Name}.";
+    }
+
+    private void ApplySessionOverlayOpacity()
+    {
+        var percent = Math.Clamp(SessionOverlayOpacityPercent, 10, 100);
+        SessionOverlayOpacityPercent = percent;
+        OverlayOpacitySlider.Value = percent;
+        ApplyOverlayOpacity(percent);
+    }
+
+    private void OverlayOpacitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!IsLoaded)
+            return;
+
+        var percent = (int)Math.Clamp(Math.Round(e.NewValue), 10, 100);
+        SessionOverlayOpacityPercent = percent;
+        ApplyOverlayOpacity(percent);
+        StatusText.Text = $"Selection overlay opacity: {percent}%.";
+    }
+
+    private void ApplyOverlayOpacity(int percent)
+    {
+        var opacity = percent / 100.0;
+        ClickPreviewOverlay.Opacity = opacity;
+        ExistingSubjectOverlay.Opacity = opacity;
+        OverlayOpacityValueText.Text = $"{percent}%";
     }
 
     public static Sam2MaskPaintWindow FromImagePath(
