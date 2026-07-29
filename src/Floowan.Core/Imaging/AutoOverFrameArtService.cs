@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Floowan.Core.Backup;
 using Floowan.Core.Data;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
@@ -416,6 +417,52 @@ public sealed class AutoOverFrameArtService : IDisposable
         IProgress<string>? progress,
         CancellationToken cancellationToken) =>
         _artUpscale.EnsureModelAsync(progress, cancellationToken);
+
+    /// <summary>
+    /// Ensures the Real-ESRGAN model is present (download once), then upscales any
+    /// 512-class Custom OF edit layers and runs transform compat so Cover scales /
+    /// canvas offsets keep the same relative layout at 1024.
+    /// When <c>Changed</c> is true, returned images replace the inputs (old instances
+    /// were disposed) and the caller should re-persist to <c>of_edit_layer</c>.
+    /// When false, returned images are the same instances as the inputs.
+    /// </summary>
+    public async Task<(
+            bool Changed,
+            Image<Rgba32>? Subject,
+            Image<L8>? Mask,
+            Image<Rgba32>? Background)> UpscaleSavedEditLayersIfNeededAsync(
+        Image<Rgba32>? subject,
+        Image<L8>? mask,
+        Image<Rgba32>? background,
+        CustomOverframeStageState state,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        if (!OfEditLayerUpscaleCompat.NeedsLayerUpscale(subject, mask, background))
+            return (false, subject, mask, background);
+
+        await EnsureArtUpscaleModelAsync(progress, cancellationToken).ConfigureAwait(false);
+
+        if (!OfEditLayerUpscaleCompat.TryGetReferenceLayerSize(
+                subject, mask, background, out var fromW, out var fromH))
+            return (false, subject, mask, background);
+
+        var factor = OfEditLayerUpscaleCompat.ResolveSpatialUpscaleFactor(fromW, fromH);
+        var subj = subject;
+        var m = mask;
+        var bg = background;
+        var progressLocal = progress;
+        var artUpscale = _artUpscale;
+        var changed = await Task.Run(
+            () => artUpscale.UpscaleEditLayersInPlace(ref subj, ref m, ref bg, progressLocal),
+            cancellationToken).ConfigureAwait(false);
+        if (!changed)
+            return (false, subj, m, bg);
+
+        OfEditLayerUpscaleCompat.AdjustTransformsAfterLayerUpscale(state, factor);
+        return (true, subj, m, bg);
+    }
 
     private async Task EnsureModelAsync(
         IProgress<string>? progress,

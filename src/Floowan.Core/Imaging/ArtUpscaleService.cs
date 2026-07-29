@@ -293,6 +293,71 @@ public sealed class ArtUpscaleService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Upscales persisted Custom OF edit layers when any is still 512-class.
+    /// Handles subject+mask (+ optional background) and background-only stages.
+    /// Disposes replaced images in place. Returns true when any bitmap changed.
+    /// </summary>
+    public bool UpscaleEditLayersInPlace(
+        ref Image<Rgba32>? subject,
+        ref Image<L8>? mask,
+        ref Image<Rgba32>? background,
+        IProgress<string>? progress = null)
+    {
+        if (!OfEditLayerUpscaleCompat.NeedsLayerUpscale(subject, mask, background))
+            return false;
+
+        if (subject is not null && mask is not null &&
+            NeedsOverFrameArtUpscale(subject.Width, subject.Height))
+        {
+            var src = subject;
+            var m = mask;
+            var bg = background;
+            UpscalePreparedLayersInPlace(ref src, ref m, ref bg, progress);
+            subject = src;
+            mask = m;
+            background = bg;
+            return true;
+        }
+
+        // Background-only (or subject already ≥1024 while background stayed 512).
+        if (background is not null && NeedsOverFrameArtUpscale(background.Width, background.Height))
+        {
+            var (tw, th) = GetOverFrameUpscaleTargetSize(background.Width, background.Height);
+            if (subject is not null)
+            {
+                tw = subject.Width;
+                th = subject.Height;
+            }
+
+            progress?.Report($"Upscaling illustration to {tw}×{th} (Real-ESRGAN)…");
+            var next = UpscaleRgbToTarget(background, tw, th);
+            background.Dispose();
+            background = next;
+            return true;
+        }
+
+        // Subject mask alone is 512-class (restore corruption / size skew).
+        if (subject is not null && mask is not null &&
+            NeedsOverFrameArtUpscale(mask.Width, mask.Height) &&
+            !NeedsOverFrameArtUpscale(subject.Width, subject.Height))
+        {
+            var tw = subject.Width;
+            var th = subject.Height;
+            var nextMask = mask.Clone(ctx => ctx.Resize(new ResizeOptions
+            {
+                Size = new Size(tw, th),
+                Mode = ResizeMode.Stretch,
+                Sampler = KnownResamplers.NearestNeighbor
+            }));
+            mask.Dispose();
+            mask = nextMask;
+            return true;
+        }
+
+        return false;
+    }
+
     public Image<Rgba32> UpscaleRgbToTarget(Image<Rgba32> source, int targetWidth, int targetHeight)
     {
         ArgumentNullException.ThrowIfNull(source);
