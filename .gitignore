@@ -32,5 +32,6 @@ Desktop.ini
 
 # Large ML weights (downloaded on first use / via scripts/)
 **/models/sam2/
+**/models/realesrgan/
 *.onnx
 !src/**/*.onnx

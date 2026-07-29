@@ -63,6 +63,7 @@ public sealed class Sam2PointCutoutService : IDisposable
     private readonly string _modelDirectory;
     private readonly string _encoderPath;
     private readonly string _decoderPath;
+    private readonly ArtUpscaleService _artUpscale;
     private readonly object _sessionLock = new();
     private InferenceSession? _encoder;
     private InferenceSession? _decoder;
@@ -80,6 +81,12 @@ public sealed class Sam2PointCutoutService : IDisposable
         _encoderPath = Path.Combine(_modelDirectory, EncoderFileName);
         _decoderPath = Path.Combine(_modelDirectory, DecoderFileName);
         _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+        var modelsRoot = Path.GetDirectoryName(_modelDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+                         ?? Path.Combine(
+                             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                             "Floowan",
+                             "models");
+        _artUpscale = new ArtUpscaleService(Path.Combine(modelsRoot, "realesrgan"));
     }
 
     public string ModelDirectory => _modelDirectory;
@@ -165,6 +172,8 @@ public sealed class Sam2PointCutoutService : IDisposable
             throw new ArgumentException("At least one SAM 2 prompt is required.", nameof(prompts));
 
         await EnsureModelsAsync(progress, cancellationToken).ConfigureAwait(false);
+        if (ArtUpscaleService.IsFeatureEnabled)
+            await _artUpscale.EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
         progress?.Report("Running SAM 2 cutout…");
 
         // Capture for Task.Run closure.
@@ -186,6 +195,9 @@ public sealed class Sam2PointCutoutService : IDisposable
                     throw new InvalidOperationException(
                         "SAM 2 found no opaque subject for that painted region. Paint a different area.");
                 }
+
+                Image<Rgba32>? bg = null;
+                _artUpscale.UpscalePreparedLayersInPlace(ref source, ref mask, ref bg, progress);
 
                 progress?.Report("SAM 2 subject mask ready.");
                 return (source, mask);
@@ -865,6 +877,7 @@ public sealed class Sam2PointCutoutService : IDisposable
         }
 
         _httpClient.Dispose();
+        _artUpscale.Dispose();
     }
 
     private sealed class PreparedSource(Image<Rgba32> source) : IDisposable

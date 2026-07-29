@@ -1292,8 +1292,7 @@ public partial class CustomOverframeWindow : Window
             ResetSubjectPlacement();
 
             var progress = new Progress<string>(msg => StatusText.Text = msg);
-            var prepared = await Task.Run(
-                () => AutoOverFrameArtService.LoadSubjectFromAlpha(imagePath, progress));
+            var prepared = await _autoArt.LoadSubjectFromAlphaUpscaledAsync(imagePath, progress);
             _subjectSource = prepared.Source;
             _subjectMask = prepared.Mask;
             _subjectIsFromCardArt = false;
