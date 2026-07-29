@@ -56,6 +56,12 @@ public partial class CustomOverframeWindow : Window
     private bool _scaleDragging;
     private bool _bgTransformDragging;
     private bool _updatingBgPanSliders;
+    /// <summary>True while restoring a saved Custom OF stage (suppress radio/slider side effects).</summary>
+    private bool _loadingStage;
+    /// <summary>Art scale changed while busy — flush once idle.</summary>
+    private bool _pendingArtScaleApply;
+    /// <summary>Subject offset changed while busy — flush once idle.</summary>
+    private bool _pendingSubjectRecompose;
     private bool _defaultBackgroundStarted;
     private int _dragVisualGeneration;
     private System.Windows.Point _dragStart;
@@ -159,6 +165,7 @@ public partial class CustomOverframeWindow : Window
     /// </summary>
     private async Task<bool> TryLoadSavedStageAsync()
     {
+        _loadingStage = true;
         SetBusy(true);
         StatusText.Text = "Loading saved Custom OF stage…";
         try
@@ -204,17 +211,37 @@ public partial class CustomOverframeWindow : Window
             _subjectScale = OverFrameAutoArtComposer.ClampSubjectScale(loaded.State.SubjectScale);
             _offsetX = loaded.State.SubjectOffsetX;
             _offsetY = loaded.State.SubjectOffsetY;
-            ArtScaleSlider.Value = _subjectScale;
 
             _backgroundScale = OverFrameAutoArtComposer.ClampBackgroundScale(loaded.State.BackgroundScale);
             _backgroundOffsetX = loaded.State.BackgroundOffsetX;
             _backgroundOffsetY = loaded.State.BackgroundOffsetY;
-            BgScaleSlider.Value = _backgroundScale;
-            UpdateArtScaleLabel();
-            SyncBackgroundPanSliderRanges();
+
+            // Write all transform controls under a suppress flag so ValueChanged handlers
+            // do not re-enter Apply/Sync while offsets are still being restored.
             _updatingBgPanSliders = true;
             try
             {
+                ArtScaleSlider.Value = _subjectScale;
+                BgScaleSlider.Value = _backgroundScale;
+            }
+            finally
+            {
+                _updatingBgPanSliders = false;
+            }
+
+            UpdateArtScaleLabel();
+            SyncBackgroundPanSliderRanges();
+
+            _updatingBgPanSliders = true;
+            try
+            {
+                // Re-apply pans from stage after Sync clamped against the new scale limits.
+                var maxX = (int)Math.Round(BgPanHSlider.Maximum);
+                var maxY = (int)Math.Round(BgPanVSlider.Maximum);
+                _backgroundOffsetX = OverFrameAutoArtComposer.ClampBackgroundPan(
+                    loaded.State.BackgroundOffsetX, maxX);
+                _backgroundOffsetY = OverFrameAutoArtComposer.ClampBackgroundPan(
+                    loaded.State.BackgroundOffsetY, maxY);
                 BgPanHSlider.Value = _backgroundOffsetX;
                 BgPanVSlider.Value = _backgroundOffsetY;
             }
@@ -262,7 +289,15 @@ public partial class CustomOverframeWindow : Window
         }
         finally
         {
+            // Clear any sticky drag/scale flags from mid-load enable/disable races.
+            _dragging = false;
+            _scaleDragging = false;
+            _bgTransformDragging = false;
+            _updatingBgPanSliders = false;
+            _pendingArtScaleApply = false;
+            _pendingSubjectRecompose = false;
             SetBusy(false);
+            _loadingStage = false;
         }
     }
 
@@ -493,10 +528,15 @@ public partial class CustomOverframeWindow : Window
 
     private async void ArtScaleSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        if (!IsLoaded)
+        if (!IsLoaded || _loadingStage || _updatingBgPanSliders)
             return;
 
         UpdateArtScaleLabel();
+        // Recover sticky thumb-drag when SetBusy disabled the slider mid-gesture
+        // (DragCompleted may never fire). Without this, Apply never runs again.
+        if (_scaleDragging && Mouse.LeftButton != MouseButtonState.Pressed)
+            _scaleDragging = false;
+
         if (_scaleDragging)
             return;
 
@@ -514,7 +554,7 @@ public partial class CustomOverframeWindow : Window
 
     private async void BgScaleSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        if (!IsLoaded || _updatingBgPanSliders)
+        if (!IsLoaded || _loadingStage || _updatingBgPanSliders)
             return;
 
         SyncBackgroundPanSliderRanges();
@@ -526,7 +566,7 @@ public partial class CustomOverframeWindow : Window
 
     private async void BgPanSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        if (!IsLoaded || _updatingBgPanSliders)
+        if (!IsLoaded || _loadingStage || _updatingBgPanSliders)
             return;
 
         UpdateBackgroundTransformLabels();
@@ -608,18 +648,30 @@ public partial class CustomOverframeWindow : Window
 
     private async Task ApplyArtScaleChangeAsync()
     {
+        if (_loadingStage)
+            return;
+
         var scale = GetSubjectScale();
         if (Math.Abs(scale - _subjectScale) < 0.0001f
             && _subjectSource is not null
-            && _composedTempPath is not null)
+            && _composedTempPath is not null
+            && !_pendingArtScaleApply)
         {
             return;
         }
 
+        // Always keep the field in sync with the slider, even when compose is deferred.
         _subjectScale = scale;
-        if (_subjectSource is null || _subjectMask is null || _busy)
+        if (_subjectSource is null || _subjectMask is null)
             return;
 
+        if (_busy)
+        {
+            _pendingArtScaleApply = true;
+            return;
+        }
+
+        _pendingArtScaleApply = false;
         SetBusy(true);
         StatusText.Text = $"Recomposing at art scale ×{_subjectScale:0.00}…";
         try
@@ -871,7 +923,7 @@ public partial class CustomOverframeWindow : Window
 
     private async void SubjectAutoRadio_Click(object sender, RoutedEventArgs e)
     {
-        if (_busy)
+        if (_busy || _loadingStage)
             return;
 
         await PrepareSubjectFromLiveArtRembgAsync();
@@ -879,7 +931,7 @@ public partial class CustomOverframeWindow : Window
 
     private async void SubjectManualRadio_Click(object sender, RoutedEventArgs e)
     {
-        if (_busy)
+        if (_busy || _loadingStage)
             return;
 
         await PickSubjectImageAsync();
@@ -1335,7 +1387,7 @@ public partial class CustomOverframeWindow : Window
 
     private async void FrameStyleBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!IsLoaded || _busy)
+        if (!IsLoaded || _busy || _loadingStage)
             return;
 
         await RefreshLinkMarkersForFrameAsync(GetSelectedFrameStyle());
@@ -1455,43 +1507,54 @@ public partial class CustomOverframeWindow : Window
         var backgroundOffsetY = _backgroundOffsetY;
         var linkMarkers = _linkMarkers;
 
-        var (baseBmp, subjectBmp) = await Task.Run(() =>
+        // Encode on a worker; build BitmapImages on the UI thread (WPF STA).
+        byte[] basePng;
+        byte[] subjectPng;
+        try
         {
-            using var baseLayer = OverFrameAutoArtComposer.ComposeBaseWithoutSubject(
-                source,
-                mask,
-                frameStyle,
-                subjectScale: subjectScale,
-                composeMode: OverFrameComposeMode.CustomArtOnly,
-                background: background,
-                backgroundScale: backgroundScale,
-                backgroundOffsetX: backgroundOffsetX,
-                backgroundOffsetY: backgroundOffsetY);
-            // Arrows sit above chrome/background but under the dragged subject layer.
-            AutoOverFrameArtService.ApplyLinkArrowsIfNeeded(baseLayer, frameStyle, linkMarkers);
-            using var subjectLayer = OverFrameAutoArtComposer.RenderSubjectDragLayer(
-                source,
-                mask,
-                frameStyle,
-                subjectOffsetX: offsetX,
-                subjectOffsetY: offsetY,
-                subjectScale: subjectScale,
-                composeMode: OverFrameComposeMode.CustomArtOnly);
-            return (ToPreviewBitmap(baseLayer), ToPreviewBitmap(subjectLayer));
-        });
+            (basePng, subjectPng) = await Task.Run(() =>
+            {
+                using var baseLayer = OverFrameAutoArtComposer.ComposeBaseWithoutSubject(
+                    source,
+                    mask,
+                    frameStyle,
+                    subjectScale: subjectScale,
+                    composeMode: OverFrameComposeMode.CustomArtOnly,
+                    background: background,
+                    backgroundScale: backgroundScale,
+                    backgroundOffsetX: backgroundOffsetX,
+                    backgroundOffsetY: backgroundOffsetY);
+                // Arrows sit above chrome/background but under the dragged subject layer.
+                AutoOverFrameArtService.ApplyLinkArrowsIfNeeded(baseLayer, frameStyle, linkMarkers);
+                using var subjectLayer = OverFrameAutoArtComposer.RenderSubjectDragLayer(
+                    source,
+                    mask,
+                    frameStyle,
+                    subjectOffsetX: offsetX,
+                    subjectOffsetY: offsetY,
+                    subjectScale: subjectScale,
+                    composeMode: OverFrameComposeMode.CustomArtOnly);
+                return (EncodePreviewPng(baseLayer), EncodePreviewPng(subjectLayer));
+            });
+        }
+        catch
+        {
+            // Keep the full composed preview; FinishDrag still recomposes on release.
+            return;
+        }
 
         if (generation != _dragVisualGeneration || !_dragging)
             return;
 
-        PreviewImage.Source = baseBmp;
-        SubjectOverlay.Source = subjectBmp;
+        PreviewImage.Source = BitmapImageFromPngBytes(basePng);
+        SubjectOverlay.Source = BitmapImageFromPngBytes(subjectPng);
         ResetSubjectDragTransform();
         SubjectOverlay.Visibility = Visibility.Visible;
     }
 
     private void Preview_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (_subjectSource is null || _busy || PreviewImage.Source is null)
+        if (_subjectSource is null || _subjectMask is null || _busy || PreviewImage.Source is null)
             return;
 
         _dragging = true;
@@ -1558,7 +1621,8 @@ public partial class CustomOverframeWindow : Window
         // Drop live overlay immediately so a translated subject cannot cover lore cream
         // while the full recompose (same lore paint path as initial compose) runs.
         ClearSubjectOverlay();
-        PreviewHost.ReleaseMouseCapture();
+        if (PreviewHost.IsMouseCaptured)
+            PreviewHost.ReleaseMouseCapture();
 
         var scale = GetPreviewCanvasScale();
         if (scale > 0)
@@ -1569,11 +1633,25 @@ public partial class CustomOverframeWindow : Window
             _offsetY = _dragStartOffsetY + (int)Math.Round(dy);
         }
 
-        if (_busy || _subjectSource is null || _subjectMask is null)
+        if (_subjectSource is null || _subjectMask is null)
             return;
 
+        if (_busy)
+        {
+            // Offsets are already applied — recompose when the current busy op finishes.
+            _pendingSubjectRecompose = true;
+            return;
+        }
+
+        await RecomposeAfterSubjectTransformAsync(
+            $"Recomposing at offset {_offsetX}, {_offsetY}…");
+    }
+
+    private async Task RecomposeAfterSubjectTransformAsync(string busyStatus)
+    {
+        _pendingSubjectRecompose = false;
         SetBusy(true);
-        StatusText.Text = $"Recomposing at offset {_offsetX}, {_offsetY}…";
+        StatusText.Text = busyStatus;
         try
         {
             var matched = TryApplyAutoMatchBackgroundTransforms();
@@ -1606,7 +1684,7 @@ public partial class CustomOverframeWindow : Window
         // Prefer the fixed card preview; fall back to overlay while dragging.
         BitmapSource? bmp = PreviewImage.Source as BitmapSource
             ?? SubjectOverlay.Source as BitmapSource;
-        if (bmp is null)
+        if (bmp is null || bmp.PixelWidth <= 0 || bmp.PixelHeight <= 0)
             return 0;
 
         var availableW = PreviewHost.ActualWidth;
@@ -1726,7 +1804,17 @@ public partial class CustomOverframeWindow : Window
         ArtScaleSlider.IsEnabled = !busy;
         BgScaleSlider.IsEnabled = !busy;
         if (!busy)
+        {
+            // Disabling the Art scale thumb mid-drag can skip DragCompleted; clear so
+            // ValueChanged can Apply again once idle.
+            _scaleDragging = false;
+            _bgTransformDragging = false;
             SyncBackgroundPanSliderRanges();
+            // Defer flush so we don't re-enter SetBusy(true) mid SetBusy(false).
+            Dispatcher.BeginInvoke(
+                FlushPendingTransformApplies,
+                System.Windows.Threading.DispatcherPriority.Background);
+        }
         else
         {
             BgPanHSlider.IsEnabled = false;
@@ -1734,6 +1822,29 @@ public partial class CustomOverframeWindow : Window
         }
         ApplyButton.IsEnabled = !busy && _subjectSource is not null && _composedTempPath is not null;
         Cursor = busy ? Cursors.Wait : Cursors.Arrow;
+    }
+
+    /// <summary>
+    /// Applies transform changes that were deferred while <see cref="_busy"/> was true.
+    /// </summary>
+    private void FlushPendingTransformApplies()
+    {
+        if (_loadingStage || _busy)
+            return;
+
+        if (_pendingArtScaleApply)
+        {
+            _ = ApplyArtScaleChangeAsync();
+            return;
+        }
+
+        if (_pendingSubjectRecompose
+            && _subjectSource is not null
+            && _subjectMask is not null)
+        {
+            _ = RecomposeAfterSubjectTransformAsync(
+                $"Recomposing at offset {_offsetX}, {_offsetY}…");
+        }
     }
 
     private void ResetSubjectDragTransform()
@@ -1789,19 +1900,25 @@ public partial class CustomOverframeWindow : Window
         return ToPreviewBitmap(image);
     }
 
-    private static BitmapImage ToPreviewBitmap(Image<Rgba32> image)
+    private static byte[] EncodePreviewPng(Image<Rgba32> image)
     {
         using var flat = OverFrameAutoArtComposer.FlattenFoilMaskForPreview(image);
         using var ms = new MemoryStream();
         flat.Save(ms, new SixLabors.ImageSharp.Formats.Png.PngEncoder());
-        ms.Position = 0;
+        return ms.ToArray();
+    }
 
+    private static BitmapImage BitmapImageFromPngBytes(byte[] png)
+    {
         var bmp = new BitmapImage();
         bmp.BeginInit();
         bmp.CacheOption = BitmapCacheOption.OnLoad;
-        bmp.StreamSource = ms;
+        bmp.StreamSource = new MemoryStream(png);
         bmp.EndInit();
         bmp.Freeze();
         return bmp;
     }
+
+    private static BitmapImage ToPreviewBitmap(Image<Rgba32> image) =>
+        BitmapImageFromPngBytes(EncodePreviewPng(image));
 }
