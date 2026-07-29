@@ -63,6 +63,7 @@ public sealed class Sam2PointCutoutService : IDisposable
     private readonly string _modelDirectory;
     private readonly string _encoderPath;
     private readonly string _decoderPath;
+    private readonly ArtUpscaleService _artUpscale;
     private readonly object _sessionLock = new();
     private InferenceSession? _encoder;
     private InferenceSession? _decoder;
@@ -80,6 +81,12 @@ public sealed class Sam2PointCutoutService : IDisposable
         _encoderPath = Path.Combine(_modelDirectory, EncoderFileName);
         _decoderPath = Path.Combine(_modelDirectory, DecoderFileName);
         _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+        var modelsRoot = Path.GetDirectoryName(_modelDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+                         ?? Path.Combine(
+                             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                             "Floowan",
+                             "models");
+        _artUpscale = new ArtUpscaleService(Path.Combine(modelsRoot, "realesrgan"));
     }
 
     public string ModelDirectory => _modelDirectory;
@@ -165,6 +172,8 @@ public sealed class Sam2PointCutoutService : IDisposable
             throw new ArgumentException("At least one SAM 2 prompt is required.", nameof(prompts));
 
         await EnsureModelsAsync(progress, cancellationToken).ConfigureAwait(false);
+        if (ArtUpscaleService.IsFeatureEnabled)
+            await _artUpscale.EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
         progress?.Report("Running SAM 2 cutout…");
 
         // Capture for Task.Run closure.
@@ -186,6 +195,9 @@ public sealed class Sam2PointCutoutService : IDisposable
                     throw new InvalidOperationException(
                         "SAM 2 found no opaque subject for that painted region. Paint a different area.");
                 }
+
+                Image<Rgba32>? bg = null;
+                _artUpscale.UpscalePreparedLayersInPlace(ref source, ref mask, ref bg, progress);
 
                 progress?.Report("SAM 2 subject mask ready.");
                 return (source, mask);
@@ -450,6 +462,7 @@ public sealed class Sam2PointCutoutService : IDisposable
                     {
                         var buffer = new byte[81920];
                         long downloaded = 0;
+                        var lastPercent = -1;
                         int read;
                         while ((read = await input.ReadAsync(buffer, cancellationToken)
                                        .ConfigureAwait(false)) > 0)
@@ -459,8 +472,12 @@ public sealed class Sam2PointCutoutService : IDisposable
                             downloaded += read;
                             if (total > 0)
                             {
-                                progress?.Report(
-                                    $"Downloading SAM 2 Tiny… {downloaded * 100 / total}%");
+                                var percent = (int)(downloaded * 100 / total);
+                                if (percent != lastPercent)
+                                {
+                                    lastPercent = percent;
+                                    progress?.Report($"Downloading SAM 2 Tiny… {percent}%");
+                                }
                             }
                         }
 
@@ -491,6 +508,18 @@ public sealed class Sam2PointCutoutService : IDisposable
                             throw new FileNotFoundException(
                                 $"SAM 2 zip did not contain {EncoderFileName} and {DecoderFileName}.");
                         }
+
+                        // Keep only the ONNX pair — remove the archive so models/ stays tidy
+                        // (same spirit as rembg/.download temp cleanup).
+                        try
+                        {
+                            if (File.Exists(zipPath))
+                                File.Delete(zipPath);
+                        }
+                        catch
+                        {
+                            /* best effort */
+                        }
                     },
                     cancellationToken).ConfigureAwait(false);
             }
@@ -506,6 +535,25 @@ public sealed class Sam2PointCutoutService : IDisposable
                     /* best effort */
                 }
             }
+        }
+        else
+        {
+            // Prior runs may have left the zip beside the extracted ONNX files.
+            await Task.Run(
+                () =>
+                {
+                    var leftoverZip = Path.Combine(_modelDirectory, BundleZipName);
+                    try
+                    {
+                        if (File.Exists(leftoverZip))
+                            File.Delete(leftoverZip);
+                    }
+                    catch
+                    {
+                        /* best effort */
+                    }
+                },
+                cancellationToken).ConfigureAwait(false);
         }
 
         // Warm encoder/decoder sessions during prepare (not on first preview click).
@@ -865,6 +913,7 @@ public sealed class Sam2PointCutoutService : IDisposable
         }
 
         _httpClient.Dispose();
+        _artUpscale.Dispose();
     }
 
     private sealed class PreparedSource(Image<Rgba32> source) : IDisposable

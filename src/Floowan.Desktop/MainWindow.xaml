@@ -495,96 +495,112 @@
       </TabItem>
 
       <TabItem x:Name="ToolsTab" Header="Tools">
-        <Grid Margin="0,8,0,0">
-          <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-          </Grid.RowDefinitions>
-
-          <Border Grid.Row="0" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
-            <DockPanel>
-              <TextBlock DockPanel.Dock="Top" Text="Card database" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
-              <TextBlock DockPanel.Dock="Top"
-                         Text="Rebuild or incrementally refresh the master card catalog (database.db) from the Home LocalData path plus install StreamingAssets/AssetBundle (names, descriptions, bundles, card_type, created_at). Prefer LocalData downloads when both exist. Incremental mode skips any AssetBundle whose File.GetCreationTimeUtc is not after MAX(created_at) already stored in the database — those files are never opened."
-                         Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
-              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                <Button x:Name="ToolsUpdateEntireDbButton" Content="Update entire DB"
-                        Click="ToolsUpdateEntireDatabase_Click" Background="{StaticResource AccentBrush}"
-                        Padding="12,4" Margin="0,0,8,0"/>
-                <Button x:Name="ToolsUpdateNewFilesDbButton" Content="Update new files only"
-                        Click="ToolsUpdateNewFilesDatabase_Click"
-                        Padding="12,4" Margin="0,0,8,0"
-                        ToolTip="Only open AssetBundles whose File.GetCreationTimeUtc is after the latest created_at in database.db; older files are skipped entirely."/>
-              </StackPanel>
-              <TextBlock x:Name="ToolsUpdateDbStatusText"
-                         Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
-            </DockPanel>
-          </Border>
-
-          <Border Grid.Row="1" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
-            <DockPanel>
-              <TextBlock DockPanel.Dock="Top" Text="of_card_asset gate" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
-              <TextBlock DockPanel.Dock="Top"
-                         Text="Locate the AssetBundle that contains TextAsset of_card_asset under LocalData/0000 and StreamingAssets, cache its id in user.db, and sync is_overframe flags from the live gate. Runs off the UI thread so the app stays responsive during the scan."
-                         Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
-              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                <Button x:Name="ToolsScanOfCardAssetButton" Content="Scan / locate of_card_asset…"
-                        Click="ToolsScanOfCardAsset_Click" Background="{StaticResource AccentBrush}"
-                        Padding="12,4" Margin="0,0,8,0"
-                        ToolTip="Find of_card_asset, cache the bundle id, and sync Over-frame flags from the gate. Long filesystem/AssetBundle work runs in the background."/>
-              </StackPanel>
-              <TextBlock x:Name="ToolsScanOfCardAssetStatusText"
-                         Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
-            </DockPanel>
-          </Border>
-
-          <Border Grid.Row="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
-            <DockPanel>
-              <TextBlock DockPanel.Dock="Top" Text="Over-frames after patch" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
-              <TextBlock DockPanel.Dock="Top"
-                         Text="After a Master Duel update replaces of_card_asset, modded over-frames can drop out of the gate even when art backups remain. This scans user.db for cards this tool previously applied OF to, re-writes applied OF canvases into live art bundles when needed, and appends gate entries without wiping official Konami over-frames."
-                         Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
-              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                <Button x:Name="ToolsRestoreOverframesButton" Content="Restore overframes after patch"
-                        Click="ToolsRestoreOverframesAfterPatch_Click" Background="{StaticResource AccentBrush}"
-                        Padding="12,4" Margin="0,0,8,0"
-                        ToolTip="Scan user.db for previously applied over-frames, merge each art id into the current of_card_asset gate (additive — official OF entries are kept), and re-apply 704x1024 art from backups/cards/*-applied-overframe.png when live texture was reset. Skips cards that are already gated with OF-sized art. Does not restore the whole gate backup file."/>
-              </StackPanel>
-              <TextBlock x:Name="ToolsRestoreOverframesStatusText"
-                         Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
-            </DockPanel>
-          </Border>
-
-          <Border Grid.Row="3" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
-            <DockPanel>
-              <TextBlock DockPanel.Dock="Top" Text="Backups" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
-              <TextBlock DockPanel.Dock="Top"
-                         Text="Browse original files saved before card art and over-frame changes."
-                         Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
-
-              <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-                <TextBlock Text="Backup folder" Width="100" VerticalAlignment="Center"
-                           Foreground="{StaticResource MutedBrush}"/>
-                <Button DockPanel.Dock="Right" Content="Open in Explorer" Click="ToolsOpenBackupRoot_Click"
-                        Margin="8,0,0,0"/>
-                <TextBox x:Name="ToolsBackupPathBox" IsReadOnly="True"/>
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Margin="0,8,0,0">
+          <StackPanel>
+            <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Card database" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock DockPanel.Dock="Top"
+                           Text="Rebuild or incrementally refresh the master card catalog (database.db) from the Home LocalData path plus install StreamingAssets/AssetBundle (names, descriptions, bundles, card_type, created_at). Prefer LocalData downloads when both exist. Incremental mode skips any AssetBundle whose File.GetCreationTimeUtc is not after MAX(created_at) already stored in the database — those files are never opened."
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                  <Button x:Name="ToolsUpdateEntireDbButton" Content="Update entire DB"
+                          Click="ToolsUpdateEntireDatabase_Click" Background="{StaticResource AccentBrush}"
+                          Padding="12,4" Margin="0,0,8,0"/>
+                  <Button x:Name="ToolsUpdateNewFilesDbButton" Content="Update new files only"
+                          Click="ToolsUpdateNewFilesDatabase_Click"
+                          Padding="12,4" Margin="0,0,8,0"
+                          ToolTip="Only open AssetBundles whose File.GetCreationTimeUtc is after the latest created_at in database.db; older files are skipped entirely."/>
+                </StackPanel>
+                <TextBlock x:Name="ToolsUpdateDbStatusText"
+                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
               </DockPanel>
+            </Border>
 
-              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                <Button Content="Refresh" Click="ToolsRefreshBackups_Click" Background="{StaticResource AccentBrush}"/>
-                <Button Content="Open selected" Click="ToolsOpenSelected_Click"/>
-              </StackPanel>
+            <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="of_card_asset gate" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock DockPanel.Dock="Top"
+                           Text="Locate the AssetBundle that contains TextAsset of_card_asset under LocalData/0000 and StreamingAssets, cache its id in user.db, and sync is_overframe flags from the live gate. Runs off the UI thread so the app stays responsive during the scan."
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                  <Button x:Name="ToolsScanOfCardAssetButton" Content="Scan / locate of_card_asset…"
+                          Click="ToolsScanOfCardAsset_Click" Background="{StaticResource AccentBrush}"
+                          Padding="12,4" Margin="0,0,8,0"
+                          ToolTip="Find of_card_asset, cache the bundle id, and sync Over-frame flags from the gate. Long filesystem/AssetBundle work runs in the background."/>
+                </StackPanel>
+                <TextBlock x:Name="ToolsScanOfCardAssetStatusText"
+                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+              </DockPanel>
+            </Border>
 
-              <TextBlock x:Name="ToolsBackupStatusText" DockPanel.Dock="Bottom"
-                         Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+            <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Over-frames after patch" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock DockPanel.Dock="Top"
+                           Text="After a Master Duel update replaces of_card_asset, modded over-frames can drop out of the gate even when art backups remain. This scans user.db for cards this tool previously applied OF to, re-writes applied OF canvases into live art bundles when needed, and appends gate entries without wiping official Konami over-frames."
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                  <Button x:Name="ToolsRestoreOverframesButton" Content="Restore overframes after patch"
+                          Click="ToolsRestoreOverframesAfterPatch_Click" Background="{StaticResource AccentBrush}"
+                          Padding="12,4" Margin="0,0,8,0"
+                          ToolTip="Scan user.db for previously applied over-frames, merge each art id into the current of_card_asset gate (additive — official OF entries are kept), and re-apply 704x1024 art from backups/cards/*-applied-overframe.png when live texture was reset. Skips cards that are already gated with OF-sized art. Does not restore the whole gate backup file."/>
+                </StackPanel>
+                <TextBlock x:Name="ToolsRestoreOverframesStatusText"
+                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+              </DockPanel>
+            </Border>
 
-              <TreeView x:Name="ToolsBackupTree"
-                        MouseDoubleClick="ToolsBackupTree_MouseDoubleClick"/>
-            </DockPanel>
-          </Border>
-        </Grid>
+            <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="ONNX models" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock DockPanel.Dock="Top"
+                           Text="First-use downloads for rembg (isnet-anime), Real-ESRGAN upscale, and SAM 2 live under %LOCALAPPDATA%\Floowan\models\. Open the folder to inspect or free disk space."
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                  <Button x:Name="ToolsOpenModelsDirButton" Content="Open models directory"
+                          Click="ToolsOpenModelsDirectory_Click" Background="{StaticResource AccentBrush}"
+                          Padding="12,4" Margin="0,0,8,0"
+                          ToolTip="Opens %LOCALAPPDATA%\Floowan\models\ in Explorer (creates it if missing)."/>
+                </StackPanel>
+                <TextBlock x:Name="ToolsModelsStatusText"
+                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+              </DockPanel>
+            </Border>
+
+            <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Backups" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock DockPanel.Dock="Top"
+                           Text="Browse original files saved before card art and over-frame changes."
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                  <TextBlock Text="Backup folder" Width="100" VerticalAlignment="Center"
+                             Foreground="{StaticResource MutedBrush}"/>
+                  <Button DockPanel.Dock="Right" Content="Open in Explorer" Click="ToolsOpenBackupRoot_Click"
+                          Margin="8,0,0,0"/>
+                  <TextBox x:Name="ToolsBackupPathBox" IsReadOnly="True"/>
+                </DockPanel>
+
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                  <Button Content="Refresh" Click="ToolsRefreshBackups_Click" Background="{StaticResource AccentBrush}"/>
+                  <Button Content="Open selected" Click="ToolsOpenSelected_Click"/>
+                </StackPanel>
+
+                <TextBlock x:Name="ToolsBackupStatusText" DockPanel.Dock="Bottom"
+                           Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+
+                <TreeView x:Name="ToolsBackupTree"
+                          MinHeight="220"
+                          MaxHeight="360"
+                          MouseDoubleClick="ToolsBackupTree_MouseDoubleClick"/>
+              </DockPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
       </TabItem>
 
       <TabItem x:Name="AboutTab" Header="About">
@@ -657,13 +673,37 @@
           Background="#66000000"
           Visibility="Collapsed"
           Cursor="Wait"
-          Panel.ZIndex="100">
-    <TextBlock Text="Working…"
-               HorizontalAlignment="Center"
-               VerticalAlignment="Center"
-               FontSize="16"
-               FontWeight="SemiBold"
-               Foreground="{StaticResource TextBrush}"/>
+          Panel.ZIndex="100"
+          IsHitTestVisible="True">
+    <Border Background="{StaticResource PanelBrush}"
+            Padding="24,20"
+            CornerRadius="6"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            MinWidth="320"
+            MaxWidth="520"
+            BorderBrush="#5B8DEF"
+            BorderThickness="1">
+      <StackPanel>
+        <TextBlock Text="Working…"
+                   HorizontalAlignment="Center"
+                   FontSize="16"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource TextBrush}"/>
+        <TextBlock x:Name="BusyStatusText"
+                   Margin="0,12,0,0"
+                   TextAlignment="Center"
+                   TextWrapping="Wrap"
+                   Foreground="{StaticResource MutedBrush}"
+                   Text="Please wait…"/>
+        <ProgressBar x:Name="BusyProgressBar"
+                     Height="10"
+                     Margin="0,14,0,0"
+                     Minimum="0"
+                     Maximum="100"
+                     Visibility="Collapsed"/>
+      </StackPanel>
+    </Border>
   </Border>
   </Grid>
 </Window>

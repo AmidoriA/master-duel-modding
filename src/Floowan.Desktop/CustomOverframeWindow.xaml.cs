@@ -996,7 +996,7 @@ public partial class CustomOverframeWindow : Window
                 ? "Opening SAM 2 with current subject selection…"
                 : "Extracting card art for SAM 2…";
 
-            var progress = new Progress<string>(msg => StatusText.Text = msg);
+            var progress = new Progress<string>(ReportStatus);
             // Download / SHA-256 / extract / ONNX session load — all off UI (Core).
             await _sam2Cutout.EnsureModelsAsync(progress);
 
@@ -1291,9 +1291,8 @@ public partial class CustomOverframeWindow : Window
         {
             ResetSubjectPlacement();
 
-            var progress = new Progress<string>(msg => StatusText.Text = msg);
-            var prepared = await Task.Run(
-                () => AutoOverFrameArtService.LoadSubjectFromAlpha(imagePath, progress));
+            var progress = new Progress<string>(ReportStatus);
+            var prepared = await _autoArt.LoadSubjectFromAlphaUpscaledAsync(imagePath, progress);
             _subjectSource = prepared.Source;
             _subjectMask = prepared.Mask;
             _subjectIsFromCardArt = false;
@@ -1333,7 +1332,7 @@ public partial class CustomOverframeWindow : Window
             var outputPath = liveTemp;
             await ExportIllustrationForEditingAsync(outputPath);
 
-            var progress = new Progress<string>(msg => StatusText.Text = msg);
+            var progress = new Progress<string>(ReportStatus);
             var prepared = await _autoArt.PrepareSubjectWithRembgAsync(liveTemp, progress);
             _subjectSource = prepared.Source;
             _subjectMask = prepared.Mask;
@@ -1849,6 +1848,9 @@ public partial class CustomOverframeWindow : Window
             _scaleDragging = false;
             _bgTransformDragging = false;
             SyncBackgroundPanSliderRanges();
+            DownloadProgressBar.Visibility = Visibility.Collapsed;
+            DownloadProgressBar.IsIndeterminate = false;
+            DownloadProgressBar.Value = 0;
             // Defer flush so we don't re-enter SetBusy(true) mid SetBusy(false).
             Dispatcher.BeginInvoke(
                 FlushPendingTransformApplies,
@@ -1861,6 +1863,56 @@ public partial class CustomOverframeWindow : Window
         }
         ApplyButton.IsEnabled = !busy && _subjectSource is not null && _composedTempPath is not null;
         Cursor = busy ? Cursors.Wait : Cursors.Arrow;
+    }
+
+    /// <summary>
+    /// Status line + optional determinate download bar (when message ends with "N%").
+    /// </summary>
+    private void ReportStatus(string text)
+    {
+        StatusText.Text = text;
+        if (TryParseTrailingPercent(text, out var percent))
+        {
+            DownloadProgressBar.Visibility = Visibility.Visible;
+            DownloadProgressBar.IsIndeterminate = false;
+            DownloadProgressBar.Value = percent;
+        }
+        else if (text.Contains("Downloading", StringComparison.OrdinalIgnoreCase) ||
+                 text.Contains("Extracting", StringComparison.OrdinalIgnoreCase) ||
+                 text.Contains("Upscaling", StringComparison.OrdinalIgnoreCase))
+        {
+            DownloadProgressBar.Visibility = Visibility.Visible;
+            DownloadProgressBar.IsIndeterminate = true;
+        }
+        else
+        {
+            DownloadProgressBar.IsIndeterminate = false;
+            DownloadProgressBar.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private static bool TryParseTrailingPercent(string text, out int percent)
+    {
+        percent = 0;
+        if (string.IsNullOrEmpty(text))
+            return false;
+
+        var pct = text.LastIndexOf('%');
+        if (pct <= 0)
+            return false;
+
+        var start = pct - 1;
+        while (start >= 0 && char.IsDigit(text[start]))
+            start--;
+        start++;
+        if (start >= pct)
+            return false;
+
+        if (!int.TryParse(text.AsSpan(start, pct - start), out percent))
+            return false;
+
+        percent = Math.Clamp(percent, 0, 100);
+        return true;
     }
 
     /// <summary>

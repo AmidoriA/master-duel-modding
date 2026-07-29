@@ -70,8 +70,9 @@ Microsoft.ML.OnnxRuntime
 ------------------------
 - https://github.com/microsoft/onnxruntime
 - License: MIT
-- Runs the isnet-anime background-removal model and Meta SAM 2
-  paint-region subject cutout encoder/decoder ONNX sessions locally.
+- Runs the isnet-anime background-removal model, Meta SAM 2
+  paint-region subject cutout encoder/decoder, and Real-ESRGAN anime
+  OF art upscale ONNX sessions locally.
 
 
 Meta Segment Anything 2 (SAM 2)
@@ -90,3 +91,16 @@ Meta Segment Anything 2 (SAM 2)
 - Export tooling reference: https://github.com/vietanhdev/samexporter (Apache-2.0).
   Floowan reimplements the documented encoder/decoder preprocess and prompt
   decode path in C#; it does not vendor samexporter Python sources.
+
+
+Real-ESRGAN (anime video v3) — OF art upscale
+---------------------------------------------
+- https://github.com/xinntao/Real-ESRGAN
+- ONNX used: RealESR-AnimeVideo-v3_x4.onnx from
+  https://huggingface.co/tidus2102/Real-ESRGAN (BSD-3-Clause)
+- Floowan downloads the ONNX on first over-frame compose that needs a
+  512→1024 illustration upscale into %LOCALAPPDATA%\Floowan\models\realesrgan
+  (SHA-256 verified). Weights are not stored in this repository. Manual fetch:
+  pwsh -File scripts/download-realesrgan-model.ps1
+- Docs: docs/of-art-upscale.md
+- Disable without rebuilding: FLOOWAN_OF_UPSCALE=0
