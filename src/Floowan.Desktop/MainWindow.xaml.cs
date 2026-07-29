@@ -108,6 +108,8 @@ public partial class MainWindow : Window
     /// <summary>
     /// Blocks interaction with a dim overlay. Avoids Window.IsEnabled=false, which
     /// forces ListBox/ListBoxItem into the default disabled (white) chrome.
+    /// Overlay shows live status (including model download %) because it covers the
+    /// bottom StatusBar while busy.
     /// </summary>
     private void SetUiBusy(bool busy)
     {
@@ -116,6 +118,11 @@ public partial class MainWindow : Window
             if (_uiBusyDepth++ == 0)
             {
                 MainContent.IsHitTestVisible = false;
+                BusyStatusText.Text = string.IsNullOrWhiteSpace(StatusText.Text)
+                    ? "Please wait…"
+                    : StatusText.Text;
+                BusyProgressBar.Visibility = Visibility.Collapsed;
+                BusyProgressBar.Value = 0;
                 BusyOverlay.Visibility = Visibility.Visible;
                 Cursor = Cursors.Wait;
             }
@@ -129,6 +136,8 @@ public partial class MainWindow : Window
 
         MainContent.IsHitTestVisible = true;
         BusyOverlay.Visibility = Visibility.Collapsed;
+        BusyProgressBar.Visibility = Visibility.Collapsed;
+        BusyProgressBar.Value = 0;
         ClearValue(CursorProperty);
     }
     private static DispatcherTimer CreateSearchDebounceTimer(EventHandler tick)
@@ -916,6 +925,26 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void ToolsOpenModelsDirectory_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var modelsRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Floowan",
+                "models");
+            Directory.CreateDirectory(modelsRoot);
+            OpenPathInExplorer(modelsRoot);
+            ToolsModelsStatusText.Text = "Opened: " + modelsRoot;
+            Status("Opened models directory: " + modelsRoot);
+        }
+        catch (Exception ex)
+        {
+            ToolsModelsStatusText.Text = "Error: " + ex.Message;
             MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
@@ -2255,7 +2284,63 @@ public partial class MainWindow : Window
         _database?.Dispose();
     }
 
-    private void Status(string text) => StatusText.Text = text;
+    private void Status(string text)
+    {
+        StatusText.Text = text;
+        if (_uiBusyDepth > 0)
+            UpdateBusyOverlayStatus(text);
+    }
+
+    /// <summary>
+    /// Mirrors status onto the busy card and shows a determinate bar when the
+    /// message includes a download percent (e.g. "Downloading … 42%").
+    /// </summary>
+    private void UpdateBusyOverlayStatus(string text)
+    {
+        BusyStatusText.Text = string.IsNullOrWhiteSpace(text) ? "Please wait…" : text;
+        if (TryParseTrailingPercent(text, out var percent))
+        {
+            BusyProgressBar.Visibility = Visibility.Visible;
+            BusyProgressBar.IsIndeterminate = false;
+            BusyProgressBar.Value = percent;
+        }
+        else if (text.Contains("Downloading", StringComparison.OrdinalIgnoreCase) ||
+                 text.Contains("Extracting", StringComparison.OrdinalIgnoreCase) ||
+                 text.Contains("Upscaling", StringComparison.OrdinalIgnoreCase))
+        {
+            BusyProgressBar.Visibility = Visibility.Visible;
+            BusyProgressBar.IsIndeterminate = true;
+        }
+        else
+        {
+            BusyProgressBar.IsIndeterminate = false;
+            BusyProgressBar.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private static bool TryParseTrailingPercent(string text, out int percent)
+    {
+        percent = 0;
+        if (string.IsNullOrEmpty(text))
+            return false;
+
+        var pct = text.LastIndexOf('%');
+        if (pct <= 0)
+            return false;
+
+        var start = pct - 1;
+        while (start >= 0 && char.IsDigit(text[start]))
+            start--;
+        start++;
+        if (start >= pct)
+            return false;
+
+        if (!int.TryParse(text.AsSpan(start, pct - start), out percent))
+            return false;
+
+        percent = Math.Clamp(percent, 0, 100);
+        return true;
+    }
 
     /// <summary>
     /// Short success feedback next to the Frame dropdown (no MessageBox interrupt).
