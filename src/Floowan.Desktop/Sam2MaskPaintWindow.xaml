@@ -11,7 +11,7 @@
   <DockPanel Margin="14">
     <TextBlock x:Name="HelpText"
                DockPanel.Dock="Top"
-               Text="Cyan = working selection. Modes: Click (default) · Lasso · Paint. Undo restores prior selection."
+               Text="Working selection tint uses the Color swatches. Modes: Click (default) · Lasso · Paint. Undo restores prior selection."
                Foreground="{StaticResource MutedBrush}"
                TextWrapping="Wrap"
                Margin="0,0,0,10"/>
@@ -37,13 +37,61 @@
                      VerticalAlignment="Center"
                      Margin="0,0,12,0"
                      Checked="ModeRadio_Checked"
-                     ToolTip="Draw a freehand lasso. On release, fill the polygon, run SAM 2, and union into the cyan selection."/>
+                     ToolTip="Draw a freehand lasso. On release, fill the polygon, run SAM 2, and union into the working selection."/>
         <RadioButton x:Name="PaintModeRadio"
                      GroupName="SamEditorMode"
                      Content="Paint"
                      VerticalAlignment="Center"
                      Checked="ModeRadio_Checked"
-                     ToolTip="Left-drag paints, right-drag erases amber. On release, SAM 2 runs and unions into the cyan working selection."/>
+                     ToolTip="Left-drag paints, right-drag erases amber. On release, SAM 2 runs and unions into the working selection."/>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+        <TextBlock Text="Color"
+                   VerticalAlignment="Center"
+                   Foreground="{StaticResource MutedBrush}"
+                   Width="48"
+                   Margin="0,0,8,0"
+                   ToolTip="Highlight color for the active working selection overlay."/>
+        <RadioButton x:Name="ColorSwatchCyan"
+                     GroupName="SamHighlightColor"
+                     VerticalAlignment="Center"
+                     Margin="0,0,10,0"
+                     Checked="HighlightColor_Checked"
+                     Tag="0"
+                     ToolTip="Cyan selection highlight">
+          <Border Width="18" Height="18" CornerRadius="3" Background="#28C8E6"
+                  BorderBrush="#F2F2F2" BorderThickness="1"/>
+        </RadioButton>
+        <RadioButton x:Name="ColorSwatchGreen"
+                     GroupName="SamHighlightColor"
+                     VerticalAlignment="Center"
+                     Margin="0,0,10,0"
+                     Checked="HighlightColor_Checked"
+                     Tag="1"
+                     ToolTip="Green selection highlight">
+          <Border Width="18" Height="18" CornerRadius="3" Background="#28D246"
+                  BorderBrush="#F2F2F2" BorderThickness="1"/>
+        </RadioButton>
+        <RadioButton x:Name="ColorSwatchMagenta"
+                     GroupName="SamHighlightColor"
+                     VerticalAlignment="Center"
+                     Margin="0,0,10,0"
+                     Checked="HighlightColor_Checked"
+                     Tag="2"
+                     ToolTip="Magenta selection highlight">
+          <Border Width="18" Height="18" CornerRadius="3" Background="#E63CC8"
+                  BorderBrush="#F2F2F2" BorderThickness="1"/>
+        </RadioButton>
+        <RadioButton x:Name="ColorSwatchOrange"
+                     GroupName="SamHighlightColor"
+                     VerticalAlignment="Center"
+                     Margin="0,0,10,0"
+                     Checked="HighlightColor_Checked"
+                     Tag="3"
+                     ToolTip="Orange selection highlight">
+          <Border Width="18" Height="18" CornerRadius="3" Background="#FF8C28"
+                  BorderBrush="#F2F2F2" BorderThickness="1"/>
+        </RadioButton>
       </StackPanel>
       <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
         <Button x:Name="UndoButton"
@@ -56,7 +104,7 @@
                 Content="Reset selection"
                 Click="ClearClickPreview_Click"
                 Margin="0,0,8,0"
-                ToolTip="Reset the cyan working selection to the prior-session subject (or empty)."/>
+                ToolTip="Reset the working selection to the prior-session subject (or empty)."/>
         <StackPanel x:Name="PaintToolsPanel" Orientation="Horizontal" Visibility="Collapsed">
           <TextBlock Text="Brush"
                      VerticalAlignment="Center"
@@ -83,7 +131,7 @@
                   Content="Clear paint"
                   Click="ClearMask_Click"
                   Margin="12,0,0,0"
-                  ToolTip="Clear the amber paint prompt only (keeps the cyan working selection)."/>
+                  ToolTip="Clear the amber paint prompt only (keeps the working selection)."/>
         </StackPanel>
       </StackPanel>
       <DockPanel>
@@ -100,7 +148,7 @@
                   Click="Apply_Click"
                   Background="{StaticResource AccentBrush}"
                   Margin="0,0,8,0"
-                  ToolTip="Write the cyan working selection back to Card Art."/>
+                  ToolTip="Write the working selection back to Card Art."/>
           <Button Content="Cancel" IsCancel="True" Click="Cancel_Click"/>
         </StackPanel>
       </DockPanel>
