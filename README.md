@@ -12,6 +12,7 @@ Repository: [AmidoriA/master-duel-modding](https://github.com/AmidoriA/master-du
 - Preview current Texture2D art from Master Duel AssetBundles
 - Validate and prepare replacement images, back up originals, then write new art
 - Apply over-frame mods (704×1024), including auto-create with local background removal
+- OF compose automatically Real-ESRGAN-upscales 512×512 (and near-512) art to 1024×1024 before Cover — see [docs/of-art-upscale.md](docs/of-art-upscale.md)
 - Custom OF Advanced → **Add more selection**: paint a region, then SAM 2 (ONNX) segments subjects into Card Art (union with existing subject) — see [docs/sam2-point-cutout.md](docs/sam2-point-cutout.md)
 - Tools to refresh the catalog from a local install and restore over-frames after a game patch
 
