@@ -1,5 +1,10 @@
-using Microsoft.Data.Sqlite;
+using Floowan.Core.Backup;
+using Floowan.Core.Imaging;
 using Floowan.Core.Models;
+using Microsoft.Data.Sqlite;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace Floowan.Core.Data;
 
@@ -164,6 +169,24 @@ CREATE TABLE IF NOT EXISTS user.card_state (
 );
 
 CREATE INDEX IF NOT EXISTS user.idx_card_state_art_id ON card_state(art_id);
+
+CREATE TABLE IF NOT EXISTS user.of_edit_layer (
+  card_id INTEGER NOT NULL PRIMARY KEY,
+  version INTEGER NOT NULL DEFAULT 1,
+  frame_style TEXT NOT NULL,
+  subject_scale REAL NOT NULL DEFAULT 1.5,
+  subject_offset_x INTEGER NOT NULL DEFAULT 0,
+  subject_offset_y INTEGER NOT NULL DEFAULT 0,
+  background_scale REAL NOT NULL DEFAULT 1.0,
+  background_offset_x INTEGER NOT NULL DEFAULT 0,
+  background_offset_y INTEGER NOT NULL DEFAULT 0,
+  background_is_card_art INTEGER NOT NULL DEFAULT 0,
+  subject_is_from_card_art INTEGER NOT NULL DEFAULT 0,
+  subject_png BLOB,
+  subject_mask_png BLOB,
+  background_png BLOB,
+  updated_at TEXT NOT NULL
+);
 ";
             cmd.ExecuteNonQuery();
         }
@@ -968,6 +991,188 @@ WHERE id = $id;";
         cmd.Parameters.AddWithValue("$id", cardId);
         var value = cmd.ExecuteScalar();
         return value is not null and not DBNull && Convert.ToInt64(value) != 0;
+    }
+
+    /// <summary>
+    /// True when Custom OF Apply saved editable subject/mask layers for this card.
+    /// </summary>
+    public bool HasOfEditLayer(int cardId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = @"
+SELECT 1 FROM user.of_edit_layer
+WHERE card_id = $id
+  AND subject_png IS NOT NULL
+  AND subject_mask_png IS NOT NULL
+LIMIT 1;";
+        cmd.Parameters.AddWithValue("$id", cardId);
+        var value = cmd.ExecuteScalar();
+        return value is not null and not DBNull;
+    }
+
+    /// <summary>
+    /// Persists Custom OF layers into <c>user.db</c> (PNG BLOBs + transforms).
+    /// Caller retains ownership of images.
+    /// </summary>
+    public void SaveOfEditLayer(
+        int cardId,
+        CustomOverframeStageState state,
+        Image<Rgba32>? subjectSource,
+        Image<L8>? subjectMask,
+        Image<Rgba32>? background)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        EnsureCardStateRow(cardId);
+
+        var hasSubject = subjectSource is not null && subjectMask is not null;
+        var hasBackground = background is not null;
+        state.HasSubject = hasSubject;
+        state.HasBackground = hasBackground;
+        state.Version = CustomOverframeStageState.CurrentVersion;
+
+        byte[]? subjectPng = hasSubject ? EncodePng(subjectSource!) : null;
+        byte[]? maskPng = hasSubject ? EncodePng(subjectMask!) : null;
+        byte[]? backgroundPng = hasBackground ? EncodePng(background!) : null;
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = @"
+INSERT INTO user.of_edit_layer (
+  card_id, version, frame_style,
+  subject_scale, subject_offset_x, subject_offset_y,
+  background_scale, background_offset_x, background_offset_y,
+  background_is_card_art, subject_is_from_card_art,
+  subject_png, subject_mask_png, background_png, updated_at
+) VALUES (
+  $id, $version, $frame,
+  $ss, $sx, $sy,
+  $bs, $bx, $by,
+  $bgArt, $subjArt,
+  $subject, $mask, $background, $at
+)
+ON CONFLICT(card_id) DO UPDATE SET
+  version = excluded.version,
+  frame_style = excluded.frame_style,
+  subject_scale = excluded.subject_scale,
+  subject_offset_x = excluded.subject_offset_x,
+  subject_offset_y = excluded.subject_offset_y,
+  background_scale = excluded.background_scale,
+  background_offset_x = excluded.background_offset_x,
+  background_offset_y = excluded.background_offset_y,
+  background_is_card_art = excluded.background_is_card_art,
+  subject_is_from_card_art = excluded.subject_is_from_card_art,
+  subject_png = excluded.subject_png,
+  subject_mask_png = excluded.subject_mask_png,
+  background_png = excluded.background_png,
+  updated_at = excluded.updated_at;";
+        cmd.Parameters.AddWithValue("$id", cardId);
+        cmd.Parameters.AddWithValue("$version", state.Version);
+        cmd.Parameters.AddWithValue("$frame", state.FrameStyle);
+        cmd.Parameters.AddWithValue("$ss", state.SubjectScale);
+        cmd.Parameters.AddWithValue("$sx", state.SubjectOffsetX);
+        cmd.Parameters.AddWithValue("$sy", state.SubjectOffsetY);
+        cmd.Parameters.AddWithValue("$bs", state.BackgroundScale);
+        cmd.Parameters.AddWithValue("$bx", state.BackgroundOffsetX);
+        cmd.Parameters.AddWithValue("$by", state.BackgroundOffsetY);
+        cmd.Parameters.AddWithValue("$bgArt", state.BackgroundIsCardArt ? 1 : 0);
+        cmd.Parameters.AddWithValue("$subjArt", state.SubjectIsFromCardArt ? 1 : 0);
+        cmd.Parameters.AddWithValue("$subject", (object?)subjectPng ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$mask", (object?)maskPng ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$background", (object?)backgroundPng ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$at", DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"));
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Loads editable Custom OF layers. Caller must dispose returned images.
+    /// </summary>
+    public bool TryLoadOfEditLayer(
+        int cardId,
+        out CustomOverframeStageState state,
+        out Image<Rgba32>? subjectSource,
+        out Image<L8>? subjectMask,
+        out Image<Rgba32>? background)
+    {
+        state = new CustomOverframeStageState();
+        subjectSource = null;
+        subjectMask = null;
+        background = null;
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = @"
+SELECT version, frame_style,
+       subject_scale, subject_offset_x, subject_offset_y,
+       background_scale, background_offset_x, background_offset_y,
+       background_is_card_art, subject_is_from_card_art,
+       subject_png, subject_mask_png, background_png
+FROM user.of_edit_layer
+WHERE card_id = $id
+LIMIT 1;";
+        cmd.Parameters.AddWithValue("$id", cardId);
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read())
+            return false;
+
+        try
+        {
+            state.Version = reader.IsDBNull(0) ? CustomOverframeStageState.CurrentVersion : reader.GetInt32(0);
+            state.FrameStyle = reader.IsDBNull(1) ? nameof(CardFrameStyle.Effect) : reader.GetString(1);
+            state.SubjectScale = reader.IsDBNull(2) ? 1.5f : (float)reader.GetDouble(2);
+            state.SubjectOffsetX = reader.IsDBNull(3) ? 0 : reader.GetInt32(3);
+            state.SubjectOffsetY = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
+            state.BackgroundScale = reader.IsDBNull(5) ? 1f : (float)reader.GetDouble(5);
+            state.BackgroundOffsetX = reader.IsDBNull(6) ? 0 : reader.GetInt32(6);
+            state.BackgroundOffsetY = reader.IsDBNull(7) ? 0 : reader.GetInt32(7);
+            state.BackgroundIsCardArt = !reader.IsDBNull(8) && reader.GetInt64(8) != 0;
+            state.SubjectIsFromCardArt = !reader.IsDBNull(9) && reader.GetInt64(9) != 0;
+
+            var subjectBytes = reader.IsDBNull(10) ? null : (byte[])reader[10];
+            var maskBytes = reader.IsDBNull(11) ? null : (byte[])reader[11];
+            var backgroundBytes = reader.IsDBNull(12) ? null : (byte[])reader[12];
+
+            if (subjectBytes is { Length: > 0 } && maskBytes is { Length: > 0 })
+            {
+                subjectSource = Image.Load<Rgba32>(subjectBytes);
+                subjectMask = Image.Load<L8>(maskBytes);
+                state.HasSubject = true;
+            }
+
+            if (backgroundBytes is { Length: > 0 })
+            {
+                background = Image.Load<Rgba32>(backgroundBytes);
+                state.HasBackground = true;
+            }
+
+            return state.HasSubject || state.HasBackground;
+        }
+        catch
+        {
+            subjectSource?.Dispose();
+            subjectMask?.Dispose();
+            background?.Dispose();
+            subjectSource = null;
+            subjectMask = null;
+            background = null;
+            state = new CustomOverframeStageState();
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Drops editable Custom OF layers (Restore backups / remove from gate).
+    /// </summary>
+    public bool ClearOfEditLayer(int cardId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM user.of_edit_layer WHERE card_id = $id;";
+        cmd.Parameters.AddWithValue("$id", cardId);
+        return cmd.ExecuteNonQuery() > 0;
+    }
+
+    private static byte[] EncodePng(Image image)
+    {
+        using var ms = new MemoryStream();
+        image.Save(ms, new PngEncoder());
+        return ms.ToArray();
     }
 
     /// <summary>

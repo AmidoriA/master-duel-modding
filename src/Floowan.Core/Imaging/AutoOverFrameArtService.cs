@@ -84,6 +84,79 @@ public sealed class AutoOverFrameArtService : IDisposable
     }
 
     /// <summary>
+    /// Same as <see cref="CreateAsync"/>, but also returns editable Custom OF layers
+    /// (rembg subject + mask + clean illustration as Cover background). Caller disposes
+    /// the three images. Subject scale for CustomArtOnly edit ≈ <see cref="OverFrameAutoArtComposer.OverflowScale"/>
+    /// so reopening Edit matches Auto overflow.
+    /// </summary>
+    public async Task<(Image<Rgba32> Subject, Image<L8> Mask, Image<Rgba32> Background)> CreateCapturingEditLayersAsync(
+        string sourceImagePath,
+        string outputPngPath,
+        CardFrameStyle frameStyle = CardFrameStyle.Effect,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default,
+        int subjectOffsetX = 0,
+        int subjectOffsetY = 0,
+        LinkMarkerMask? linkMarkers = null)
+    {
+        if (!File.Exists(sourceImagePath))
+            throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
+
+        frameStyle = CardFrameTemplates.ToOfGradientStyle(frameStyle);
+
+        await EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
+        progress?.Report("Removing background with isnet-anime…");
+
+        return await Task.Run(() =>
+        {
+            using var prepared = PrepareCleanSource(sourceImagePath, progress);
+            var background = prepared.Source.Clone();
+            var subject = prepared.Source.Clone();
+            Image<L8>? mask = null;
+            try
+            {
+                mask = PredictMask(subject);
+                var keep = 0;
+                for (var y = 0; y < mask.Height; y++)
+                {
+                    var row = mask.DangerousGetPixelRowMemory(y).Span;
+                    for (var x = 0; x < row.Length; x++)
+                    {
+                        if (row[x].PackedValue >= OverFrameAutoArtComposer.MaskKeepThreshold)
+                            keep++;
+                    }
+                }
+
+                if (keep == 0)
+                {
+                    throw new InvalidOperationException(
+                        "rembg found no opaque subject in the card art for Auto OF.");
+                }
+
+                progress?.Report($"Compositing subject onto {frameStyle} frame (704×1024)…");
+                using var result = OverFrameAutoArtComposer.Compose(
+                    subject,
+                    mask,
+                    frameStyle,
+                    subjectOffsetX: subjectOffsetX,
+                    subjectOffsetY: subjectOffsetY);
+                ApplyLinkArrowsIfNeeded(result, frameStyle, linkMarkers, progress);
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPngPath))!);
+                result.Save(outputPngPath, new PngEncoder());
+                progress?.Report("Automatic over-frame art is ready for review.");
+                return (subject, mask, background);
+            }
+            catch
+            {
+                subject.Dispose();
+                mask?.Dispose();
+                background.Dispose();
+                throw;
+            }
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Loads a user-provided subject image and uses its existing alpha channel as the
     /// subject mask (no rembg). Caller must dispose both images.
     /// </summary>
