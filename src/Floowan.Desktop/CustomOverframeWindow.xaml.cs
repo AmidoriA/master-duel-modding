@@ -223,24 +223,45 @@ public partial class CustomOverframeWindow : Window
                 return false;
             }
 
+            var stage = loaded.State;
+            var subject = loaded.Subject;
+            var mask = loaded.Mask;
+            var background = loaded.Background;
+            var upscaledLegacy512 = false;
+
+            // Stages saved before OF Real-ESRGAN still hold 512-class bitmaps. Upscale
+            // first (same path as Auto OF), keep Cover scales / canvas offsets, then
+            // persist so the next reopen skips the model.
+            if (OfEditLayerUpscaleCompat.NeedsLayerUpscale(subject, mask, background))
+            {
+                StatusText.Text = "Upscaling saved 512-class Custom OF layers (Real-ESRGAN)…";
+                var progress = new Progress<string>(msg => StatusText.Text = msg);
+                var upgraded = await _autoArt.UpscaleSavedEditLayersIfNeededAsync(
+                    subject, mask, background, stage, progress);
+                subject = upgraded.Subject;
+                mask = upgraded.Mask;
+                background = upgraded.Background;
+                upscaledLegacy512 = upgraded.Changed;
+            }
+
             DisposeSubject();
             DisposeBackground();
-            _subjectSource = loaded.Subject;
-            _subjectMask = loaded.Mask;
-            _backgroundSource = loaded.Background;
-            _backgroundIsCardArt = loaded.State.BackgroundIsCardArt;
-            _subjectIsFromCardArt = loaded.State.SubjectIsFromCardArt;
+            _subjectSource = subject;
+            _subjectMask = mask;
+            _backgroundSource = background;
+            _backgroundIsCardArt = stage.BackgroundIsCardArt;
+            _subjectIsFromCardArt = stage.SubjectIsFromCardArt;
 
-            if (Enum.TryParse<CardFrameStyle>(loaded.State.FrameStyle, ignoreCase: true, out var frameStyle))
+            if (Enum.TryParse<CardFrameStyle>(stage.FrameStyle, ignoreCase: true, out var frameStyle))
                 SelectFrameStyle(frameStyle);
 
-            _subjectScale = OverFrameAutoArtComposer.ClampSubjectScale(loaded.State.SubjectScale);
-            _offsetX = loaded.State.SubjectOffsetX;
-            _offsetY = loaded.State.SubjectOffsetY;
+            _subjectScale = OverFrameAutoArtComposer.ClampSubjectScale(stage.SubjectScale);
+            _offsetX = stage.SubjectOffsetX;
+            _offsetY = stage.SubjectOffsetY;
 
-            _backgroundScale = OverFrameAutoArtComposer.ClampBackgroundScale(loaded.State.BackgroundScale);
-            _backgroundOffsetX = loaded.State.BackgroundOffsetX;
-            _backgroundOffsetY = loaded.State.BackgroundOffsetY;
+            _backgroundScale = OverFrameAutoArtComposer.ClampBackgroundScale(stage.BackgroundScale);
+            _backgroundOffsetX = stage.BackgroundOffsetX;
+            _backgroundOffsetY = stage.BackgroundOffsetY;
 
             // Write all transform controls under a suppress flag so ValueChanged handlers
             // do not re-enter Apply/Sync while offsets are still being restored.
@@ -265,9 +286,9 @@ public partial class CustomOverframeWindow : Window
                 var maxX = (int)Math.Round(BgPanHSlider.Maximum);
                 var maxY = (int)Math.Round(BgPanVSlider.Maximum);
                 _backgroundOffsetX = OverFrameAutoArtComposer.ClampBackgroundPan(
-                    loaded.State.BackgroundOffsetX, maxX);
+                    stage.BackgroundOffsetX, maxX);
                 _backgroundOffsetY = OverFrameAutoArtComposer.ClampBackgroundPan(
-                    loaded.State.BackgroundOffsetY, maxY);
+                    stage.BackgroundOffsetY, maxY);
                 BgPanHSlider.Value = _backgroundOffsetX;
                 BgPanVSlider.Value = _backgroundOffsetY;
             }
@@ -283,18 +304,35 @@ public partial class CustomOverframeWindow : Window
             else if (_subjectSource is not null)
                 SubjectManualRadio.IsChecked = true;
 
+            if (upscaledLegacy512)
+            {
+                try
+                {
+                    // Persist 1024-class layers so reopen skips Real-ESRGAN next time.
+                    _database?.SaveOfEditLayer(
+                        cardId, stage, _subjectSource, _subjectMask, _backgroundSource);
+                }
+                catch
+                {
+                    /* in-memory edit still works if persist fails */
+                }
+            }
+
             if (_subjectSource is not null && _subjectMask is not null)
             {
                 await RecomposePreviewAsync();
                 ApplyButton.IsEnabled = true;
                 PreviewHintText.Visibility = Visibility.Collapsed;
-                StatusText.Text =
-                    $"Loaded saved Custom OF stage (scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}). Drag or Apply.";
+                StatusText.Text = upscaledLegacy512
+                    ? $"Loaded saved Custom OF stage (upscaled 512→1024; scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}). Drag or Apply."
+                    : $"Loaded saved Custom OF stage (scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}). Drag or Apply.";
             }
             else if (_backgroundSource is not null)
             {
                 await ShowBackgroundOnlyPreviewAsync();
-                StatusText.Text = "Loaded saved Custom OF background. Pick a subject…";
+                StatusText.Text = upscaledLegacy512
+                    ? "Loaded saved Custom OF background (upscaled 512→1024). Pick a subject…"
+                    : "Loaded saved Custom OF background. Pick a subject…";
             }
             else
             {
