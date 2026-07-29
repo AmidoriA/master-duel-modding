@@ -11,7 +11,7 @@
   <DockPanel Margin="14">
     <TextBlock x:Name="HelpText"
                DockPanel.Dock="Top"
-               Text="Working selection tint uses the Color swatches. Modes: Click (default) · Lasso · Paint. Undo restores prior selection."
+               Text="Working selection tint uses the Color / Opacity controls. Modes: Click (default) · Lasso · Paint. Undo restores prior selection."
                Foreground="{StaticResource MutedBrush}"
                TextWrapping="Wrap"
                Margin="0,0,0,10"/>
@@ -92,6 +92,30 @@
           <Border Width="18" Height="18" CornerRadius="3" Background="#FF8C28"
                   BorderBrush="#F2F2F2" BorderThickness="1"/>
         </RadioButton>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+        <TextBlock Text="Opacity"
+                   VerticalAlignment="Center"
+                   Foreground="{StaticResource MutedBrush}"
+                   Width="48"
+                   Margin="0,0,8,0"
+                   ToolTip="Opacity of the working selection tint and prior-subject overlay."/>
+        <Slider x:Name="OverlayOpacitySlider"
+                Width="160"
+                Minimum="10"
+                Maximum="100"
+                Value="50"
+                TickFrequency="1"
+                IsSnapToTickEnabled="True"
+                VerticalAlignment="Center"
+                ValueChanged="OverlayOpacitySlider_ValueChanged"
+                ToolTip="Selection overlay opacity (10%–100%)."/>
+        <TextBlock x:Name="OverlayOpacityValueText"
+                   Text="50%"
+                   Width="48"
+                   VerticalAlignment="Center"
+                   Margin="8,0,0,0"
+                   Foreground="{StaticResource TextBrush}"/>
       </StackPanel>
       <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
         <Button x:Name="UndoButton"
@@ -184,7 +208,7 @@
                VerticalAlignment="Center"
                IsHitTestVisible="False"
                Visibility="Collapsed"
-               Opacity="0.55"
+               Opacity="0.5"
                RenderOptions.BitmapScalingMode="HighQuality"/>
         <Image x:Name="MaskOverlay"
                Stretch="Uniform"
@@ -199,7 +223,7 @@
                VerticalAlignment="Center"
                IsHitTestVisible="False"
                Visibility="Collapsed"
-               Opacity="0.55"
+               Opacity="0.5"
                RenderOptions.BitmapScalingMode="HighQuality"/>
         <Polyline x:Name="LassoPolyline"
                   Stroke="#FFC84A"
