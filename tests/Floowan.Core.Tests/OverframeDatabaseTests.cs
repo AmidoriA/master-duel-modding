@@ -183,6 +183,78 @@ DELETE FROM schema_meta WHERE key = 'floowan_overframe_backfilled';";
         }
     }
 
+    [Fact]
+    public void OfEditLayer_SaveLoadHasAndClear_SurvivesReopen()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "floowan-of-layer-" + Guid.NewGuid().ToString("N") + ".db");
+        var user = Path.Combine(Path.GetTempPath(), "floowan-of-layer-user-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            CreateMinimalDatabase(path);
+            using var subject = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(16, 16);
+            using var mask = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.L8>(16, 16);
+            using var background = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(24, 24);
+            subject[2, 2] = new SixLabors.ImageSharp.PixelFormats.Rgba32(180, 20, 20, 255);
+            mask[2, 2] = new SixLabors.ImageSharp.PixelFormats.L8(255);
+            background[3, 3] = new SixLabors.ImageSharp.PixelFormats.Rgba32(20, 180, 20, 255);
+
+            var state = new Floowan.Core.Backup.CustomOverframeStageState
+            {
+                FrameStyle = nameof(Floowan.Core.Imaging.CardFrameStyle.OfGradientTrap),
+                SubjectScale = 1.8f,
+                SubjectOffsetX = 5,
+                SubjectOffsetY = -3,
+                BackgroundScale = 1.2f,
+                BackgroundOffsetX = 1,
+                BackgroundOffsetY = -1,
+                BackgroundIsCardArt = true,
+                SubjectIsFromCardArt = true
+            };
+
+            using (var db = new CardDatabase(path, user))
+            {
+                Assert.False(db.HasOfEditLayer(1));
+                db.SaveOfEditLayer(1, state, subject, mask, background);
+                Assert.True(db.HasOfEditLayer(1));
+            }
+
+            using (var db2 = new CardDatabase(path, user))
+            {
+                Assert.True(db2.HasOfEditLayer(1));
+                Assert.True(db2.TryLoadOfEditLayer(
+                    1, out var loaded, out var loadedSubject, out var loadedMask, out var loadedBg));
+                using (loadedSubject)
+                using (loadedMask)
+                using (loadedBg)
+                {
+                    Assert.Equal(nameof(Floowan.Core.Imaging.CardFrameStyle.OfGradientTrap), loaded.FrameStyle);
+                    Assert.Equal(1.8f, loaded.SubjectScale);
+                    Assert.Equal(5, loaded.SubjectOffsetX);
+                    Assert.Equal(-3, loaded.SubjectOffsetY);
+                    Assert.Equal(1.2f, loaded.BackgroundScale);
+                    Assert.True(loaded.BackgroundIsCardArt);
+                    Assert.True(loaded.SubjectIsFromCardArt);
+                    Assert.True(loaded.HasSubject);
+                    Assert.True(loaded.HasBackground);
+                    Assert.NotNull(loadedSubject);
+                    Assert.NotNull(loadedMask);
+                    Assert.NotNull(loadedBg);
+                    Assert.Equal(16, loadedSubject.Width);
+                    Assert.Equal(180, loadedSubject[2, 2].R);
+                }
+
+                Assert.True(db2.ClearOfEditLayer(1));
+                Assert.False(db2.HasOfEditLayer(1));
+                Assert.False(db2.TryLoadOfEditLayer(1, out _, out _, out _, out _));
+            }
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* ignore */ }
+            try { File.Delete(user); } catch { /* ignore */ }
+        }
+    }
+
     private static void CreateMinimalDatabase(string path)
     {
         using var conn = new SqliteConnection(new SqliteConnectionStringBuilder

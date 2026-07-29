@@ -6,12 +6,14 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Floowan.Core.Assets;
+using Floowan.Core.Backup;
 using Floowan.Core.Data;
 using Floowan.Core.Imaging;
 using Floowan.Core.Models;
 using Floowan.Core.Services;
 using Microsoft.Win32;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Advanced;
 using SixLabors.ImageSharp.PixelFormats;
 using ImageSharpImage = SixLabors.ImageSharp.Image;
 
@@ -54,6 +56,12 @@ public partial class CustomOverframeWindow : Window
     private bool _scaleDragging;
     private bool _bgTransformDragging;
     private bool _updatingBgPanSliders;
+    /// <summary>True while restoring a saved Custom OF stage (suppress radio/slider side effects).</summary>
+    private bool _loadingStage;
+    /// <summary>Art scale changed while busy — flush once idle.</summary>
+    private bool _pendingArtScaleApply;
+    /// <summary>Subject offset changed while busy — flush once idle.</summary>
+    private bool _pendingSubjectRecompose;
     private bool _defaultBackgroundStarted;
     private int _dragVisualGeneration;
     private System.Windows.Point _dragStart;
@@ -136,10 +144,248 @@ public partial class CustomOverframeWindow : Window
             return;
 
         _defaultBackgroundStarted = true;
+        if (await TryLoadSavedStageAsync())
+            return;
+
+        var alreadyOf = IsCardAlreadyOverframe();
         await LoadCardArtAsBackgroundAsync(
-            "Loading card art as background…",
-            readyStatus: "Background: current card art (Cover). Pick a subject…");
+            alreadyOf
+                ? "Loading pre-OF card art as background…"
+                : "Loading card art as background…",
+            readyStatus: alreadyOf
+                ? "No saved Custom OF stage — Cover uses pre-OF art. Current OF preview shown until you pick a subject."
+                : "Background: current card art (Cover). Pick a subject…");
+
+        if (alreadyOf && _subjectSource is null)
+            await TryShowCurrentOverFramePreviewAsync();
     }
+
+    /// <summary>
+    /// Restores subject/background layers and transforms from the last Custom OF Apply.
+    /// </summary>
+    private async Task<bool> TryLoadSavedStageAsync()
+    {
+        _loadingStage = true;
+        SetBusy(true);
+        StatusText.Text = "Loading saved Custom OF stage…";
+        try
+        {
+            var cardId = _card.Id;
+            var cardName = _card.Name;
+            var loaded = await Task.Run(() =>
+            {
+                // Prefer user.db (survives restart / backup-root differences).
+                if (_database is not null
+                    && _database.TryLoadOfEditLayer(
+                        cardId,
+                        out var dbState,
+                        out var dbSubject,
+                        out var dbMask,
+                        out var dbBackground))
+                {
+                    return (Ok: true, State: (CustomOverframeStageState?)dbState,
+                        Subject: dbSubject, Mask: dbMask, Background: dbBackground);
+                }
+
+                // One-time migrate leftover backup-folder stages from earlier #82 builds.
+                if (_overFrameService.Backups.TryLoadCustomOverframeStage(
+                        cardName,
+                        out var fileState,
+                        out var fileSubject,
+                        out var fileMask,
+                        out var fileBackground))
+                {
+                    try
+                    {
+                        _database?.SaveOfEditLayer(
+                            cardId, fileState, fileSubject, fileMask, fileBackground);
+                        _overFrameService.Backups.TryDeleteCustomOverframeStage(cardName);
+                    }
+                    catch
+                    {
+                        /* keep in-memory load even if migrate fails */
+                    }
+
+                    return (Ok: true, State: (CustomOverframeStageState?)fileState,
+                        Subject: fileSubject, Mask: fileMask, Background: fileBackground);
+                }
+
+                return (Ok: false, State: (CustomOverframeStageState?)null,
+                    Subject: (Image<Rgba32>?)null, Mask: (Image<L8>?)null,
+                    Background: (Image<Rgba32>?)null);
+            });
+
+            if (!loaded.Ok || loaded.State is null)
+            {
+                loaded.Subject?.Dispose();
+                loaded.Mask?.Dispose();
+                loaded.Background?.Dispose();
+                return false;
+            }
+
+            DisposeSubject();
+            DisposeBackground();
+            _subjectSource = loaded.Subject;
+            _subjectMask = loaded.Mask;
+            _backgroundSource = loaded.Background;
+            _backgroundIsCardArt = loaded.State.BackgroundIsCardArt;
+            _subjectIsFromCardArt = loaded.State.SubjectIsFromCardArt;
+
+            if (Enum.TryParse<CardFrameStyle>(loaded.State.FrameStyle, ignoreCase: true, out var frameStyle))
+                SelectFrameStyle(frameStyle);
+
+            _subjectScale = OverFrameAutoArtComposer.ClampSubjectScale(loaded.State.SubjectScale);
+            _offsetX = loaded.State.SubjectOffsetX;
+            _offsetY = loaded.State.SubjectOffsetY;
+
+            _backgroundScale = OverFrameAutoArtComposer.ClampBackgroundScale(loaded.State.BackgroundScale);
+            _backgroundOffsetX = loaded.State.BackgroundOffsetX;
+            _backgroundOffsetY = loaded.State.BackgroundOffsetY;
+
+            // Write all transform controls under a suppress flag so ValueChanged handlers
+            // do not re-enter Apply/Sync while offsets are still being restored.
+            _updatingBgPanSliders = true;
+            try
+            {
+                ArtScaleSlider.Value = _subjectScale;
+                BgScaleSlider.Value = _backgroundScale;
+            }
+            finally
+            {
+                _updatingBgPanSliders = false;
+            }
+
+            UpdateArtScaleLabel();
+            SyncBackgroundPanSliderRanges();
+
+            _updatingBgPanSliders = true;
+            try
+            {
+                // Re-apply pans from stage after Sync clamped against the new scale limits.
+                var maxX = (int)Math.Round(BgPanHSlider.Maximum);
+                var maxY = (int)Math.Round(BgPanVSlider.Maximum);
+                _backgroundOffsetX = OverFrameAutoArtComposer.ClampBackgroundPan(
+                    loaded.State.BackgroundOffsetX, maxX);
+                _backgroundOffsetY = OverFrameAutoArtComposer.ClampBackgroundPan(
+                    loaded.State.BackgroundOffsetY, maxY);
+                BgPanHSlider.Value = _backgroundOffsetX;
+                BgPanVSlider.Value = _backgroundOffsetY;
+            }
+            finally
+            {
+                _updatingBgPanSliders = false;
+            }
+
+            UpdateBackgroundTransformLabels();
+
+            if (_subjectIsFromCardArt)
+                SubjectAutoRadio.IsChecked = true;
+            else if (_subjectSource is not null)
+                SubjectManualRadio.IsChecked = true;
+
+            if (_subjectSource is not null && _subjectMask is not null)
+            {
+                await RecomposePreviewAsync();
+                ApplyButton.IsEnabled = true;
+                PreviewHintText.Visibility = Visibility.Collapsed;
+                StatusText.Text =
+                    $"Loaded saved Custom OF stage (scale ×{_subjectScale:0.00}, offset {_offsetX}, {_offsetY}). Drag or Apply.";
+            }
+            else if (_backgroundSource is not null)
+            {
+                await ShowBackgroundOnlyPreviewAsync();
+                StatusText.Text = "Loaded saved Custom OF background. Pick a subject…";
+            }
+            else
+            {
+                return false;
+            }
+
+            if (LinkArrowOverlay.NeedsArrowOverlay(GetSelectedFrameStyle()) && _linkMarkers is null)
+                await RefreshLinkMarkersForFrameAsync(GetSelectedFrameStyle());
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            DisposeSubject();
+            DisposeBackground();
+            StatusText.Text = "Could not load saved stage: " + ex.Message;
+            return false;
+        }
+        finally
+        {
+            // Clear any sticky drag/scale flags from mid-load enable/disable races.
+            _dragging = false;
+            _scaleDragging = false;
+            _bgTransformDragging = false;
+            _updatingBgPanSliders = false;
+            _pendingArtScaleApply = false;
+            _pendingSubjectRecompose = false;
+            SetBusy(false);
+            _loadingStage = false;
+        }
+    }
+
+    private bool IsCardAlreadyOverframe()
+    {
+        if (_card.IsOverframe)
+            return true;
+        try
+        {
+            var info = _overFrameService.GetTextureInfo(_gamePath, _card);
+            return OverFrameAutoArtComposer.IsOverFrameTextureSize(info.Width, info.Height);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Shows the live/applied flat OF canvas as a read-only preview until the user
+    /// rebuilds editable layers (no saved Custom OF stage).
+    /// </summary>
+    private async Task TryShowCurrentOverFramePreviewAsync()
+    {
+        string? temp = null;
+        try
+        {
+            temp = Path.Combine(
+                Path.GetTempPath(),
+                $"floowan-custom-of-current-{Guid.NewGuid():N}.png");
+            var gamePath = _gamePath;
+            var card = _card;
+            var outputPath = temp;
+            var ok = await Task.Run(() =>
+                _overFrameService.TryExportCurrentOverFrameCanvas(gamePath, card, outputPath));
+            if (!ok || !File.Exists(temp))
+                return;
+
+            PreviewImage.Source = LoadOfComposePreview(temp);
+            PreviewHintText.Visibility = Visibility.Collapsed;
+        }
+        catch
+        {
+            /* best effort — background-only preview remains */
+        }
+        finally
+        {
+            if (temp is not null && File.Exists(temp))
+            {
+                try { File.Delete(temp); } catch { /* ignore */ }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Exports illustration for Cover / rembg / SAM, preferring clean pre-OF sources when
+    /// the live texture is already over-framed.
+    /// </summary>
+    private Task ExportIllustrationForEditingAsync(string outputPngPath) =>
+        Task.Run(() =>
+            _overFrameService.ResolveCustomOfIllustrationSource(_gamePath, _card, outputPngPath));
+
 
     private void SelectFrameStyle(CardFrameStyle style)
     {
@@ -308,10 +554,15 @@ public partial class CustomOverframeWindow : Window
 
     private async void ArtScaleSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        if (!IsLoaded)
+        if (!IsLoaded || _loadingStage || _updatingBgPanSliders)
             return;
 
         UpdateArtScaleLabel();
+        // Recover sticky thumb-drag when SetBusy disabled the slider mid-gesture
+        // (DragCompleted may never fire). Without this, Apply never runs again.
+        if (_scaleDragging && Mouse.LeftButton != MouseButtonState.Pressed)
+            _scaleDragging = false;
+
         if (_scaleDragging)
             return;
 
@@ -329,7 +580,7 @@ public partial class CustomOverframeWindow : Window
 
     private async void BgScaleSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        if (!IsLoaded || _updatingBgPanSliders)
+        if (!IsLoaded || _loadingStage || _updatingBgPanSliders)
             return;
 
         SyncBackgroundPanSliderRanges();
@@ -341,7 +592,7 @@ public partial class CustomOverframeWindow : Window
 
     private async void BgPanSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        if (!IsLoaded || _updatingBgPanSliders)
+        if (!IsLoaded || _loadingStage || _updatingBgPanSliders)
             return;
 
         UpdateBackgroundTransformLabels();
@@ -423,18 +674,30 @@ public partial class CustomOverframeWindow : Window
 
     private async Task ApplyArtScaleChangeAsync()
     {
+        if (_loadingStage)
+            return;
+
         var scale = GetSubjectScale();
         if (Math.Abs(scale - _subjectScale) < 0.0001f
             && _subjectSource is not null
-            && _composedTempPath is not null)
+            && _composedTempPath is not null
+            && !_pendingArtScaleApply)
         {
             return;
         }
 
+        // Always keep the field in sync with the slider, even when compose is deferred.
         _subjectScale = scale;
-        if (_subjectSource is null || _subjectMask is null || _busy)
+        if (_subjectSource is null || _subjectMask is null)
             return;
 
+        if (_busy)
+        {
+            _pendingArtScaleApply = true;
+            return;
+        }
+
+        _pendingArtScaleApply = false;
         SetBusy(true);
         StatusText.Text = $"Recomposing at art scale ×{_subjectScale:0.00}…";
         try
@@ -600,10 +863,8 @@ public partial class CustomOverframeWindow : Window
             liveTemp = Path.Combine(
                 Path.GetTempPath(),
                 $"floowan-custom-of-bg-{Guid.NewGuid():N}.png");
-            var gamePath = _gamePath;
-            var card = _card;
             var outputPath = liveTemp;
-            await Task.Run(() => _overFrameService.ExtractCardArt(gamePath, card, outputPath));
+            await ExportIllustrationForEditingAsync(outputPath);
 
             DisposeBackground();
             _backgroundIsCardArt = true;
@@ -688,7 +949,7 @@ public partial class CustomOverframeWindow : Window
 
     private async void SubjectAutoRadio_Click(object sender, RoutedEventArgs e)
     {
-        if (_busy)
+        if (_busy || _loadingStage)
             return;
 
         await PrepareSubjectFromLiveArtRembgAsync();
@@ -696,7 +957,7 @@ public partial class CustomOverframeWindow : Window
 
     private async void SubjectManualRadio_Click(object sender, RoutedEventArgs e)
     {
-        if (_busy)
+        if (_busy || _loadingStage)
             return;
 
         await PickSubjectImageAsync();
@@ -711,8 +972,9 @@ public partial class CustomOverframeWindow : Window
     }
 
     /// <summary>
-    /// Extracts live card art, opens the SAM editor (Paint or Click object), and
-    /// installs or unions the result into the Card Art subject layer.
+    /// Opens the SAM editor. When a subject is already loaded (including a restored
+    /// Custom OF stage), seeds green/cyan selection from that mask (or subject alpha).
+    /// Prefer the in-memory subject canvas so the mask aligns 1:1 with the SAM art.
     /// </summary>
     private async Task RunSam2PaintSelectionAsync()
     {
@@ -721,24 +983,31 @@ public partial class CustomOverframeWindow : Window
         Image<L8>? paintMask = null;
         Image<L8>? clickMask = null;
         Image<Rgba32>? clickSource = null;
+        Image<L8>? derivedSelectionMask = null;
         try
         {
             liveTemp = Path.Combine(
                 Path.GetTempPath(),
                 $"floowan-custom-of-sam2-{Guid.NewGuid():N}.png");
-            StatusText.Text = "Extracting live card art for SAM 2…";
-            var gamePath = _gamePath;
-            var card = _card;
-            var outputPath = liveTemp;
-            await Task.Run(() => _overFrameService.ExtractCardArt(gamePath, card, outputPath));
+
+            var selectionMask = ResolveSamExistingSelectionMask(out derivedSelectionMask);
+            var usedSubjectCanvas = await PrepareSamArtCanvasAsync(liveTemp, selectionMask);
+            StatusText.Text = usedSubjectCanvas
+                ? "Opening SAM 2 with current subject selection…"
+                : "Extracting card art for SAM 2…";
 
             var progress = new Progress<string>(msg => StatusText.Text = msg);
             // Download / SHA-256 / extract / ONNX session load — all off UI (Core).
             await _sam2Cutout.EnsureModelsAsync(progress);
 
             SetBusy(false);
-            StatusText.Text = "SAM 2 editor: Paint or Click object, then Apply selection.";
-            var paintWindow = Sam2MaskPaintWindow.FromImagePath(liveTemp, _sam2Cutout, _subjectMask);
+            StatusText.Text = selectionMask is not null
+                ? "SAM 2 editor: current subject loaded. Paint or Click to edit, then Apply."
+                : "SAM 2 editor: Paint or Click object, then Apply selection.";
+            var paintWindow = Sam2MaskPaintWindow.FromImagePath(
+                liveTemp,
+                _sam2Cutout,
+                selectionMask);
             paintWindow.Owner = this;
             var accepted = paintWindow.ShowDialog() == true;
             if (!accepted)
@@ -890,6 +1159,7 @@ public partial class CustomOverframeWindow : Window
         }
         finally
         {
+            derivedSelectionMask?.Dispose();
             paintMask?.Dispose();
             clickMask?.Dispose();
             clickSource?.Dispose();
@@ -900,6 +1170,75 @@ public partial class CustomOverframeWindow : Window
 
             SetBusy(false);
         }
+    }
+
+    /// <summary>
+    /// Prefers the in-memory subject canvas (restored stage / rembg / prior SAM) so the
+    /// existing selection mask aligns 1:1 with the SAM art. Falls back to exporting
+    /// illustration from game/backup.
+    /// </summary>
+    private async Task<bool> PrepareSamArtCanvasAsync(string outputPngPath, Image<L8>? selectionMask)
+    {
+        if (_subjectSource is not null
+            && selectionMask is not null
+            && _subjectSource.Width == selectionMask.Width
+            && _subjectSource.Height == selectionMask.Height)
+        {
+            var source = _subjectSource;
+            await Task.Run(() =>
+                source.Save(outputPngPath, new SixLabors.ImageSharp.Formats.Png.PngEncoder()));
+            return true;
+        }
+
+        await ExportIllustrationForEditingAsync(outputPngPath);
+        return false;
+    }
+
+    /// <summary>
+    /// Prefer the persisted/in-session L8 mask; else derive from subject RGBA alpha
+    /// (Pick manually / stages that only carried subject alpha).
+    /// </summary>
+    private Image<L8>? ResolveSamExistingSelectionMask(out Image<L8>? ownedDerivedMask)
+    {
+        ownedDerivedMask = null;
+        if (_subjectMask is not null && MaskHasOpaquePixels(_subjectMask))
+            return _subjectMask;
+
+        if (_subjectSource is null)
+            return null;
+
+        var derived = DeriveMaskFromSubjectAlpha(_subjectSource);
+        if (derived is null)
+            return null;
+
+        ownedDerivedMask = derived;
+        return derived;
+    }
+
+    private static Image<L8>? DeriveMaskFromSubjectAlpha(Image<Rgba32> subject)
+    {
+        var mask = new Image<L8>(subject.Width, subject.Height);
+        var keep = 0;
+        for (var y = 0; y < subject.Height; y++)
+        {
+            var pixels = subject.DangerousGetPixelRowMemory(y).Span;
+            var row = mask.DangerousGetPixelRowMemory(y).Span;
+            for (var x = 0; x < pixels.Length; x++)
+            {
+                var alpha = pixels[x].A;
+                row[x] = new L8(alpha);
+                if (alpha >= OverFrameAutoArtComposer.MaskKeepThreshold)
+                    keep++;
+            }
+        }
+
+        if (keep == 0)
+        {
+            mask.Dispose();
+            return null;
+        }
+
+        return mask;
     }
 
     private static bool MaskHasOpaquePixels(Image<L8> mask)
@@ -990,11 +1329,9 @@ public partial class CustomOverframeWindow : Window
             liveTemp = Path.Combine(
                 Path.GetTempPath(),
                 $"floowan-custom-of-live-{Guid.NewGuid():N}.png");
-            StatusText.Text = "Extracting live card art…";
-            var gamePath = _gamePath;
-            var card = _card;
+            StatusText.Text = "Extracting card art…";
             var outputPath = liveTemp;
-            await Task.Run(() => _overFrameService.ExtractCardArt(gamePath, card, outputPath));
+            await ExportIllustrationForEditingAsync(outputPath);
 
             var progress = new Progress<string>(msg => StatusText.Text = msg);
             var prepared = await _autoArt.PrepareSubjectWithRembgAsync(liveTemp, progress);
@@ -1076,7 +1413,7 @@ public partial class CustomOverframeWindow : Window
 
     private async void FrameStyleBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!IsLoaded || _busy)
+        if (!IsLoaded || _busy || _loadingStage)
             return;
 
         await RefreshLinkMarkersForFrameAsync(GetSelectedFrameStyle());
@@ -1196,43 +1533,54 @@ public partial class CustomOverframeWindow : Window
         var backgroundOffsetY = _backgroundOffsetY;
         var linkMarkers = _linkMarkers;
 
-        var (baseBmp, subjectBmp) = await Task.Run(() =>
+        // Encode on a worker; build BitmapImages on the UI thread (WPF STA).
+        byte[] basePng;
+        byte[] subjectPng;
+        try
         {
-            using var baseLayer = OverFrameAutoArtComposer.ComposeBaseWithoutSubject(
-                source,
-                mask,
-                frameStyle,
-                subjectScale: subjectScale,
-                composeMode: OverFrameComposeMode.CustomArtOnly,
-                background: background,
-                backgroundScale: backgroundScale,
-                backgroundOffsetX: backgroundOffsetX,
-                backgroundOffsetY: backgroundOffsetY);
-            // Arrows sit above chrome/background but under the dragged subject layer.
-            AutoOverFrameArtService.ApplyLinkArrowsIfNeeded(baseLayer, frameStyle, linkMarkers);
-            using var subjectLayer = OverFrameAutoArtComposer.RenderSubjectDragLayer(
-                source,
-                mask,
-                frameStyle,
-                subjectOffsetX: offsetX,
-                subjectOffsetY: offsetY,
-                subjectScale: subjectScale,
-                composeMode: OverFrameComposeMode.CustomArtOnly);
-            return (ToPreviewBitmap(baseLayer), ToPreviewBitmap(subjectLayer));
-        });
+            (basePng, subjectPng) = await Task.Run(() =>
+            {
+                using var baseLayer = OverFrameAutoArtComposer.ComposeBaseWithoutSubject(
+                    source,
+                    mask,
+                    frameStyle,
+                    subjectScale: subjectScale,
+                    composeMode: OverFrameComposeMode.CustomArtOnly,
+                    background: background,
+                    backgroundScale: backgroundScale,
+                    backgroundOffsetX: backgroundOffsetX,
+                    backgroundOffsetY: backgroundOffsetY);
+                // Arrows sit above chrome/background but under the dragged subject layer.
+                AutoOverFrameArtService.ApplyLinkArrowsIfNeeded(baseLayer, frameStyle, linkMarkers);
+                using var subjectLayer = OverFrameAutoArtComposer.RenderSubjectDragLayer(
+                    source,
+                    mask,
+                    frameStyle,
+                    subjectOffsetX: offsetX,
+                    subjectOffsetY: offsetY,
+                    subjectScale: subjectScale,
+                    composeMode: OverFrameComposeMode.CustomArtOnly);
+                return (EncodePreviewPng(baseLayer), EncodePreviewPng(subjectLayer));
+            });
+        }
+        catch
+        {
+            // Keep the full composed preview; FinishDrag still recomposes on release.
+            return;
+        }
 
         if (generation != _dragVisualGeneration || !_dragging)
             return;
 
-        PreviewImage.Source = baseBmp;
-        SubjectOverlay.Source = subjectBmp;
+        PreviewImage.Source = BitmapImageFromPngBytes(basePng);
+        SubjectOverlay.Source = BitmapImageFromPngBytes(subjectPng);
         ResetSubjectDragTransform();
         SubjectOverlay.Visibility = Visibility.Visible;
     }
 
     private void Preview_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (_subjectSource is null || _busy || PreviewImage.Source is null)
+        if (_subjectSource is null || _subjectMask is null || _busy || PreviewImage.Source is null)
             return;
 
         _dragging = true;
@@ -1299,7 +1647,8 @@ public partial class CustomOverframeWindow : Window
         // Drop live overlay immediately so a translated subject cannot cover lore cream
         // while the full recompose (same lore paint path as initial compose) runs.
         ClearSubjectOverlay();
-        PreviewHost.ReleaseMouseCapture();
+        if (PreviewHost.IsMouseCaptured)
+            PreviewHost.ReleaseMouseCapture();
 
         var scale = GetPreviewCanvasScale();
         if (scale > 0)
@@ -1310,11 +1659,25 @@ public partial class CustomOverframeWindow : Window
             _offsetY = _dragStartOffsetY + (int)Math.Round(dy);
         }
 
-        if (_busy || _subjectSource is null || _subjectMask is null)
+        if (_subjectSource is null || _subjectMask is null)
             return;
 
+        if (_busy)
+        {
+            // Offsets are already applied — recompose when the current busy op finishes.
+            _pendingSubjectRecompose = true;
+            return;
+        }
+
+        await RecomposeAfterSubjectTransformAsync(
+            $"Recomposing at offset {_offsetX}, {_offsetY}…");
+    }
+
+    private async Task RecomposeAfterSubjectTransformAsync(string busyStatus)
+    {
+        _pendingSubjectRecompose = false;
         SetBusy(true);
-        StatusText.Text = $"Recomposing at offset {_offsetX}, {_offsetY}…";
+        StatusText.Text = busyStatus;
         try
         {
             var matched = TryApplyAutoMatchBackgroundTransforms();
@@ -1347,7 +1710,7 @@ public partial class CustomOverframeWindow : Window
         // Prefer the fixed card preview; fall back to overlay while dragging.
         BitmapSource? bmp = PreviewImage.Source as BitmapSource
             ?? SubjectOverlay.Source as BitmapSource;
-        if (bmp is null)
+        if (bmp is null || bmp.PixelWidth <= 0 || bmp.PixelHeight <= 0)
             return 0;
 
         var availableW = PreviewHost.ActualWidth;
@@ -1397,6 +1760,15 @@ public partial class CustomOverframeWindow : Window
                 return;
             }
 
+            try
+            {
+                SaveEditableStage();
+            }
+            catch
+            {
+                /* best-effort stage snapshot for reopen-edit */
+            }
+
             DialogResult = true;
             Close();
         }
@@ -1413,6 +1785,43 @@ public partial class CustomOverframeWindow : Window
         finally
         {
             SetBusy(false);
+        }
+    }
+
+    private void SaveEditableStage()
+    {
+        if (_database is null)
+            return;
+
+        var frameStyle = GetSelectedFrameStyle();
+        var state = new CustomOverframeStageState
+        {
+            FrameStyle = frameStyle.ToString(),
+            SubjectScale = _subjectScale,
+            SubjectOffsetX = _offsetX,
+            SubjectOffsetY = _offsetY,
+            BackgroundScale = _backgroundScale,
+            BackgroundOffsetX = _backgroundOffsetX,
+            BackgroundOffsetY = _backgroundOffsetY,
+            BackgroundIsCardArt = _backgroundIsCardArt,
+            SubjectIsFromCardArt = _subjectIsFromCardArt
+        };
+
+        _database.SaveOfEditLayer(
+            _card.Id,
+            state,
+            _subjectSource,
+            _subjectMask,
+            _backgroundSource);
+
+        // Drop any legacy folder stage so Tools backups stay clean.
+        try
+        {
+            _overFrameService.Backups.TryDeleteCustomOverframeStage(_card.Name);
+        }
+        catch
+        {
+            /* best-effort */
         }
     }
 
@@ -1434,7 +1843,17 @@ public partial class CustomOverframeWindow : Window
         ArtScaleSlider.IsEnabled = !busy;
         BgScaleSlider.IsEnabled = !busy;
         if (!busy)
+        {
+            // Disabling the Art scale thumb mid-drag can skip DragCompleted; clear so
+            // ValueChanged can Apply again once idle.
+            _scaleDragging = false;
+            _bgTransformDragging = false;
             SyncBackgroundPanSliderRanges();
+            // Defer flush so we don't re-enter SetBusy(true) mid SetBusy(false).
+            Dispatcher.BeginInvoke(
+                FlushPendingTransformApplies,
+                System.Windows.Threading.DispatcherPriority.Background);
+        }
         else
         {
             BgPanHSlider.IsEnabled = false;
@@ -1442,6 +1861,29 @@ public partial class CustomOverframeWindow : Window
         }
         ApplyButton.IsEnabled = !busy && _subjectSource is not null && _composedTempPath is not null;
         Cursor = busy ? Cursors.Wait : Cursors.Arrow;
+    }
+
+    /// <summary>
+    /// Applies transform changes that were deferred while <see cref="_busy"/> was true.
+    /// </summary>
+    private void FlushPendingTransformApplies()
+    {
+        if (_loadingStage || _busy)
+            return;
+
+        if (_pendingArtScaleApply)
+        {
+            _ = ApplyArtScaleChangeAsync();
+            return;
+        }
+
+        if (_pendingSubjectRecompose
+            && _subjectSource is not null
+            && _subjectMask is not null)
+        {
+            _ = RecomposeAfterSubjectTransformAsync(
+                $"Recomposing at offset {_offsetX}, {_offsetY}…");
+        }
     }
 
     private void ResetSubjectDragTransform()
@@ -1497,19 +1939,25 @@ public partial class CustomOverframeWindow : Window
         return ToPreviewBitmap(image);
     }
 
-    private static BitmapImage ToPreviewBitmap(Image<Rgba32> image)
+    private static byte[] EncodePreviewPng(Image<Rgba32> image)
     {
         using var flat = OverFrameAutoArtComposer.FlattenFoilMaskForPreview(image);
         using var ms = new MemoryStream();
         flat.Save(ms, new SixLabors.ImageSharp.Formats.Png.PngEncoder());
-        ms.Position = 0;
+        return ms.ToArray();
+    }
 
+    private static BitmapImage BitmapImageFromPngBytes(byte[] png)
+    {
         var bmp = new BitmapImage();
         bmp.BeginInit();
         bmp.CacheOption = BitmapCacheOption.OnLoad;
-        bmp.StreamSource = ms;
+        bmp.StreamSource = new MemoryStream(png);
         bmp.EndInit();
         bmp.Freeze();
         return bmp;
     }
+
+    private static BitmapImage ToPreviewBitmap(Image<Rgba32> image) =>
+        BitmapImageFromPngBytes(EncodePreviewPng(image));
 }

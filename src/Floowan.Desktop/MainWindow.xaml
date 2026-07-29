@@ -214,13 +214,23 @@
                         Foreground="{StaticResource MutedBrush}"
                         Margin="0,8,0,0"
                         ToolTip="Collapse to hide custom overframe art and gate tools.">
-                <WrapPanel Margin="0,8,0,0">
-                  <Button Content="Custom overframe art" Click="OfCustomOverframeArt_Click"/>
-                  <Button Content="Enable gate only" Click="OfEnableGate_Click"/>
-                  <Button Content="Force disable gate"
-                          Click="OfForceDisableGate_Click"
-                          ToolTip="Remove this card's art-id from of_card_asset so the game no longer treats it as over-framed. Does not restore the card texture — use Restore backups for that."/>
-                </WrapPanel>
+                <StackPanel Margin="0,8,0,0">
+                  <WrapPanel>
+                    <Button x:Name="OfCustomOverframeButton"
+                            Content="Custom overframe art"
+                            Click="OfCustomOverframeArt_Click"/>
+                    <Button Content="Enable gate only" Click="OfEnableGate_Click"/>
+                    <Button Content="Force disable gate"
+                            Click="OfForceDisableGate_Click"
+                            ToolTip="Remove this card's art-id from of_card_asset so the game no longer treats it as over-framed. Does not restore the card texture — use Restore backups for that."/>
+                  </WrapPanel>
+                  <TextBlock x:Name="OfCustomOverframeWarningText"
+                             TextWrapping="Wrap"
+                             Foreground="{StaticResource WarningBrush}"
+                             Visibility="Collapsed"
+                             Margin="0,8,0,0"
+                             FontSize="12"/>
+                </StackPanel>
               </Expander>
               <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
                 <TextBlock Text="Frame" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,8,0"/>

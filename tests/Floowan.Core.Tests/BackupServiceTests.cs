@@ -1,5 +1,6 @@
 using Floowan.Core.Assets;
 using Floowan.Core.Backup;
+using Floowan.Core.Imaging;
 using Floowan.Core.Services;
 
 namespace Floowan.Core.Tests;
@@ -41,6 +42,77 @@ public sealed class BackupServiceTests
 
             Assert.True(backups.TryDeleteAppliedOverFrameBackup("Blue-Eyes White Dragon"));
             Assert.False(backups.HasAppliedOverFrameBackup("Blue-Eyes White Dragon"));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
+    public void CustomOverframeStage_SaveLoadAndDelete()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "floowan-backup-tests-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var backups = new BackupService(root);
+            using var subject = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(32, 32);
+            using var mask = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.L8>(32, 32);
+            using var background = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(64, 64);
+            subject[4, 4] = new SixLabors.ImageSharp.PixelFormats.Rgba32(200, 10, 10, 255);
+            mask[4, 4] = new SixLabors.ImageSharp.PixelFormats.L8(255);
+            background[1, 1] = new SixLabors.ImageSharp.PixelFormats.Rgba32(10, 200, 10, 255);
+
+            var state = new CustomOverframeStageState
+            {
+                FrameStyle = nameof(CardFrameStyle.OfGradientSynchro),
+                SubjectScale = 1.75f,
+                SubjectOffsetX = 12,
+                SubjectOffsetY = -8,
+                BackgroundScale = 1.25f,
+                BackgroundOffsetX = 3,
+                BackgroundOffsetY = -2,
+                BackgroundIsCardArt = true,
+                SubjectIsFromCardArt = true
+            };
+
+            backups.SaveCustomOverframeStage("Mirrorjade the Iceblade Dragon", state, subject, mask, background);
+            Assert.True(backups.HasCustomOverframeStage("Mirrorjade the Iceblade Dragon"));
+            Assert.EndsWith(
+                Path.Combine("cards", "mirrorjade-the-iceblade-dragon-custom-of"),
+                backups.GetCustomOverframeStageDirectory("Mirrorjade the Iceblade Dragon"));
+
+            Assert.True(backups.TryLoadCustomOverframeStage(
+                "Mirrorjade the Iceblade Dragon",
+                out var loaded,
+                out var loadedSubject,
+                out var loadedMask,
+                out var loadedBg));
+            using (loadedSubject)
+            using (loadedMask)
+            using (loadedBg)
+            {
+                Assert.Equal(nameof(CardFrameStyle.OfGradientSynchro), loaded.FrameStyle);
+                Assert.Equal(1.75f, loaded.SubjectScale);
+                Assert.Equal(12, loaded.SubjectOffsetX);
+                Assert.Equal(-8, loaded.SubjectOffsetY);
+                Assert.Equal(1.25f, loaded.BackgroundScale);
+                Assert.Equal(3, loaded.BackgroundOffsetX);
+                Assert.Equal(-2, loaded.BackgroundOffsetY);
+                Assert.True(loaded.BackgroundIsCardArt);
+                Assert.True(loaded.SubjectIsFromCardArt);
+                Assert.True(loaded.HasSubject);
+                Assert.True(loaded.HasBackground);
+                Assert.NotNull(loadedSubject);
+                Assert.NotNull(loadedMask);
+                Assert.NotNull(loadedBg);
+                Assert.Equal(32, loadedSubject.Width);
+                Assert.Equal(64, loadedBg.Width);
+                Assert.Equal(200, loadedSubject[4, 4].R);
+            }
+
+            Assert.True(backups.TryDeleteCustomOverframeStage("Mirrorjade the Iceblade Dragon"));
+            Assert.False(backups.HasCustomOverframeStage("Mirrorjade the Iceblade Dragon"));
         }
         finally
         {
