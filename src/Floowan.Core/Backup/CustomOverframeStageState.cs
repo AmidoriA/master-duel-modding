@@ -3,8 +3,8 @@ using Floowan.Core.Imaging;
 namespace Floowan.Core.Backup;
 
 /// <summary>
-/// Serializable Custom OF editor stage (layers + transforms) saved beside card backups
-/// so an already over-framed card can be re-opened for editing.
+/// Editable Custom OF stage (layers + transforms). Persisted in <c>user.db</c>
+/// (<c>of_edit_layer</c>) keyed by card id so Apply survives app restart.
 /// </summary>
 public sealed class CustomOverframeStageState
 {
