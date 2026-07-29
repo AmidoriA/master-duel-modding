@@ -29,11 +29,27 @@ public enum Sam2EditorResultKind
 }
 
 /// <summary>
-/// SAM selection editor: Click (default), Lasso, Paint — shared cyan working selection + Undo.
+/// SAM selection editor: Click (default), Lasso, Paint — shared working selection + Undo.
 /// </summary>
 public partial class Sam2MaskPaintWindow : Window
 {
     private const int MaxUndoLevels = 20;
+
+    /// <summary>Working-selection highlight palette (BGRA overlay + display name).</summary>
+    private static readonly SelectionHighlightColor[] SelectionPalette =
+    [
+        new("Cyan", B: 230, G: 200, R: 40, A: 170),
+        new("Green", B: 70, G: 210, R: 40, A: 170),
+        new("Magenta", B: 200, G: 60, R: 230, A: 170),
+        new("Orange", B: 40, G: 140, R: 255, A: 170),
+    ];
+
+    /// <summary>Dim prior-session subject overlay (green, slightly softer than palette green).</summary>
+    private static readonly SelectionHighlightColor ExistingSubjectHighlight =
+        new("Prior", B: 70, G: 210, R: 40, A: 150);
+
+    /// <summary>App-session preference for the active selection highlight (index into <see cref="SelectionPalette"/>).</summary>
+    private static int SessionSelectionColorIndex;
 
     /// <summary>Soft rim width (image pixels) for paint-brush stamps — display/prompt only.</summary>
     private const float BrushAaRimPixels = 1.5f;
@@ -57,6 +73,9 @@ public partial class Sam2MaskPaintWindow : Window
     private int _brushRadius = 14;
     private double _displayScale = 1;
     private int _samGeneration;
+    private int _selectionColorIndex;
+
+    private readonly record struct SelectionHighlightColor(string Name, byte B, byte G, byte R, byte A);
 
     public Sam2EditorResultKind ResultKind { get; private set; } = Sam2EditorResultKind.WorkingSamMask;
     public Image<L8>? ResultPaintMask { get; private set; }
@@ -105,6 +124,7 @@ public partial class Sam2MaskPaintWindow : Window
 
         ArtImage.Source = ToBitmap(_art);
         MaskOverlay.Source = _overlayBitmap;
+        ApplySessionHighlightColor();
         ApplyExistingSubjectHighlight(_baselineExistingMask);
         RefreshWorkingClickOverlay();
         UpdateBrushLabel();
@@ -118,6 +138,39 @@ public partial class Sam2MaskPaintWindow : Window
             SyncModeUi();
         };
         Closed += (_, _) => CleanupOwnedImages();
+    }
+
+    private SelectionHighlightColor ActiveSelectionColor =>
+        SelectionPalette[Math.Clamp(_selectionColorIndex, 0, SelectionPalette.Length - 1)];
+
+    private void ApplySessionHighlightColor()
+    {
+        _selectionColorIndex = Math.Clamp(SessionSelectionColorIndex, 0, SelectionPalette.Length - 1);
+        var radios = new[]
+        {
+            ColorSwatchCyan,
+            ColorSwatchGreen,
+            ColorSwatchMagenta,
+            ColorSwatchOrange,
+        };
+        radios[_selectionColorIndex].IsChecked = true;
+    }
+
+    private void HighlightColor_Checked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.RadioButton radio
+            || !int.TryParse(radio.Tag?.ToString(), out var index)
+            || index < 0
+            || index >= SelectionPalette.Length)
+        {
+            return;
+        }
+
+        _selectionColorIndex = index;
+        SessionSelectionColorIndex = index;
+        RefreshWorkingClickOverlay();
+        if (IsLoaded)
+            StatusText.Text = $"Selection highlight: {ActiveSelectionColor.Name}.";
     }
 
     public static Sam2MaskPaintWindow FromImagePath(
@@ -203,8 +256,9 @@ public partial class Sam2MaskPaintWindow : Window
             return;
         }
 
+        var prior = ExistingSubjectHighlight;
         ExistingSubjectOverlay.Source = ToMaskHighlightBitmap(
-            existingSubjectMask, b: 70, g: 210, r: 40, a: 150);
+            existingSubjectMask, prior.B, prior.G, prior.R, prior.A);
         ExistingSubjectOverlay.Visibility = Visibility.Visible;
     }
 
@@ -217,8 +271,9 @@ public partial class Sam2MaskPaintWindow : Window
             return;
         }
 
+        var tint = ActiveSelectionColor;
         ClickPreviewOverlay.Source = ToMaskHighlightBitmap(
-            _workingClickMask, b: 230, g: 200, r: 40, a: 170);
+            _workingClickMask, tint.B, tint.G, tint.R, tint.A);
         ClickPreviewOverlay.Visibility = Visibility.Visible;
     }
 
@@ -245,7 +300,7 @@ public partial class Sam2MaskPaintWindow : Window
         {
             PaintHost.Cursor = Cursors.Cross;
             HelpText.Text =
-                "Click object (default): cyan working selection. Left-click adds, right-click removes. Undo / Reset available.";
+                "Click object (default): working selection tint. Left-click adds, right-click removes. Undo / Reset available.";
             StatusText.Text = CountOpaque(_workingClickMask) == 0
                 ? "Click object: left-click to add, right-click to remove."
                 : "Left-click adds, right-click removes (incl. prior session), Undo, or Apply.";
@@ -254,14 +309,14 @@ public partial class Sam2MaskPaintWindow : Window
         {
             PaintHost.Cursor = Cursors.Cross;
             HelpText.Text =
-                "Lasso: drag a freehand loop. On release the interior fills, SAM runs, and the result unions into cyan.";
+                "Lasso: drag a freehand loop. On release the interior fills, SAM runs, and the result unions into the working selection.";
             StatusText.Text = "Lasso: drag around a region, release to run SAM 2.";
         }
         else
         {
             PaintHost.Cursor = Cursors.None;
             HelpText.Text =
-                "Paint: amber brush prompt. On stroke end SAM unions into cyan. Right-erase adjusts amber. Circle cursor = brush size.";
+                "Paint: amber brush prompt. On stroke end SAM unions into the working selection. Right-erase adjusts amber. Circle cursor = brush size.";
             StatusText.Text = CountOpaque(_workingClickMask) == 0
                 ? "Paint a region, release to run SAM 2, then Apply."
                 : "Paint more (release to add), erase amber, Undo, or Apply.";
@@ -278,6 +333,10 @@ public partial class Sam2MaskPaintWindow : Window
         ClickModeRadio.IsEnabled = !busy;
         LassoModeRadio.IsEnabled = !busy;
         PaintModeRadio.IsEnabled = !busy;
+        ColorSwatchCyan.IsEnabled = !busy;
+        ColorSwatchGreen.IsEnabled = !busy;
+        ColorSwatchMagenta.IsEnabled = !busy;
+        ColorSwatchOrange.IsEnabled = !busy;
         Cursor = busy ? Cursors.Wait : Cursors.Arrow;
     }
 
@@ -336,7 +395,7 @@ public partial class Sam2MaskPaintWindow : Window
     {
         _samGeneration++;
         ClearPaintPrompt();
-        StatusText.Text = "Paint prompt cleared (cyan working selection kept).";
+        StatusText.Text = "Paint prompt cleared (working selection kept).";
     }
 
     private void ClearPaintPrompt()
@@ -688,7 +747,7 @@ public partial class Sam2MaskPaintWindow : Window
             ClearPaintPrompt();
             RefreshWorkingClickOverlay();
             StatusText.Text =
-                $"Cyan updated from {sourceLabel}. Continue, Undo, or Apply.";
+                $"Selection updated from {sourceLabel}. Continue, Undo, or Apply.";
         }
         catch (Exception ex)
         {
