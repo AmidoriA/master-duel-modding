@@ -44,6 +44,12 @@ Automatic when source art is 512-class — no extra toggle. Status text reports
 `Upscaling illustration to 1024×1024 (Real-ESRGAN)…` on first composition after
 rembg / SAM.
 
+**Re-editing a saved Custom OF stage** that still stores 512-class layers
+(`user.db` `of_edit_layer`): on dialog open Floowan detects those bitmaps, runs
+the same Real-ESRGAN path, keeps Cover-relative scales and 704×1024 canvas
+offsets unchanged (so layout matches), then re-persists the 1024 layers.
+Already-1024 stages and fresh OF create on 1024 art are unchanged.
+
 ## Feature flag
 
 | Env | Effect |
