@@ -31,6 +31,7 @@ public sealed class AutoOverFrameArtService : IDisposable
 
     private readonly HttpClient _httpClient;
     private readonly string _modelPath;
+    private readonly ArtUpscaleService _artUpscale;
     private InferenceSession? _session;
 
     public AutoOverFrameArtService(string? modelDirectory = null, HttpClient? httpClient = null)
@@ -41,6 +42,8 @@ public sealed class AutoOverFrameArtService : IDisposable
             "models");
         _modelPath = Path.Combine(modelDirectory, ModelName);
         _httpClient = httpClient ?? new HttpClient();
+        // RemBG weights live in models/; Real-ESRGAN lives in models/realesrgan/.
+        _artUpscale = new ArtUpscaleService(Path.Combine(modelDirectory, "realesrgan"));
     }
 
     public string ModelPath => _modelPath;
@@ -62,22 +65,44 @@ public sealed class AutoOverFrameArtService : IDisposable
         frameStyle = CardFrameTemplates.ToOfGradientStyle(frameStyle);
 
         await EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
+        await EnsureArtUpscaleModelAsync(progress, cancellationToken).ConfigureAwait(false);
         progress?.Report("Removing background with isnet-anime…");
 
         await Task.Run(() =>
         {
             using var prepared = PrepareCleanSource(sourceImagePath, progress);
-            using var mask = PredictMask(prepared.Source);
-            progress?.Report($"Compositing subject onto {frameStyle} frame (704×1024)…");
-            using var result = OverFrameAutoArtComposer.Compose(
-                prepared.Source,
-                mask,
-                frameStyle,
-                subjectOffsetX: subjectOffsetX,
-                subjectOffsetY: subjectOffsetY);
-            ApplyLinkArrowsIfNeeded(result, frameStyle, linkMarkers, progress);
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPngPath))!);
-            result.Save(outputPngPath, new PngEncoder());
+            var source = prepared.Source;
+            using var predictedMask = PredictMask(source);
+            var mask = predictedMask;
+            Image<Rgba32>? ownedSource = null;
+            Image<L8>? ownedMask = null;
+            try
+            {
+                (ownedSource, ownedMask) = _artUpscale.UpscaleSubjectPairForOverFrameIfNeeded(
+                    source, mask, progress);
+                if (!ReferenceEquals(ownedSource, source))
+                    source = ownedSource;
+                if (!ReferenceEquals(ownedMask, mask))
+                    mask = ownedMask;
+
+                progress?.Report($"Compositing subject onto {frameStyle} frame (704×1024)…");
+                using var result = OverFrameAutoArtComposer.Compose(
+                    source,
+                    mask,
+                    frameStyle,
+                    subjectOffsetX: subjectOffsetX,
+                    subjectOffsetY: subjectOffsetY);
+                ApplyLinkArrowsIfNeeded(result, frameStyle, linkMarkers, progress);
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPngPath))!);
+                result.Save(outputPngPath, new PngEncoder());
+            }
+            finally
+            {
+                if (ownedSource is not null && !ReferenceEquals(ownedSource, prepared.Source))
+                    ownedSource.Dispose();
+                if (ownedMask is not null && !ReferenceEquals(ownedMask, predictedMask))
+                    ownedMask.Dispose();
+            }
         }, cancellationToken).ConfigureAwait(false);
 
         progress?.Report("Automatic over-frame art is ready for review.");
@@ -105,6 +130,7 @@ public sealed class AutoOverFrameArtService : IDisposable
         frameStyle = CardFrameTemplates.ToOfGradientStyle(frameStyle);
 
         await EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
+        await EnsureArtUpscaleModelAsync(progress, cancellationToken).ConfigureAwait(false);
         progress?.Report("Removing background with isnet-anime…");
 
         return await Task.Run(() =>
@@ -132,6 +158,10 @@ public sealed class AutoOverFrameArtService : IDisposable
                     throw new InvalidOperationException(
                         "rembg found no opaque subject in the card art for Auto OF.");
                 }
+
+                Image<Rgba32>? bg = background;
+                _artUpscale.UpscalePreparedLayersInPlace(ref subject, ref mask, ref bg, progress);
+                background = bg!;
 
                 progress?.Report($"Compositing subject onto {frameStyle} frame (704×1024)…");
                 using var result = OverFrameAutoArtComposer.Compose(
@@ -198,6 +228,36 @@ public sealed class AutoOverFrameArtService : IDisposable
     }
 
     /// <summary>
+    /// Same as <see cref="LoadSubjectFromAlpha"/>, then Real-ESRGAN ×2 when the art is
+    /// 512-class (OF compose). Ensures the upscale model is present first.
+    /// </summary>
+    public async Task<(Image<Rgba32> Source, Image<L8> Mask)> LoadSubjectFromAlphaUpscaledAsync(
+        string sourceImagePath,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureArtUpscaleModelAsync(progress, cancellationToken).ConfigureAwait(false);
+        return await Task.Run(
+            () =>
+            {
+                var (source, mask) = LoadSubjectFromAlpha(sourceImagePath, progress);
+                try
+                {
+                    Image<Rgba32>? bg = null;
+                    _artUpscale.UpscalePreparedLayersInPlace(ref source, ref mask, ref bg, progress);
+                    return (source, mask);
+                }
+                catch
+                {
+                    source.Dispose();
+                    mask.Dispose();
+                    throw;
+                }
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Runs rembg (isnet-anime) on card art and returns the cleaned illustration +
     /// subject mask for Custom OF Card Art layering. Caller must dispose both images.
     /// Does not compose a frame (unlike <see cref="CreateAsync"/>).
@@ -211,6 +271,7 @@ public sealed class AutoOverFrameArtService : IDisposable
             throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
 
         await EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
+        await EnsureArtUpscaleModelAsync(progress, cancellationToken).ConfigureAwait(false);
         progress?.Report("Removing background with isnet-anime…");
 
         return await Task.Run(() =>
@@ -238,6 +299,9 @@ public sealed class AutoOverFrameArtService : IDisposable
                         "rembg found no opaque subject in the live card art. " +
                         "Try Select subject… with a PNG that already has alpha.");
                 }
+
+                Image<Rgba32>? bg = null;
+                _artUpscale.UpscalePreparedLayersInPlace(ref source, ref mask, ref bg, progress);
 
                 progress?.Report("Subject rembg mask ready.");
                 return (source, mask);
@@ -347,6 +411,11 @@ public sealed class AutoOverFrameArtService : IDisposable
         public Image<Rgba32> Source { get; } = source;
         public void Dispose() => Source.Dispose();
     }
+
+    private Task EnsureArtUpscaleModelAsync(
+        IProgress<string>? progress,
+        CancellationToken cancellationToken) =>
+        _artUpscale.EnsureModelAsync(progress, cancellationToken);
 
     private async Task EnsureModelAsync(
         IProgress<string>? progress,
@@ -483,6 +552,7 @@ public sealed class AutoOverFrameArtService : IDisposable
     public void Dispose()
     {
         _session?.Dispose();
+        _artUpscale.Dispose();
         _httpClient.Dispose();
     }
 }
