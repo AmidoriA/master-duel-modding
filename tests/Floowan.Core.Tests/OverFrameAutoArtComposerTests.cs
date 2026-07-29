@@ -714,8 +714,7 @@ public class OverFrameAutoArtComposerTests
         for (var x = 0; x < result.Width && !found; x++)
         {
             var p = result[x, expectedY];
-            // Soft feather may write 1..FoilMaskAlpha coverage on thin bars after scale.
-            if (p.A > 0 && p.A <= OverFrameAutoArtComposer.FoilMaskAlpha && p.G > 100)
+            if (p.A == OverFrameAutoArtComposer.FoilMaskAlpha && p.G > 100)
                 found = true;
         }
 
