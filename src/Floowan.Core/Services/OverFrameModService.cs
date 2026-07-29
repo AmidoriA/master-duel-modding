@@ -266,6 +266,7 @@ public sealed class OverFrameModService : IDisposable
 
             database?.SetFloowanOverframe(card.Id, applied: false);
             _backupService.TryDeleteAppliedOverFrameBackup(card.Name);
+            _backupService.TryDeleteCustomOverframeStage(card.Name);
 
             var msg = removed
                 ? $"Removed '{card.DisplayName}' from of_card_asset gate."
@@ -334,6 +335,7 @@ public sealed class OverFrameModService : IDisposable
 
         database?.SetFloowanOverframe(card.Id, applied: false);
         _backupService.TryDeleteAppliedOverFrameBackup(card.Name);
+        _backupService.TryDeleteCustomOverframeStage(card.Name);
         return OverFrameResult.Ok($"Restored {string.Join(" + ", messages)} from backup.");
     }
 
@@ -836,6 +838,77 @@ public sealed class OverFrameModService : IDisposable
     /// </summary>
     public static bool PreferLiveAutoCreateSource(bool cardIsOverframe, int liveWidth, int liveHeight) =>
         !CardArtModService.IsLiveOverFrameTexture(cardIsOverframe, liveWidth, liveHeight);
+
+    /// <summary>
+    /// Illustration for Custom OF Cover background / rembg / SAM. Same preference as
+    /// <see cref="ResolveAutoCreateSourceArt"/>, but when the card is already OF with no
+    /// clean backup, crops the live OF art window (last-resort) instead of throwing.
+    /// </summary>
+    public string ResolveCustomOfIllustrationSource(
+        string playerDataPath,
+        CardRecord card,
+        string outputPngPath)
+    {
+        try
+        {
+            return ResolveAutoCreateSourceArt(playerDataPath, card, outputPngPath);
+        }
+        catch (InvalidOperationException)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPngPath))!);
+            var liveTemp = outputPngPath + ".live-of-crop.png";
+            try
+            {
+                ExtractCardArt(playerDataPath, card, liveTemp);
+                if (!TryCopyCleanIllustration(liveTemp, outputPngPath))
+                    throw;
+
+                return "live OF art-window crop";
+            }
+            finally
+            {
+                try { if (File.Exists(liveTemp)) File.Delete(liveTemp); } catch { /* ignore */ }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Writes the current OF canvas (applied PNG backup, else live extract) for preview.
+    /// Returns false when nothing OF-sized is available.
+    /// </summary>
+    public bool TryExportCurrentOverFrameCanvas(
+        string playerDataPath,
+        CardRecord card,
+        string outputPngPath)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPngPath))!);
+
+        var applied = _backupService.GetAppliedOverFrameBackupPath(card.Name);
+        if (File.Exists(applied) && IsOverFrameSizedPng(applied))
+        {
+            File.Copy(applied, outputPngPath, overwrite: true);
+            return true;
+        }
+
+        var liveTemp = outputPngPath + ".live-extract.png";
+        try
+        {
+            ExtractCardArt(playerDataPath, card, liveTemp);
+            if (!IsOverFrameSizedPng(liveTemp))
+                return false;
+
+            File.Copy(liveTemp, outputPngPath, overwrite: true);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            try { if (File.Exists(liveTemp)) File.Delete(liveTemp); } catch { /* ignore */ }
+        }
+    }
 
     /// <summary>
     /// Resolves source art for Auto-create / Preview. Prefers the live illustration when

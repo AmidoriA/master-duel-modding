@@ -9,7 +9,7 @@
         ShowInTaskbar="False">
   <DockPanel Margin="14">
     <TextBlock DockPanel.Dock="Top"
-               Text="Choose one subject source (auto detect or pick manually) — not both. Background Cover-fills the art hole (defaults to this card's live art). Art scale and Bg scale share ×0.5–×4 where ×1 = Cover fit. Pan background with H/V sliders. When subject is rembg from card art and background is card art, background scale/pan stay matched as you drag or scale the subject. Drag/scale Card Art only, then Apply. Layers: Background → Frame → Card Art → Lore."
+               Text="Choose one subject source (auto detect or pick manually) — not both. Background Cover-fills the art hole (defaults to this card's illustration; when already over-framed, prefers the pre-OF backup). Re-opening after a Custom Apply restores the saved editable stage. Art scale and Bg scale share ×0.5–×4 where ×1 = Cover fit. Pan background with H/V sliders. When subject is rembg from card art and background is card art, background scale/pan stay matched as you drag or scale the subject. Drag/scale Card Art only, then Apply. Layers: Background → Frame → Card Art → Lore."
                Foreground="{StaticResource MutedBrush}"
                TextWrapping="Wrap"
                Margin="0,0,0,10"/>

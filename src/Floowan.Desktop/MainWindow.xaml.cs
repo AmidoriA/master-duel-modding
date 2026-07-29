@@ -1760,19 +1760,6 @@ public partial class MainWindow : Window
         if (!_ofGateReady)
             return;
 
-        if (IsSelectedCardAlreadyOverframe())
-        {
-            MessageBox.Show(
-                $"'{_ofSelected.DisplayName}' is already over-framed.\n\n" +
-                "Use Restore backups first, then open Custom overframe art again.\n" +
-                "Custom overframe will not nest frames on live OF art.",
-                AppCaption,
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-            Status("Custom overframe art blocked — card is already over-framed. Restore first.");
-            return;
-        }
-
         var card = _ofSelected;
         var initialFrame = GetSelectedOfComposeFrameStyle()
             ?? CardFrameTemplates.ToOfGradientStyle(CardFrameStyle.Effect);
@@ -1805,29 +1792,6 @@ public partial class MainWindow : Window
         _thumbnailCache.Invalidate(card);
         RunOfSearch();
         ReselectOfCard(card.Id);
-    }
-
-    /// <summary>
-    /// True when the selected OF card is already over-framed (DB flag and/or live 704×1024).
-    /// </summary>
-    private bool IsSelectedCardAlreadyOverframe()
-    {
-        if (_ofSelected is null)
-            return false;
-        if (_ofSelected.IsOverframe || _ofLiveTextureIsOverframe)
-            return true;
-        if (_overFrameService is null || string.IsNullOrWhiteSpace(GamePathBox.Text))
-            return false;
-
-        try
-        {
-            var info = _overFrameService.GetTextureInfo(GamePathBox.Text, _ofSelected);
-            return OverFrameAutoArtComposer.IsOverFrameTextureSize(info.Width, info.Height);
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     private async void OfAutoCreateAndApply_Click(object sender, RoutedEventArgs e)

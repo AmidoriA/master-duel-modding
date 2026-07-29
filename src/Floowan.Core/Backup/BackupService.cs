@@ -1,9 +1,20 @@
+using System.Text.Json;
 using Floowan.Core.Imaging;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace Floowan.Core.Backup;
 
 public sealed class BackupService
 {
+    private static readonly JsonSerializerOptions StageJsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true
+    };
+
     private readonly string _root;
 
     public BackupService(string? rootDirectory = null)
@@ -35,6 +46,24 @@ public sealed class BackupService
     public string GetAppliedOverFrameBackupPath(string cardName) =>
         GetTextureBackupPath(cardName + "-applied-overframe");
 
+    /// <summary>
+    /// Directory for Custom OF editable stage (subject/background PNGs + params JSON).
+    /// </summary>
+    public string GetCustomOverframeStageDirectory(string cardName) =>
+        Path.Combine(_root, "cards", ImagePreparation.Slugify(cardName) + "-custom-of");
+
+    public string GetCustomOverframeStageJsonPath(string cardName) =>
+        Path.Combine(GetCustomOverframeStageDirectory(cardName), "stage.json");
+
+    public string GetCustomOverframeStageSubjectPath(string cardName) =>
+        Path.Combine(GetCustomOverframeStageDirectory(cardName), "subject.png");
+
+    public string GetCustomOverframeStageSubjectMaskPath(string cardName) =>
+        Path.Combine(GetCustomOverframeStageDirectory(cardName), "subject-mask.png");
+
+    public string GetCustomOverframeStageBackgroundPath(string cardName) =>
+        Path.Combine(GetCustomOverframeStageDirectory(cardName), "background.png");
+
     public bool HasBundleBackup(string bundleId) =>
         File.Exists(GetBundleBackupPath(bundleId));
 
@@ -43,6 +72,9 @@ public sealed class BackupService
 
     public bool HasAppliedOverFrameBackup(string cardName) =>
         File.Exists(GetAppliedOverFrameBackupPath(cardName));
+
+    public bool HasCustomOverframeStage(string cardName) =>
+        File.Exists(GetCustomOverframeStageJsonPath(cardName));
 
     /// <summary>
     /// Copies the applied OF PNG into backups (overwrites). Used on successful Apply.
@@ -53,6 +85,110 @@ public sealed class BackupService
         Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
         File.Copy(sourcePngPath, dest, overwrite: true);
         return dest;
+    }
+
+    /// <summary>
+    /// Persists Custom OF layers + transforms so the dialog can reopen an already OF card.
+    /// </summary>
+    public void SaveCustomOverframeStage(
+        string cardName,
+        CustomOverframeStageState state,
+        Image<Rgba32>? subjectSource,
+        Image<L8>? subjectMask,
+        Image<Rgba32>? background)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        var dir = GetCustomOverframeStageDirectory(cardName);
+        Directory.CreateDirectory(dir);
+
+        state.HasSubject = subjectSource is not null && subjectMask is not null;
+        state.HasBackground = background is not null;
+
+        if (state.HasSubject)
+        {
+            subjectSource!.Save(GetCustomOverframeStageSubjectPath(cardName), new PngEncoder());
+            subjectMask!.Save(GetCustomOverframeStageSubjectMaskPath(cardName), new PngEncoder());
+        }
+        else
+        {
+            TryDeleteFile(GetCustomOverframeStageSubjectPath(cardName));
+            TryDeleteFile(GetCustomOverframeStageSubjectMaskPath(cardName));
+        }
+
+        if (state.HasBackground)
+        {
+            background!.Save(GetCustomOverframeStageBackgroundPath(cardName), new PngEncoder());
+        }
+        else
+        {
+            TryDeleteFile(GetCustomOverframeStageBackgroundPath(cardName));
+        }
+
+        var json = JsonSerializer.Serialize(state, StageJsonOptions);
+        File.WriteAllText(GetCustomOverframeStageJsonPath(cardName), json);
+    }
+
+    /// <summary>
+    /// Loads a previously saved Custom OF stage. Caller must dispose returned images.
+    /// </summary>
+    public bool TryLoadCustomOverframeStage(
+        string cardName,
+        out CustomOverframeStageState state,
+        out Image<Rgba32>? subjectSource,
+        out Image<L8>? subjectMask,
+        out Image<Rgba32>? background)
+    {
+        state = new CustomOverframeStageState();
+        subjectSource = null;
+        subjectMask = null;
+        background = null;
+
+        var jsonPath = GetCustomOverframeStageJsonPath(cardName);
+        if (!File.Exists(jsonPath))
+            return false;
+
+        try
+        {
+            var json = File.ReadAllText(jsonPath);
+            var loaded = JsonSerializer.Deserialize<CustomOverframeStageState>(json, StageJsonOptions);
+            if (loaded is null)
+                return false;
+
+            state = loaded;
+            if (state.HasSubject)
+            {
+                var subjectPath = GetCustomOverframeStageSubjectPath(cardName);
+                var maskPath = GetCustomOverframeStageSubjectMaskPath(cardName);
+                if (!File.Exists(subjectPath) || !File.Exists(maskPath))
+                {
+                    DisposeLoaded(ref subjectSource, ref subjectMask, ref background);
+                    return false;
+                }
+
+                subjectSource = Image.Load<Rgba32>(subjectPath);
+                subjectMask = Image.Load<L8>(maskPath);
+            }
+
+            if (state.HasBackground)
+            {
+                var bgPath = GetCustomOverframeStageBackgroundPath(cardName);
+                if (!File.Exists(bgPath))
+                {
+                    DisposeLoaded(ref subjectSource, ref subjectMask, ref background);
+                    return false;
+                }
+
+                background = Image.Load<Rgba32>(bgPath);
+            }
+
+            return state.HasSubject || state.HasBackground;
+        }
+        catch
+        {
+            DisposeLoaded(ref subjectSource, ref subjectMask, ref background);
+            return false;
+        }
     }
 
     /// <summary>
@@ -71,6 +207,51 @@ public sealed class BackupService
         catch
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Drops the Custom OF editable stage directory (Restore / remove from gate).
+    /// </summary>
+    public bool TryDeleteCustomOverframeStage(string cardName)
+    {
+        var dir = GetCustomOverframeStageDirectory(cardName);
+        if (!Directory.Exists(dir))
+            return false;
+        try
+        {
+            Directory.Delete(dir, recursive: true);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void DisposeLoaded(
+        ref Image<Rgba32>? subjectSource,
+        ref Image<L8>? subjectMask,
+        ref Image<Rgba32>? background)
+    {
+        subjectSource?.Dispose();
+        subjectMask?.Dispose();
+        background?.Dispose();
+        subjectSource = null;
+        subjectMask = null;
+        background = null;
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+            /* best effort */
         }
     }
 
