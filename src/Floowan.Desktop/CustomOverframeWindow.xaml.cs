@@ -170,23 +170,49 @@ public partial class CustomOverframeWindow : Window
         StatusText.Text = "Loading saved Custom OF stage…";
         try
         {
+            var cardId = _card.Id;
             var cardName = _card.Name;
             var loaded = await Task.Run(() =>
             {
-                if (!_overFrameService.Backups.TryLoadCustomOverframeStage(
-                        cardName,
-                        out var state,
-                        out var subject,
-                        out var mask,
-                        out var background))
+                // Prefer user.db (survives restart / backup-root differences).
+                if (_database is not null
+                    && _database.TryLoadOfEditLayer(
+                        cardId,
+                        out var dbState,
+                        out var dbSubject,
+                        out var dbMask,
+                        out var dbBackground))
                 {
-                    return (Ok: false, State: (CustomOverframeStageState?)null,
-                        Subject: (Image<Rgba32>?)null, Mask: (Image<L8>?)null,
-                        Background: (Image<Rgba32>?)null);
+                    return (Ok: true, State: (CustomOverframeStageState?)dbState,
+                        Subject: dbSubject, Mask: dbMask, Background: dbBackground);
                 }
 
-                return (Ok: true, State: (CustomOverframeStageState?)state,
-                    Subject: subject, Mask: mask, Background: background);
+                // One-time migrate leftover backup-folder stages from earlier #82 builds.
+                if (_overFrameService.Backups.TryLoadCustomOverframeStage(
+                        cardName,
+                        out var fileState,
+                        out var fileSubject,
+                        out var fileMask,
+                        out var fileBackground))
+                {
+                    try
+                    {
+                        _database?.SaveOfEditLayer(
+                            cardId, fileState, fileSubject, fileMask, fileBackground);
+                        _overFrameService.Backups.TryDeleteCustomOverframeStage(cardName);
+                    }
+                    catch
+                    {
+                        /* keep in-memory load even if migrate fails */
+                    }
+
+                    return (Ok: true, State: (CustomOverframeStageState?)fileState,
+                        Subject: fileSubject, Mask: fileMask, Background: fileBackground);
+                }
+
+                return (Ok: false, State: (CustomOverframeStageState?)null,
+                    Subject: (Image<Rgba32>?)null, Mask: (Image<L8>?)null,
+                    Background: (Image<Rgba32>?)null);
             });
 
             if (!loaded.Ok || loaded.State is null)
@@ -1764,6 +1790,9 @@ public partial class CustomOverframeWindow : Window
 
     private void SaveEditableStage()
     {
+        if (_database is null)
+            return;
+
         var frameStyle = GetSelectedFrameStyle();
         var state = new CustomOverframeStageState
         {
@@ -1778,12 +1807,22 @@ public partial class CustomOverframeWindow : Window
             SubjectIsFromCardArt = _subjectIsFromCardArt
         };
 
-        _overFrameService.Backups.SaveCustomOverframeStage(
-            _card.Name,
+        _database.SaveOfEditLayer(
+            _card.Id,
             state,
             _subjectSource,
             _subjectMask,
             _backgroundSource);
+
+        // Drop any legacy folder stage so Tools backups stay clean.
+        try
+        {
+            _overFrameService.Backups.TryDeleteCustomOverframeStage(_card.Name);
+        }
+        catch
+        {
+            /* best-effort */
+        }
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e)

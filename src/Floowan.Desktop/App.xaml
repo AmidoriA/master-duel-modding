@@ -9,6 +9,7 @@
     <SolidColorBrush x:Key="AccentBrush" Color="#2F9E6B"/>
     <SolidColorBrush x:Key="TextBrush" Color="#E8EEF2"/>
     <SolidColorBrush x:Key="MutedBrush" Color="#B7C2CC"/>
+    <SolidColorBrush x:Key="WarningBrush" Color="#E8A85C"/>
     <SolidColorBrush x:Key="ControlBgBrush" Color="#1A222A"/>
     <SolidColorBrush x:Key="ControlBorderBrush" Color="#3A4652"/>
     <SolidColorBrush x:Key="ButtonBgBrush" Color="#2C3540"/>

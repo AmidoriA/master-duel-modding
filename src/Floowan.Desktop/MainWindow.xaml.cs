@@ -1176,6 +1176,7 @@ public partial class MainWindow : Window
             OfCurrentArtImage.Source = null;
             if (OfFrameStyleBox is not null)
                 OfFrameStyleBox.SelectedIndex = -1;
+            UpdateOfCustomOverframeActionUi();
             return;
         }
 
@@ -1186,6 +1187,7 @@ public partial class MainWindow : Window
         SuggestOfFrameStyle(_ofSelected);
         RefreshOfGateEntryStatus();
         LoadOfCurrentPreview();
+        UpdateOfCustomOverframeActionUi();
     }
 
     private async void SuggestOfFrameStyle(CardRecord card)
@@ -1496,6 +1498,51 @@ public partial class MainWindow : Window
             _ofLiveTextureIsOverframe = false;
             Status("Preview failed: " + ex.Message);
         }
+
+        UpdateOfCustomOverframeActionUi();
+    }
+
+    /// <summary>
+    /// Custom OF vs Edit vs blocked: based on live OF status + editable layers in user.db.
+    /// </summary>
+    private void UpdateOfCustomOverframeActionUi()
+    {
+        if (OfCustomOverframeButton is null || OfCustomOverframeWarningText is null)
+            return;
+
+        if (_ofSelected is null || _database is null)
+        {
+            OfCustomOverframeButton.Content = "Custom overframe art";
+            OfCustomOverframeButton.IsEnabled = false;
+            OfCustomOverframeWarningText.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var isOverframe = _ofSelected.IsOverframe || _ofLiveTextureIsOverframe;
+        var hasEditableLayers = _database.HasOfEditLayer(_ofSelected.Id);
+
+        if (!isOverframe)
+        {
+            OfCustomOverframeButton.Content = "Custom overframe art";
+            OfCustomOverframeButton.IsEnabled = true;
+            OfCustomOverframeWarningText.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        if (hasEditableLayers)
+        {
+            OfCustomOverframeButton.Content = "Edit overframe…";
+            OfCustomOverframeButton.IsEnabled = true;
+            OfCustomOverframeWarningText.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        OfCustomOverframeButton.Content = "Custom overframe art";
+        OfCustomOverframeButton.IsEnabled = false;
+        OfCustomOverframeWarningText.Text =
+            "This card is already over-framed with no editable layers. " +
+            "Restore backups (or force-disable gate) first, then create a new custom overframe.";
+        OfCustomOverframeWarningText.Visibility = Visibility.Visible;
     }
 
     /// <summary>
@@ -1754,6 +1801,23 @@ public partial class MainWindow : Window
             MessageBox.Show("Set the Master Duel LocalData path first.", AppCaption);
             return;
         }
+        if (_database is null)
+            return;
+
+        var isOverframe = _ofSelected.IsOverframe || _ofLiveTextureIsOverframe;
+        var hasEditableLayers = _database.HasOfEditLayer(_ofSelected.Id);
+        if (isOverframe && !hasEditableLayers)
+        {
+            MessageBox.Show(
+                $"'{_ofSelected.DisplayName}' is already over-framed with no editable layers.\n\n" +
+                "Restore backups first, then open Custom overframe art again.",
+                AppCaption,
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            Status("Custom overframe art blocked — already OF without editable layers. Restore first.");
+            UpdateOfCustomOverframeActionUi();
+            return;
+        }
 
         if (!_ofGateReady)
             await EnsureOfGateAsync(showErrors: true);
@@ -1774,24 +1838,32 @@ public partial class MainWindow : Window
             initialFrame,
             linkMarkers)
         {
-            Owner = this
+            Owner = this,
+            Title = hasEditableLayers
+                ? $"Edit overframe — {card.DisplayName}"
+                : $"Custom overframe art — {card.DisplayName}"
         };
 
         var applied = dialog.ShowDialog() == true;
         if (!applied)
         {
-            Status("Custom overframe art cancelled.");
+            Status(hasEditableLayers ? "Edit overframe cancelled." : "Custom overframe art cancelled.");
             return;
         }
 
-        Status(dialog.ResultMessage ?? "Custom overframe art applied.");
-        ShowOfActionSuccess("Success — custom OF applied", includeRestartHint: true);
+        Status(dialog.ResultMessage ?? (hasEditableLayers
+            ? "Overframe layers updated."
+            : "Custom overframe art applied."));
+        ShowOfActionSuccess(
+            hasEditableLayers ? "Success — overframe edited" : "Success — custom OF applied",
+            includeRestartHint: true);
         _ofReplacementImagePath = null;
         OfReplacementImage.Source = null;
         ApplyOfPreviewLayout(hasReplacement: false);
         _thumbnailCache.Invalidate(card);
         RunOfSearch();
         ReselectOfCard(card.Id);
+        UpdateOfCustomOverframeActionUi();
     }
 
     private async void OfAutoCreateAndApply_Click(object sender, RoutedEventArgs e)

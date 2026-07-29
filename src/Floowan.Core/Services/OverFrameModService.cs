@@ -265,6 +265,7 @@ public sealed class OverFrameModService : IDisposable
                 _textAssets.WriteTextAssetBytes(gateLocate.BundlePath, gate.ToBytes(), compression: packer);
 
             database?.SetFloowanOverframe(card.Id, applied: false);
+            database?.ClearOfEditLayer(card.Id);
             _backupService.TryDeleteAppliedOverFrameBackup(card.Name);
             _backupService.TryDeleteCustomOverframeStage(card.Name);
 
@@ -334,6 +335,7 @@ public sealed class OverFrameModService : IDisposable
             return OverFrameResult.Fail("No over-frame backups found for this card/gate.");
 
         database?.SetFloowanOverframe(card.Id, applied: false);
+        database?.ClearOfEditLayer(card.Id);
         _backupService.TryDeleteAppliedOverFrameBackup(card.Name);
         _backupService.TryDeleteCustomOverframeStage(card.Name);
         return OverFrameResult.Ok($"Restored {string.Join(" + ", messages)} from backup.");
