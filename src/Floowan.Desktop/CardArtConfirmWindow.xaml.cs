@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Media.Imaging;
 using Floowan.Core.Imaging;
+using Floowan.Desktop.Localization;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Formats.Png;
@@ -19,10 +20,11 @@ public partial class CardArtConfirmWindow : Window
         bool flattenBeforeFoilMask = false)
     {
         InitializeComponent();
+        ApplyLocalizedChrome();
 
         TitleText.Text = string.IsNullOrWhiteSpace(cardDisplayName)
-            ? "Confirm card art replacement"
-            : $"Replace art for \"{cardDisplayName}\"?";
+            ? Loc.T("confirm.title")
+            : Loc.T("confirm.title_named", cardDisplayName);
         BeforeMetaText.Text = beforeMeta;
         AfterMetaText.Text = afterMeta;
 
@@ -33,12 +35,23 @@ public partial class CardArtConfirmWindow : Window
 
         if (flattenBeforeFoilMask)
         {
-            SubtitleText.Text =
-                "Live art is over-frame sized. Before uses a foil-flattened preview for visibility. " +
-                "Confirm still uses the existing Card Art replace path (bundle backup; no illustration PNG for OF faces).";
-            BeforeImage.ToolTip =
-                "Current live over-frame texture (foil mask flattened for preview only).";
+            SubtitleText.Text = Loc.T("confirm.subtitle_foil");
+            BeforeImage.ToolTip = Loc.T("confirm.before_foil_tooltip");
         }
+    }
+
+    private void ApplyLocalizedChrome()
+    {
+        Title = Loc.T("confirm.title");
+        SubtitleText.Text = Loc.T("confirm.subtitle");
+        CancelButton.Content = Loc.T("common.cancel");
+        CancelButton.ToolTip = Loc.T("confirm.cancel_tooltip");
+        ConfirmButton.Content = Loc.T("common.confirm");
+        ConfirmButton.ToolTip = Loc.T("confirm.confirm_tooltip");
+        BeforeHeaderText.Text = Loc.T("confirm.before");
+        AfterHeaderText.Text = Loc.T("confirm.after");
+        BeforeImage.ToolTip = Loc.T("confirm.before_tooltip");
+        AfterImage.ToolTip = Loc.T("confirm.after_tooltip");
     }
 
     private void Confirm_Click(object sender, RoutedEventArgs e)
