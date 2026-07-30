@@ -36,7 +36,7 @@
 
       <Border Background="{StaticResource PanelBrush}" CornerRadius="4" Padding="10">
         <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Text="Before (current live art)"
+          <TextBlock x:Name="BeforeHeaderText" DockPanel.Dock="Top" Text="Before (current live art)"
                      FontWeight="SemiBold" Margin="0,0,0,4"/>
           <TextBlock x:Name="BeforeMetaText" DockPanel.Dock="Top"
                      Foreground="{StaticResource MutedBrush}" FontSize="12"
@@ -50,7 +50,7 @@
 
       <Border Grid.Column="2" Background="{StaticResource PanelBrush}" CornerRadius="4" Padding="10">
         <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Text="After (replacement)"
+          <TextBlock x:Name="AfterHeaderText" DockPanel.Dock="Top" Text="After (replacement)"
                      FontWeight="SemiBold" Margin="0,0,0,4"/>
           <TextBlock x:Name="AfterMetaText" DockPanel.Dock="Top"
                      Foreground="{StaticResource MutedBrush}" FontSize="12"

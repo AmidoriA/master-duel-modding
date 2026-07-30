@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Floowan.Core.Imaging;
+using Floowan.Desktop.Localization;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Advanced;
 using SixLabors.ImageSharp.PixelFormats;
@@ -105,6 +106,7 @@ public partial class Sam2MaskPaintWindow : Window
             throw new ArgumentException("Art path is required for SAM.", nameof(artPath));
 
         InitializeComponent();
+        Title = Loc.T("sam.title");
         _art = art.Clone();
         _artPath = artPath;
         _sam2 = sam2;

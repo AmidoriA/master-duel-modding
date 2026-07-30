@@ -48,8 +48,8 @@
       <Expander x:Name="HomePathsExpander" IsExpanded="True" ExpandDirection="Down">
         <Expander.Header>
           <StackPanel Orientation="Vertical" Margin="4,0,0,0">
-            <TextBlock Text="Masterduel modding tool by AmidoriA" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
-            <TextBlock Text="Card art replacement for Yu-Gi-Oh! Master Duel"
+            <TextBlock x:Name="HomeTitleText" Text="Masterduel modding tool by AmidoriA" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
+            <TextBlock x:Name="HomeSubtitleText" Text="Card art replacement for Yu-Gi-Oh! Master Duel"
                        Foreground="{StaticResource MutedBrush}" Margin="0,2,0,0"/>
           </StackPanel>
         </Expander.Header>
@@ -60,13 +60,13 @@
           </Grid.ColumnDefinitions>
           <StackPanel>
             <DockPanel>
-              <TextBlock Text="LocalData path" Width="100" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+              <TextBlock x:Name="HomeLocalDataLabel" Text="LocalData path" Width="100" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
               <TextBox x:Name="GamePathBox" IsReadOnly="True"/>
             </DockPanel>
           </StackPanel>
           <StackPanel Grid.Column="1" Orientation="Vertical" Margin="12,0,0,0">
-            <Button Content="Discover Steam" Click="DiscoverSteam_Click" Margin="0,0,0,6"/>
-            <Button Content="Browse LocalData…" Click="BrowseGamePath_Click"/>
+            <Button x:Name="DiscoverSteamButton" Content="Discover Steam" Click="DiscoverSteam_Click" Margin="0,0,0,6"/>
+            <Button x:Name="BrowseLocalDataButton" Content="Browse LocalData…" Click="BrowseGamePath_Click"/>
           </StackPanel>
         </Grid>
       </Expander>
@@ -89,15 +89,15 @@
 
           <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
             <DockPanel>
-              <TextBlock DockPanel.Dock="Top" Text="Cards" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <TextBlock x:Name="CardArtCardsHeader" DockPanel.Dock="Top" Text="Cards" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
               <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                 <TextBox x:Name="SearchBox" Width="260" KeyDown="SearchBox_KeyDown" TextChanged="SearchBox_TextChanged"/>
-                <Button Content="Search" Click="Search_Click" Background="{StaticResource AccentBrush}"/>
+                <Button x:Name="CardArtSearchButton" Content="Search" Click="Search_Click" Background="{StaticResource AccentBrush}"/>
                 <CheckBox x:Name="FavoritesOnlyBox" Content="Favorites" VerticalAlignment="Center" Foreground="{StaticResource TextBrush}" Margin="4,0,0,0"/>
                 <CheckBox x:Name="SearchDescBox" Content="Include description" VerticalAlignment="Center" Foreground="{StaticResource TextBrush}" Margin="8,0,0,0"/>
               </StackPanel>
               <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                <TextBlock Text="View" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,8,0"/>
+                <TextBlock x:Name="CardArtViewLabel" Text="View" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,8,0"/>
                 <RadioButton x:Name="CardArtViewListRadio" Content="List" GroupName="CardResultsView"
                              IsChecked="True" Checked="CardResultsViewMode_Changed"/>
                 <RadioButton x:Name="CardArtViewThumbRadio" Content="Thumbnails" GroupName="CardResultsView"
@@ -112,16 +112,16 @@
 
           <Border Grid.Column="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
             <DockPanel>
-              <TextBlock DockPanel.Dock="Top" Text="Selected card" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <TextBlock x:Name="CardArtSelectedHeader" DockPanel.Dock="Top" Text="Selected card" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
               <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,12,0,0">
-                <Button Content="Select image…" Click="SelectImage_Click"/>
-                <Button Content="Replace art" Click="Replace_Click" Background="{StaticResource AccentBrush}"
+                <Button x:Name="SelectImageButton" Content="Select image…" Click="SelectImage_Click"/>
+                <Button x:Name="ReplaceArtButton" Content="Replace art" Click="Replace_Click" Background="{StaticResource AccentBrush}"
                         ToolTip="Opens a before/after comparison. Confirm writes to the game (with backup); Cancel aborts."/>
-                <Button Content="Extract PNG" Click="Extract_Click"/>
-                <Button Content="Restore backup" Click="Restore_Click"/>
-                <Button Content="Open in Over-Frame" Click="CardArtOpenInOverFrame_Click" Margin="12,0,0,0"
+                <Button x:Name="ExtractPngButton" Content="Extract PNG" Click="Extract_Click"/>
+                <Button x:Name="RestoreBackupButton" Content="Restore backup" Click="Restore_Click"/>
+                <Button x:Name="CardArtOpenOfButton" Content="Open in Over-Frame" Click="CardArtOpenInOverFrame_Click" Margin="12,0,0,0"
                         ToolTip="Switch to Over-frame with this card selected."/>
-                <Button Content="Open in Database View" Click="CardArtOpenInDatabase_Click"
+                <Button x:Name="CardArtOpenDbButton" Content="Open in Database View" Click="CardArtOpenInDatabase_Click"
                         ToolTip="Switch to Database with this card selected."/>
               </StackPanel>
               <Grid>
@@ -165,14 +165,14 @@
 
           <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
             <DockPanel>
-              <TextBlock DockPanel.Dock="Top" Text="Over-frame cards" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <TextBlock x:Name="OfCardsHeader" DockPanel.Dock="Top" Text="Over-frame cards" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
               <TextBlock x:Name="OfGateStatusText" DockPanel.Dock="Top"
                          Text="Gate: not scanned yet"
                          Foreground="{StaticResource MutedBrush}"
                          Margin="0,0,0,8" TextWrapping="Wrap"/>
               <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                 <TextBox x:Name="OfSearchBox" Width="220" KeyDown="OfSearchBox_KeyDown" TextChanged="OfSearchBox_TextChanged"/>
-                <Button Content="Search" Click="OfSearch_Click" Background="{StaticResource AccentBrush}"/>
+                <Button x:Name="OfSearchButton" Content="Search" Click="OfSearch_Click" Background="{StaticResource AccentBrush}"/>
                 <CheckBox x:Name="OfOverframeOnlyBox" Content="Over-frame only" VerticalAlignment="Center"
                           Foreground="{StaticResource TextBrush}" Margin="4,0,0,0"
                           Checked="OfFilter_Changed" Unchecked="OfFilter_Changed"/>
@@ -182,7 +182,7 @@
                           Foreground="{StaticResource TextBrush}" Margin="8,0,0,0"/>
               </StackPanel>
               <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                <TextBlock Text="View" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,8,0"/>
+                <TextBlock x:Name="OfViewLabel" Text="View" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,8,0"/>
                 <RadioButton x:Name="OfViewListRadio" Content="List" GroupName="OfResultsView"
                              IsChecked="True" Checked="OfResultsViewMode_Changed"/>
                 <RadioButton x:Name="OfViewThumbRadio" Content="Thumbnails" GroupName="OfResultsView"
@@ -197,17 +197,17 @@
 
           <Border Grid.Column="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
             <DockPanel>
-              <TextBlock DockPanel.Dock="Top" Text="Over-frame editor" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <TextBlock x:Name="OfEditorHeader" DockPanel.Dock="Top" Text="Over-frame editor" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
               <WrapPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
-                <Button Content="Auto-create &amp; apply" Click="OfAutoCreateAndApply_Click" Background="{StaticResource AccentBrush}"/>
-                <Button Content="Preview" Click="OfPreview_Click"/>
-                <Button Content="Restore backups" Click="OfRestore_Click"/>
-                <Button Content="Open in Card Art" Click="OfOpenInCardArt_Click" Margin="12,0,0,0"
+                <Button x:Name="OfAutoCreateButton" Content="Auto-create &amp; apply" Click="OfAutoCreateAndApply_Click" Background="{StaticResource AccentBrush}"/>
+                <Button x:Name="OfPreviewButton" Content="Preview" Click="OfPreview_Click"/>
+                <Button x:Name="OfRestoreButton" Content="Restore backups" Click="OfRestore_Click"/>
+                <Button x:Name="OfOpenCardArtButton" Content="Open in Card Art" Click="OfOpenInCardArt_Click" Margin="12,0,0,0"
                         ToolTip="Switch to Card Art with this card selected."/>
-                <Button Content="Open in Database View" Click="OfOpenInDatabase_Click"
+                <Button x:Name="OfOpenDbButton" Content="Open in Database View" Click="OfOpenInDatabase_Click"
                         ToolTip="Switch to Database with this card selected."/>
               </WrapPanel>
-              <Expander DockPanel.Dock="Bottom"
+              <Expander x:Name="OfAdvancedExpander" DockPanel.Dock="Bottom"
                         Header="Advanced (manual apply / gate)"
                         IsExpanded="False"
                         ExpandDirection="Down"
@@ -219,8 +219,8 @@
                     <Button x:Name="OfCustomOverframeButton"
                             Content="Custom overframe art"
                             Click="OfCustomOverframeArt_Click"/>
-                    <Button Content="Enable gate only" Click="OfEnableGate_Click"/>
-                    <Button Content="Force disable gate"
+                    <Button x:Name="OfEnableGateButton" Content="Enable gate only" Click="OfEnableGate_Click"/>
+                    <Button x:Name="OfForceDisableGateButton" Content="Force disable gate"
                             Click="OfForceDisableGate_Click"
                             ToolTip="Remove this card's art-id from of_card_asset so the game no longer treats it as over-framed. Does not restore the card texture — use Restore backups for that."/>
                   </WrapPanel>
@@ -233,7 +233,7 @@
                 </StackPanel>
               </Expander>
               <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
-                <TextBlock Text="Frame" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,8,0"/>
+                <TextBlock x:Name="OfFrameLabel" Text="Frame" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,8,0"/>
                 <ComboBox x:Name="OfFrameStyleBox" Width="220">
                   <ComboBoxItem Content="Effect" Tag="Effect"/>
                   <ComboBoxItem Content="Normal" Tag="Normal"/>
@@ -315,22 +315,22 @@
 
           <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
             <StackPanel>
-              <TextBlock Text="Filters" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+              <TextBlock x:Name="DbFiltersHeader" Text="Filters" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
               <WrapPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
-                  <TextBlock Text="Card ID" Width="70" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <TextBlock x:Name="DbFilterIdLabel" Text="Card ID" Width="70" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
                   <TextBox x:Name="DbFilterIdBox" Width="100" KeyDown="DbFilter_KeyDown" TextChanged="DbFilterText_Changed"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
-                  <TextBlock Text="Name" Width="50" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <TextBlock x:Name="DbFilterNameLabel" Text="Name" Width="50" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
                   <TextBox x:Name="DbFilterNameBox" Width="180" KeyDown="DbFilter_KeyDown" TextChanged="DbFilterText_Changed"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
-                  <TextBlock Text="Description" Width="80" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <TextBlock x:Name="DbFilterDescLabel" Text="Description" Width="80" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
                   <TextBox x:Name="DbFilterDescBox" Width="180" KeyDown="DbFilter_KeyDown" TextChanged="DbFilterText_Changed"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
-                  <TextBlock Text="Favorite" Width="60" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <TextBlock x:Name="DbFilterFavoriteLabel" Text="Favorite" Width="60" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
                   <ComboBox x:Name="DbFilterFavoriteBox" Width="110" SelectedIndex="0"
                             SelectionChanged="DbFilterCombo_Changed">
                     <ComboBoxItem Content="Any"/>
@@ -339,7 +339,7 @@
                   </ComboBox>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
-                  <TextBlock Text="Backup" Width="55" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <TextBlock x:Name="DbFilterBackupLabel" Text="Backup" Width="55" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
                   <ComboBox x:Name="DbFilterBackupBox" Width="110" SelectedIndex="0"
                             SelectionChanged="DbFilterCombo_Changed">
                     <ComboBoxItem Content="Any"/>
@@ -348,7 +348,7 @@
                   </ComboBox>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
-                  <TextBlock Text="Modded name" Width="90" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <TextBlock x:Name="DbFilterModdedNameLabel" Text="Modded name" Width="90" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
                   <ComboBox x:Name="DbFilterModdedNameBox" Width="110" SelectedIndex="0"
                             SelectionChanged="DbFilterCombo_Changed">
                     <ComboBoxItem Content="Any"/>
@@ -357,7 +357,7 @@
                   </ComboBox>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,16,8">
-                  <TextBlock Text="Modded desc" Width="90" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <TextBlock x:Name="DbFilterModdedDescLabel" Text="Modded desc" Width="90" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
                   <ComboBox x:Name="DbFilterModdedDescBox" Width="110" SelectedIndex="0"
                             SelectionChanged="DbFilterCombo_Changed">
                     <ComboBoxItem Content="Any"/>
@@ -367,8 +367,8 @@
                 </StackPanel>
               </WrapPanel>
               <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                <Button Content="Apply filters" Click="DbApplyFilters_Click" Background="{StaticResource AccentBrush}"/>
-                <Button Content="Clear filters" Click="DbClearFilters_Click"/>
+                <Button x:Name="DbApplyFiltersButton" Content="Apply filters" Click="DbApplyFilters_Click" Background="{StaticResource AccentBrush}"/>
+                <Button x:Name="DbClearFiltersButton" Content="Clear filters" Click="DbClearFilters_Click"/>
                 <Button x:Name="DbPrevPageButton" Content="Previous page" Click="DbPrevPage_Click" IsEnabled="False"/>
                 <Button x:Name="DbNextPageButton" Content="Next page" Click="DbNextPage_Click" IsEnabled="False"/>
                 <TextBlock x:Name="DbPageInfoText" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="8,0,0,0"/>
@@ -387,7 +387,7 @@
 
             <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
               <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="Cards" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock x:Name="DbCardsHeader" DockPanel.Dock="Top" Text="Cards" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                 <DataGrid x:Name="DbCardGrid"
                           SelectionChanged="DbCardGrid_SelectionChanged"
                           Sorting="DbCardGrid_Sorting"
@@ -415,10 +415,10 @@
 
             <Border Grid.Column="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
               <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="Record details" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock x:Name="DbRecordHeader" DockPanel.Dock="Top" Text="Record details" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                 <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,12,0,0">
-                  <Button Content="Open in Card Art" Click="DbOpenInCardArt_Click"/>
-                  <Button Content="Open in Over-frame" Click="DbOpenInOverFrame_Click"/>
+                  <Button x:Name="DbOpenCardArtButton" Content="Open in Card Art" Click="DbOpenInCardArt_Click"/>
+                  <Button x:Name="DbOpenOfButton" Content="Open in Over-frame" Click="DbOpenInOverFrame_Click"/>
                 </StackPanel>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                   <Grid>
@@ -481,7 +481,7 @@
 
             <Border Grid.Column="4" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
               <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="Card art" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock x:Name="DbArtHeader" DockPanel.Dock="Top" Text="Card art" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                 <TextBlock x:Name="DbArtMetaText" DockPanel.Dock="Top"
                            Text="Select a card to preview live art."
                            Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8" TextWrapping="Wrap"/>
@@ -501,8 +501,8 @@
           <StackPanel>
             <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
               <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="Card database" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                <TextBlock DockPanel.Dock="Top"
+                <TextBlock x:Name="ToolsDbHeader" DockPanel.Dock="Top" Text="Card database" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock x:Name="ToolsDbHelpText" DockPanel.Dock="Top"
                            Text="Rebuild or incrementally refresh the master card catalog (database.db) from the Home LocalData path plus install StreamingAssets/AssetBundle (names, descriptions, bundles, card_type, created_at). Prefer LocalData downloads when both exist. Incremental mode skips any AssetBundle whose File.GetCreationTimeUtc is not after MAX(created_at) already stored in the database — those files are never opened."
                            Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
@@ -521,8 +521,8 @@
 
             <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
               <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="of_card_asset gate" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                <TextBlock DockPanel.Dock="Top"
+                <TextBlock x:Name="ToolsOfGateHeader" DockPanel.Dock="Top" Text="of_card_asset gate" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock x:Name="ToolsOfGateHelpText" DockPanel.Dock="Top"
                            Text="Locate the AssetBundle that contains TextAsset of_card_asset under LocalData/0000 and StreamingAssets, cache its id in user.db, and sync is_overframe flags from the live gate. Runs off the UI thread so the app stays responsive during the scan."
                            Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
@@ -538,8 +538,8 @@
 
             <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
               <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="Over-frames after patch" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                <TextBlock DockPanel.Dock="Top"
+                <TextBlock x:Name="ToolsOfAfterPatchHeader" DockPanel.Dock="Top" Text="Over-frames after patch" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock x:Name="ToolsOfAfterPatchHelpText" DockPanel.Dock="Top"
                            Text="After a Master Duel update replaces of_card_asset, modded over-frames can drop out of the gate even when art backups remain. Restore uses user.db Floowan OF history (faster). The slower full fix scans live art AssetBundles for 704x1024 textures the app already renders as over-frame, writes missing user.db OF records, and adds missing of_card_asset entries without wiping official Konami over-frames."
                            Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
@@ -559,8 +559,8 @@
 
             <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4" Margin="0,0,0,8">
               <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="ONNX models" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                <TextBlock DockPanel.Dock="Top"
+                <TextBlock x:Name="ToolsOnnxHeader" DockPanel.Dock="Top" Text="ONNX models" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock x:Name="ToolsOnnxHelpText" DockPanel.Dock="Top"
                            Text="First-use downloads for rembg (isnet-anime), Real-ESRGAN upscale, and SAM 2 live under %LOCALAPPDATA%\Floowan\models\. Open the folder to inspect or free disk space."
                            Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
@@ -576,22 +576,22 @@
 
             <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
               <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="Backups" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                <TextBlock DockPanel.Dock="Top"
+                <TextBlock x:Name="ToolsBackupsHeader" DockPanel.Dock="Top" Text="Backups" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock x:Name="ToolsBackupsHelpText" DockPanel.Dock="Top"
                            Text="Browse original files saved before card art and over-frame changes."
                            Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
 
                 <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-                  <TextBlock Text="Backup folder" Width="100" VerticalAlignment="Center"
+                  <TextBlock x:Name="ToolsBackupFolderLabel" Text="Backup folder" Width="100" VerticalAlignment="Center"
                              Foreground="{StaticResource MutedBrush}"/>
-                  <Button DockPanel.Dock="Right" Content="Open in Explorer" Click="ToolsOpenBackupRoot_Click"
+                  <Button x:Name="ToolsOpenBackupRootButton" DockPanel.Dock="Right" Content="Open in Explorer" Click="ToolsOpenBackupRoot_Click"
                           Margin="8,0,0,0"/>
                   <TextBox x:Name="ToolsBackupPathBox" IsReadOnly="True"/>
                 </DockPanel>
 
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                  <Button Content="Refresh" Click="ToolsRefreshBackups_Click" Background="{StaticResource AccentBrush}"/>
-                  <Button Content="Open selected" Click="ToolsOpenSelected_Click"/>
+                  <Button x:Name="ToolsRefreshBackupsButton" Content="Refresh" Click="ToolsRefreshBackups_Click" Background="{StaticResource AccentBrush}"/>
+                  <Button x:Name="ToolsOpenSelectedButton" Content="Open selected" Click="ToolsOpenSelected_Click"/>
                 </StackPanel>
 
                 <TextBlock x:Name="ToolsBackupStatusText" DockPanel.Dock="Bottom"
@@ -607,19 +607,56 @@
         </ScrollViewer>
       </TabItem>
 
+
+      <TabItem x:Name="OptionsTab" Header="Options">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
+          <StackPanel>
+            <Border Background="{StaticResource PanelBrush}" Padding="16" CornerRadius="4">
+              <StackPanel>
+                <TextBlock x:Name="OptionsHeader" Text="Options" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock x:Name="OptionsIntroText"
+                           Text="Application preferences. More settings may appear here in future releases."
+                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,16"/>
+                <TextBlock x:Name="OptionsLanguageLabel" Text="Language" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                <TextBlock x:Name="OptionsLanguageHelpText"
+                           Text="Choose the UI language. Missing translations fall back to English (en-US). Drop a new xx-XX.yaml file into the locales folder next to the app to add a language."
+                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <ComboBox x:Name="OptionsLanguageCombo" Width="280" HorizontalAlignment="Left"
+                          SelectionChanged="OptionsLanguageCombo_SelectionChanged" Margin="0,0,0,8"/>
+                <TextBlock x:Name="OptionsLanguageAutoNoteText"
+                           Text="On first launch (no saved preference), the app picks a matching locale from your OS language when available."
+                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,16" FontSize="12"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                  <Button x:Name="OptionsReloadLocalesButton" Content="Reload locale files"
+                          Click="OptionsReloadLocales_Click" Margin="0,0,8,0"
+                          ToolTip="Re-scan the locales folder for newly added YAML files."/>
+                  <Button x:Name="OptionsOpenLocalesButton" Content="Open locales folder"
+                          Click="OptionsOpenLocales_Click"/>
+                </StackPanel>
+                <DockPanel Margin="0,8,0,0">
+                  <TextBlock x:Name="OptionsLocalesPathLabel" Text="Locales folder" Width="110"
+                             VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <TextBox x:Name="OptionsLocalesPathBox" IsReadOnly="True"/>
+                </DockPanel>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
       <TabItem x:Name="AboutTab" Header="About">
         <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
           <StackPanel>
             <Border Background="{StaticResource PanelBrush}" Padding="16" CornerRadius="4" Margin="0,0,0,12">
               <StackPanel>
-                <TextBlock Text="Masterduel modding tool by AmidoriA"
+                <TextBlock x:Name="AboutTitleText" Text="Masterduel modding tool by AmidoriA"
                            FontSize="20" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                <TextBlock Text="Version 0.1.2"
+                <TextBlock x:Name="AboutVersionText" Text="Version 0.1.2"
                            Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
-                <TextBlock Text="Card art and over-frame modding for Yu-Gi-Oh! Master Duel."
+                <TextBlock x:Name="AboutTaglineText" Text="Card art and over-frame modding for Yu-Gi-Oh! Master Duel."
                            Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,12"/>
                 <StackPanel Orientation="Horizontal">
-                  <Button Content="Open on GitHub" Click="AboutOpenProjectGitHub_Click"
+                  <Button x:Name="AboutOpenGitHubButton" Content="Open on GitHub" Click="AboutOpenProjectGitHub_Click"
                           Background="{StaticResource AccentBrush}" Padding="12,4" Margin="0,0,8,0"
                           ToolTip="https://github.com/AmidoriA/master-duel-modding"/>
                   <TextBlock VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}">
@@ -635,15 +672,15 @@
             <Border Background="{StaticResource PanelBrush}" Padding="16" CornerRadius="4" Margin="0,0,0,12"
                     BorderBrush="#5B8DEF" BorderThickness="1">
               <StackPanel>
-                <TextBlock Text="Credits — Floowandereeze and Modding"
+                <TextBlock x:Name="AboutCreditsTitleText" Text="Credits — Floowandereeze and Modding"
                            FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                 <TextBlock TextWrapping="Wrap" Margin="0,0,0,10" LineHeight="22">
-                  <Run Text="This tool is heavily inspired by and based on the"/>
-                  <Run FontWeight="SemiBold" Text=" Floowandereeze and Modding "/>
-                  <Run Text="project by Nauder. The original Qt modding app pioneered practical Master Duel card-art replacement (path layout, Texture2D workflow, backups). AmidoriA’s C# tool reimplements related behaviors independently — please give Floowandereeze the credit it deserves."/>
+                  <Run x:Name="AboutCreditsBeforeRun" Text="This tool is heavily inspired by and based on the"/>
+                  <Run x:Name="AboutCreditsNameRun" FontWeight="SemiBold" Text=" Floowandereeze and Modding "/>
+                  <Run x:Name="AboutCreditsAfterRun" Text="project by Nauder. The original Qt modding app pioneered practical Master Duel card-art replacement (path layout, Texture2D workflow, backups). AmidoriA’s C# tool reimplements related behaviors independently — please give Floowandereeze the credit it deserves."/>
                 </TextBlock>
                 <StackPanel Orientation="Horizontal">
-                  <Button Content="Open Floowandereeze on GitHub" Click="AboutOpenFloowandereezeGitHub_Click"
+                  <Button x:Name="AboutOpenFloowanButton" Content="Open Floowandereeze on GitHub" Click="AboutOpenFloowandereezeGitHub_Click"
                           Background="{StaticResource AccentBrush}" Padding="12,4" Margin="0,0,8,0"
                           ToolTip="https://github.com/Nauder/floowandereeze-and-modding-qt"/>
                   <TextBlock VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}">
@@ -658,10 +695,10 @@
 
             <Border Background="{StaticResource PanelBrush}" Padding="16" CornerRadius="4">
               <StackPanel>
-                <TextBlock Text="Third-party notices" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                <TextBlock Text="Licenses and attributions for libraries and inspiration used by this app."
+                <TextBlock x:Name="AboutThirdPartyHeader" Text="Third-party notices" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock x:Name="AboutThirdPartyHelpText" Text="Licenses and attributions for libraries and inspiration used by this app."
                            Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,12"/>
-                <Button Content="Open third-party notices"
+                <Button x:Name="AboutOpenThirdPartyButton" Content="Open third-party notices"
                         Click="AboutOpenThirdPartyNotices_Click"
                         HorizontalAlignment="Left"
                         Padding="12,4"/>
@@ -689,7 +726,7 @@
             BorderBrush="#5B8DEF"
             BorderThickness="1">
       <StackPanel>
-        <TextBlock Text="Working…"
+        <TextBlock x:Name="BusyWorkingText" Text="Working…"
                    HorizontalAlignment="Center"
                    FontSize="16"
                    FontWeight="SemiBold"

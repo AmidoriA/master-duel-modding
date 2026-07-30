@@ -44,6 +44,26 @@ Solution and project folders still use the historical `Floowan.*` names.
 | `src/Floowan.Desktop` | WPF UI |
 | `tests/Floowan.Core.Tests` | Unit tests |
 
+## Localization (adding a language)
+
+UI strings live in YAML under `src/Floowan.Desktop/locales/`. The app auto-loads every `*.yaml` / `*.yml` it finds in the `locales/` folder next to the exe (no hardcoded language list).
+
+### File naming and format
+
+- Name files as `xx-XX.yaml` (BCP 47 culture code), e.g. `en-US.yaml`, `th-TH.yaml`, `ja-JP.yaml`.
+- Nested YAML keys become dotted lookup keys (`tabs.card_art`, `status.ready`, …).
+- Dynamic messages use .NET format placeholders: `"Loaded. Cards in DB: {0}."`
+
+### Add a new language
+
+1. Copy `src/Floowan.Desktop/locales/en-US.yaml` to `xx-XX.yaml` (same folder). **en-US is the key source of truth** — keep the same keys; translate values only.
+2. For shipping with the app/build, keep the file in `src/Floowan.Desktop/locales/` (the Desktop csproj copies it to output and publish).
+3. For a quick local test against an already-built/unzipped release, drop `xx-XX.yaml` into `<exe-dir>/locales/` next to `Floowan.Desktop.exe`.
+4. Open the **Options** tab → choose the language, or click **Reload locale files** after adding a file at runtime.
+5. Missing keys in the active language **fall back to en-US**. Unknown cultures also resolve to en-US.
+
+Release packaging (`scripts/publish-release.ps1` / the publish skill) stages `locales/` beside the single-file exe in the zip, same pattern as `frames/` and `database.db`.
+
 ## Credits & links
 
 - Heavily inspired by [Floowandereeze and Modding](https://github.com/Nauder/floowandereeze-and-modding-qt) by Nauder (GPL-3.0). Path layout and card-art replacement approaches were pioneered there; this C# tool reimplements related behavior independently. Please give Floowandereeze the credit it deserves.
