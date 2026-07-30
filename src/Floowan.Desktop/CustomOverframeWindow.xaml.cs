@@ -11,6 +11,7 @@ using Floowan.Core.Data;
 using Floowan.Core.Imaging;
 using Floowan.Core.Models;
 using Floowan.Core.Services;
+using Floowan.Desktop.Localization;
 using Microsoft.Win32;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Advanced;
@@ -86,7 +87,7 @@ public partial class CustomOverframeWindow : Window
         _gamePath = gamePath;
         _database = database;
         _linkMarkers = linkMarkers;
-        Title = $"Custom overframe art — {card.DisplayName}";
+        Title = $"{Loc.T("custom_of.title")} — {card.DisplayName}";
         SelectFrameStyle(initialFrameStyle);
         AdvancedSamExpander.Visibility = Sam2PointCutoutService.IsFeatureEnabled
             ? Visibility.Visible
