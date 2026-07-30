@@ -913,6 +913,84 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void ToolsOrphanOverframes_Click(object sender, RoutedEventArgs e)
+    {
+        if (_database is null)
+        {
+            MessageBox.Show("Open database.db first.", AppCaption);
+            return;
+        }
+
+        if (_overFrameService is null)
+        {
+            MessageBox.Show("Over-frame service is not initialized.", AppCaption);
+            return;
+        }
+
+        var gamePath = GamePathBox.Text?.Trim() ?? "";
+        string? pathError = null;
+        if (string.IsNullOrWhiteSpace(gamePath) || !GamePathLocator.IsValidGamePath(gamePath, out pathError))
+        {
+            MessageBox.Show(
+                pathError ?? "Set a valid Master Duel LocalData path first (Home tab).",
+                AppCaption,
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var confirm = MessageBox.Show(
+            "Slower full fix with asset scans\n\n" +
+            "This opens live card AssetBundles looking for 704x1024 textures the app already " +
+            "renders as over-frame, then writes missing user.db OF records and adds missing " +
+            "of_card_asset gate entries (official entries kept). Art is not rewritten.\n\n" +
+            "This is slower than Restore overframes after patch. Quit Master Duel first. Continue?",
+            "Slower full fix with asset scans",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes)
+            return;
+
+        SetToolsLongRunningButtonsEnabled(false);
+        SetUiBusy(true);
+        ToolsRestoreOverframesStatusText.Text = "Starting full OF orphan scan…";
+        Status("Scanning live art for orphan over-frames…");
+
+        var database = _database;
+        var service = _overFrameService;
+        var progress = new Progress<string>(msg =>
+        {
+            ToolsRestoreOverframesStatusText.Text = msg;
+            Status(msg);
+        });
+
+        try
+        {
+            var result = await Task.Run(() =>
+                service.RepairOrphanOverframes(gamePath, database, progress));
+
+            ToolsRestoreOverframesStatusText.Text = result.Message;
+            Status(result.Message);
+            RunOfSearch();
+            MessageBox.Show(
+                result.Message,
+                AppCaption,
+                MessageBoxButton.OK,
+                result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        }
+        catch (Exception ex)
+        {
+            ToolsRestoreOverframesStatusText.Text = "Error: " + ex.Message;
+            Status("Orphan overframe repair failed: " + ex.Message);
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            SetToolsLongRunningButtonsEnabled(true);
+            SetUiBusy(false);
+        }
+    }
+
     private void ToolsRefreshBackups_Click(object sender, RoutedEventArgs e) =>
         EnsureAndRefreshBackupBrowser();
 
@@ -1420,6 +1498,7 @@ public partial class MainWindow : Window
         ToolsUpdateNewFilesDbButton.IsEnabled = enabled;
         ToolsScanOfCardAssetButton.IsEnabled = enabled;
         ToolsRestoreOverframesButton.IsEnabled = enabled;
+        ToolsOrphanOverframesButton.IsEnabled = enabled;
     }
 
     private void ReportOfGateScanStatus(string message)

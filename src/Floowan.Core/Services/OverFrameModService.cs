@@ -494,6 +494,231 @@ public sealed class OverFrameModService : IDisposable
         return result;
     }
 
+    /// <summary>
+    /// Full (slow) scan of live card AssetBundles for 704×1024 textures the app would
+    /// render as over-frame, then persists missing/incomplete user.db OF records and
+    /// adds missing <c>of_card_asset</c> gate entries (additive). Does not rewrite art.
+    /// </summary>
+    public OverFrameOrphanRepairBatchResult RepairOrphanOverframes(
+        string playerDataPath,
+        CardDatabase database,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default,
+        string packer = "lz4")
+    {
+        if (!GamePathLocator.IsValidGamePath(playerDataPath, out var pathError))
+        {
+            return new OverFrameOrphanRepairBatchResult
+            {
+                Success = false,
+                Message = pathError ?? "Invalid game path."
+            };
+        }
+
+        progress?.Report("Locating of_card_asset gate…");
+        var gateLocate = _locator.Locate(playerDataPath, database, progress, cancellationToken);
+        if (!gateLocate.Success || gateLocate.BundlePath is null || gateLocate.BundleId is null)
+        {
+            return new OverFrameOrphanRepairBatchResult
+            {
+                Success = false,
+                Message = gateLocate.Message
+            };
+        }
+
+        _backupService.BackupGateBundleFile(gateLocate.BundlePath, gateLocate.BundleId);
+
+        OfCardAssetGate gate;
+        try
+        {
+            gate = OfCardAssetGate.Parse(_textAssets.ReadTextAssetBytes(gateLocate.BundlePath));
+        }
+        catch (Exception ex)
+        {
+            return new OverFrameOrphanRepairBatchResult
+            {
+                Success = false,
+                Message = "Could not parse live of_card_asset gate: " + ex.Message
+            };
+        }
+
+        var officialCount = gate.Entries.Count;
+        var bundles = database.ListCardBundles();
+        var scanned = 0;
+        var liveOfFound = 0;
+        var fixedCount = 0;
+        var gateUpdated = 0;
+        var skipped = 0;
+        var failed = 0;
+        var warnings = new List<string>();
+        var gateDirty = false;
+
+        for (var i = 0; i < bundles.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var (cardId, bundleId) = bundles[i];
+            if (i % 50 == 0 || i + 1 == bundles.Count)
+            {
+                progress?.Report(
+                    $"Scanning live art bundles {i + 1}/{bundles.Count} " +
+                    $"(found {liveOfFound} OF, fixed {fixedCount})…");
+            }
+
+            var card = database.GetById(cardId);
+            if (card is null)
+                continue;
+
+            string cardBundlePath;
+            try
+            {
+                cardBundlePath = BundlePathResolver.ResolveExistingBundlePath(playerDataPath, card.Bundle);
+            }
+            catch
+            {
+                continue;
+            }
+
+            TextureInfo info;
+            try
+            {
+                info = _bundleService.ReadTextureInfo(cardBundlePath);
+            }
+            catch
+            {
+                continue;
+            }
+
+            scanned++;
+            var liveIsOf = OverFrameOrphanDetector.IsRenderedAsOverframe(info.Width, info.Height);
+            if (!liveIsOf)
+                continue;
+
+            liveOfFound++;
+
+            int artId;
+            try
+            {
+                if (CardArtId.TryParse(info.Name, out var parsed))
+                {
+                    artId = parsed;
+                    if (card.ArtId != artId)
+                        database.SetArtId(card.Id, artId);
+                }
+                else
+                {
+                    artId = ResolveAndCacheArtId(playerDataPath, card, database);
+                }
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                warnings.Add($"{card.DisplayName}: could not resolve art id ({ex.Message})");
+                continue;
+            }
+
+            var inGate = gate.Contains(artId);
+            var floowan = database.IsFloowanOverframe(card.Id);
+            var hasEvidence = HasFloowanOrphanEvidence(database, card);
+            var kind = OverFrameOrphanDetector.Classify(
+                liveIsOverframeSize: true,
+                dbIsOverframe: card.IsOverframe,
+                dbFloowanOverframe: floowan,
+                inGate: inGate,
+                hasFloowanEvidence: hasEvidence);
+
+            if (kind == OverFrameOrphanDetector.FixKind.None)
+            {
+                skipped++;
+                continue;
+            }
+
+            try
+            {
+                var baseArtId = card.OverframeBaseId is int stored && stored > 0
+                    ? stored
+                    : ResolveGateBaseArtId(gate, artId);
+
+                switch (kind)
+                {
+                    case OverFrameOrphanDetector.FixKind.DbFlagFromGate:
+                        database.SetOverframe(card.Id, true, baseArtId);
+                        fixedCount++;
+                        break;
+
+                    case OverFrameOrphanDetector.FixKind.FloowanMemoryOnly:
+                    case OverFrameOrphanDetector.FixKind.FloowanDbInGate:
+                        database.SetFloowanOverframe(
+                            card.Id, applied: true, overframeBaseId: baseArtId, bundleId: card.Bundle);
+                        TrySnapshotLiveAppliedOverFrame(playerDataPath, card);
+                        fixedCount++;
+                        break;
+
+                    case OverFrameOrphanDetector.FixKind.GateAndFloowanDb:
+                        TryRemoveLegacyPkGateEntry(gate, card.Id, artId, database);
+                        gate.Add(artId, baseArtId);
+                        database.SetFloowanOverframe(
+                            card.Id, applied: true, overframeBaseId: baseArtId, bundleId: card.Bundle);
+                        TrySnapshotLiveAppliedOverFrame(playerDataPath, card);
+                        gateDirty = true;
+                        gateUpdated++;
+                        fixedCount++;
+                        // Persist gate after each add so a mid-run crash keeps prior merges.
+                        _textAssets.WriteTextAssetBytes(
+                            gateLocate.BundlePath, gate.ToBytes(), compression: packer);
+                        gateDirty = false;
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                warnings.Add($"{card.DisplayName}: {ex.Message}");
+            }
+        }
+
+        if (gateDirty)
+            _textAssets.WriteTextAssetBytes(gateLocate.BundlePath, gate.ToBytes(), compression: packer);
+
+        try
+        {
+            var verify = OfCardAssetGate.Parse(_textAssets.ReadTextAssetBytes(gateLocate.BundlePath));
+            if (verify.Entries.Count < officialCount)
+            {
+                warnings.Add(
+                    $"Gate entry count after repair ({verify.Entries.Count}) is below the pre-merge count ({officialCount}).");
+            }
+        }
+        catch (Exception ex)
+        {
+            warnings.Add("Gate verify failed: " + ex.Message);
+        }
+
+        progress?.Report($"Done. Fixed {fixedCount}, gate updates {gateUpdated}, skipped {skipped}, failed {failed}.");
+        var result = OverFrameOrphanRepairBatchResult.Create(
+            scanned, liveOfFound, fixedCount, gateUpdated, skipped, failed, warnings, gateLocate.BundlePath);
+        if (warnings.Count == 0)
+            return result;
+
+        return new OverFrameOrphanRepairBatchResult
+        {
+            Success = result.Success,
+            Message = result.Message + " Warnings: " + string.Join("; ", warnings.Take(8)) +
+                      (warnings.Count > 8 ? $" (+{warnings.Count - 8} more)" : ""),
+            Scanned = result.Scanned,
+            LiveOverframeFound = result.LiveOverframeFound,
+            Fixed = result.Fixed,
+            GateUpdated = result.GateUpdated,
+            Skipped = result.Skipped,
+            Failed = result.Failed,
+            Warnings = warnings
+        };
+    }
+
+    private bool HasFloowanOrphanEvidence(CardDatabase database, CardRecord card) =>
+        database.HasOfEditLayer(card.Id) ||
+        _backupService.HasAppliedOverFrameBackup(card.Name) ||
+        _backupService.HasCustomOverframeStage(card.Name);
+
     private enum RestoreOneOutcome { Restored, Skipped, Failed }
 
     private RestoreOneOutcome RestoreOneOverframeAfterPatch(
