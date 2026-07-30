@@ -98,3 +98,53 @@ public sealed class OverFrameRestoreBatchResult
         };
     }
 }
+
+/// <summary>
+/// Result of scanning live art bundles for OF-sized textures missing/incomplete in user.db / gate.
+/// </summary>
+public sealed class OverFrameOrphanRepairBatchResult
+{
+    public bool Success { get; init; }
+    public string Message { get; init; } = "";
+    public int Scanned { get; init; }
+    public int LiveOverframeFound { get; init; }
+    public int Fixed { get; init; }
+    public int GateUpdated { get; init; }
+    public int Skipped { get; init; }
+    public int Failed { get; init; }
+    public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
+
+    public static OverFrameOrphanRepairBatchResult Create(
+        int scanned,
+        int liveOverframeFound,
+        int fixedCount,
+        int gateUpdated,
+        int skipped,
+        int failed,
+        IReadOnlyList<string> warnings,
+        string? gateBundlePath = null)
+    {
+        var parts = new List<string>
+        {
+            $"Slower full fix with asset scans: {fixedCount} fixed, {gateUpdated} gate update(s), " +
+            $"{skipped} already ok, {failed} failed " +
+            $"(scanned {scanned} bundle(s), {liveOverframeFound} live OF texture(s))."
+        };
+        if (!string.IsNullOrWhiteSpace(gateBundlePath))
+            parts.Add("Gate: " + gateBundlePath);
+        parts.Add("Official of_card_asset entries were preserved (additive merge). Quit Master Duel fully so LocalData reloads.");
+
+        return new OverFrameOrphanRepairBatchResult
+        {
+            Success = failed == 0,
+            Message = string.Join(" ", parts),
+            Scanned = scanned,
+            LiveOverframeFound = liveOverframeFound,
+            Fixed = fixedCount,
+            GateUpdated = gateUpdated,
+            Skipped = skipped,
+            Failed = failed,
+            Warnings = warnings
+        };
+    }
+}
