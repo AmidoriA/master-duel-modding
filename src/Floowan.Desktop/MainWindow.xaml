@@ -540,13 +540,17 @@
               <DockPanel>
                 <TextBlock DockPanel.Dock="Top" Text="Over-frames after patch" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                 <TextBlock DockPanel.Dock="Top"
-                           Text="After a Master Duel update replaces of_card_asset, modded over-frames can drop out of the gate even when art backups remain. This scans user.db for cards this tool previously applied OF to, re-writes applied OF canvases into live art bundles when needed, and appends gate entries without wiping official Konami over-frames."
+                           Text="After a Master Duel update replaces of_card_asset, modded over-frames can drop out of the gate even when art backups remain. Restore uses user.db Floowan OF history (faster). The slower full fix scans live art AssetBundles for 704x1024 textures the app already renders as over-frame, writes missing user.db OF records, and adds missing of_card_asset entries without wiping official Konami over-frames."
                            Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                   <Button x:Name="ToolsRestoreOverframesButton" Content="Restore overframes after patch"
                           Click="ToolsRestoreOverframesAfterPatch_Click" Background="{StaticResource AccentBrush}"
                           Padding="12,4" Margin="0,0,8,0"
                           ToolTip="Scan user.db for previously applied over-frames, merge each art id into the current of_card_asset gate (additive — official OF entries are kept), and re-apply 704x1024 art from backups/cards/*-applied-overframe.png when live texture was reset. Skips cards that are already gated with OF-sized art. Does not restore the whole gate backup file."/>
+                  <Button x:Name="ToolsOrphanOverframesButton" Content="Slower full fix with asset scans"
+                          Click="ToolsOrphanOverframes_Click"
+                          Padding="12,4" Margin="0,0,8,0"
+                          ToolTip="Slower full repair: open live card AssetBundles, find 704x1024 textures rendered as over-frame but missing/incomplete in user.db, save OF records the same way Apply does, and add missing of_card_asset gate entries (additive). Does not rewrite card art. Official Konami OF rows already in the gate are left alone unless Floowan evidence exists."/>
                 </StackPanel>
                 <TextBlock x:Name="ToolsRestoreOverframesStatusText"
                            Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
