@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using Floowan.Desktop.Localization;
 
 namespace Floowan.Desktop;
 
@@ -9,6 +10,9 @@ public partial class CardPreviewZoomWindow : Window
     public CardPreviewZoomWindow(ImageSource source)
     {
         InitializeComponent();
+        Title = Loc.T("preview.title");
+        CloseButton.Content = Loc.T("common.close");
+        CloseButton.ToolTip = Loc.T("preview.close_tooltip");
         ZoomImage.Source = source;
     }
 

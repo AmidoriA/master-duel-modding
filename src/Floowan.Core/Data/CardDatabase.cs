@@ -196,6 +196,7 @@ CREATE TABLE IF NOT EXISTS user.of_edit_layer (
         EnsureUserCardStateColumn("overframe_bundle", "VARCHAR(8)");
         BackfillFloowanOverframeFromLegacyFlags();
         EnsureUserAppConfigColumn("of_card_asset_bundle", "VARCHAR(8)");
+        EnsureUserAppConfigColumn("locale", "VARCHAR(32)");
         EnsureUserAppConfigRow();
     }
 
@@ -640,6 +641,25 @@ ON CONFLICT(id) DO UPDATE SET
         cmd.CommandText =
             "UPDATE user.app_config SET of_card_asset_bundle = $bundle WHERE id = (SELECT id FROM user.app_config ORDER BY id LIMIT 1);";
         cmd.Parameters.AddWithValue("$bundle", bundleId);
+        cmd.ExecuteNonQuery();
+    }
+
+    public string? GetStoredLocale()
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT locale FROM user.app_config ORDER BY id LIMIT 1;";
+        var value = cmd.ExecuteScalar();
+        if (value is null || value is DBNull) return null;
+        var s = Convert.ToString(value);
+        return string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+    }
+
+    public void SetStoredLocale(string? locale)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText =
+            "UPDATE user.app_config SET locale = $locale WHERE id = (SELECT id FROM user.app_config ORDER BY id LIMIT 1);";
+        cmd.Parameters.AddWithValue("$locale", string.IsNullOrWhiteSpace(locale) ? DBNull.Value : locale.Trim());
         cmd.ExecuteNonQuery();
     }
 

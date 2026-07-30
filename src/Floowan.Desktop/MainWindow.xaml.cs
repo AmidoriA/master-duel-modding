@@ -15,6 +15,7 @@ using Floowan.Core.Game;
 using Floowan.Core.Imaging;
 using Floowan.Core.Models;
 using Floowan.Core.Services;
+using Floowan.Desktop.Localization;
 using Microsoft.Win32;
 
 namespace Floowan.Desktop;
@@ -25,8 +26,6 @@ public partial class MainWindow : Window
     private const int AutoSearchMinLength = 3;
     private const int SearchDebounceMs = 250;
     private const int OfActionStatusClearMs = 6000;
-    private const string OfRestartHint = "Restart Master Duel to reload.";
-    private const string AppCaption = "Master Duel Modding";
     private const string ProjectGitHubUrl = "https://github.com/AmidoriA/master-duel-modding";
     private const string FloowandereezeGitHubUrl = "https://github.com/Nauder/floowandereeze-and-modding-qt";
     private const string ThirdPartyNoticesFileName = "THIRD_PARTY_NOTICES.txt";
@@ -119,7 +118,7 @@ public partial class MainWindow : Window
             {
                 MainContent.IsHitTestVisible = false;
                 BusyStatusText.Text = string.IsNullOrWhiteSpace(StatusText.Text)
-                    ? "Please wait…"
+                    ? Loc.T("app.please_wait")
                     : StatusText.Text;
                 BusyProgressBar.Visibility = Visibility.Collapsed;
                 BusyProgressBar.Value = 0;
@@ -159,6 +158,15 @@ public partial class MainWindow : Window
 
             OpenFixedDatabases();
 
+            var preferredLocale = _database?.GetStoredLocale();
+            Loc.SetCulture(Loc.Service.ResolveInitialCulture(preferredLocale));
+            if (_database is not null && string.IsNullOrWhiteSpace(preferredLocale))
+            {
+                // Persist resolved culture (including OS auto-detect) so Options shows the active language.
+                _database.SetStoredLocale(Loc.Culture);
+            }
+            ApplyLocalizedUi();
+
             var discovered = GamePathLocator.FindSteamMasterDuelPaths();
             if (discovered.Count == 1)
             {
@@ -170,7 +178,7 @@ public partial class MainWindow : Window
                 SetGamePath(stored);
             }
 
-            Status($"Loaded. Cards in DB: {_database?.CountCards() ?? 0}. Discovered installs: {discovered.Count}.");
+            Status(Loc.T("status.loaded", _database?.CountCards() ?? 0, discovered.Count));
             ApplyResultsViewMode(_useThumbnailView);
             if (_database is not null)
             {
@@ -184,7 +192,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Status("Startup error: " + ex.Message);
+            Status(Loc.T("status.startup_error", ex.Message));
             MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
@@ -216,7 +224,7 @@ public partial class MainWindow : Window
         var path = MasterDatabasePaths.ResolveDefaultPath();
         if (!File.Exists(path))
         {
-            Status("Missing database.db beside the app: " + path);
+            Status(Loc.T("status.missing_database", path));
             return;
         }
 
@@ -266,21 +274,21 @@ public partial class MainWindow : Window
         var paths = GamePathLocator.FindSteamMasterDuelPaths();
         if (paths.Count == 0)
         {
-            MessageBox.Show("No valid Master Duel LocalData folders were found via Steam libraries.", AppCaption);
+            MessageBox.Show(Loc.T("card_art.no_steam_localdata"), AppCaption);
             return;
         }
 
         if (paths.Count == 1)
         {
             SetGamePath(paths[0]);
-            Status("Selected LocalData: " + paths[0]);
+            Status(Loc.T("status.selected_localdata", paths[0]));
             return;
         }
 
         var choice = paths[0];
         var dlg = new Window
         {
-            Title = "Select Master Duel player data",
+            Title = Loc.T("card_art.select_player_data"),
             Owner = this,
             Width = 720,
             Height = 360,
@@ -302,22 +310,22 @@ public partial class MainWindow : Window
         if (dlg.ShowDialog() == true)
         {
             SetGamePath(choice);
-            Status("Selected LocalData: " + choice);
+            Status(Loc.T("status.selected_localdata", choice));
         }
     }
 
     private void BrowseGamePath_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new OpenFolderDialog { Title = "Select Master Duel LocalData/<playerId> folder" };
+        var dlg = new OpenFolderDialog { Title = Loc.T("card_art.browse_folder_title") };
         if (dlg.ShowDialog(this) == true)
         {
             if (!GamePathLocator.IsValidGamePath(dlg.FolderName, out var error))
             {
-                MessageBox.Show(error ?? "Invalid path", AppCaption, MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(error ?? Loc.T("common.invalid_path"), AppCaption, MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             SetGamePath(dlg.FolderName);
-            Status("Selected LocalData: " + dlg.FolderName);
+            Status(Loc.T("status.selected_localdata", dlg.FolderName));
         }
     }
 
@@ -345,7 +353,7 @@ public partial class MainWindow : Window
             () =>
             {
                 CardList.ItemsSource = Array.Empty<CardRecord>();
-                Status("Type at least 3 characters to search.");
+                Status(Loc.T("status.search_min_chars"));
             });
     }
 
@@ -359,7 +367,7 @@ public partial class MainWindow : Window
     {
         if (_database is null)
         {
-            Status("Open database.db first.");
+            Status(Loc.T("common.open_database_first"));
             return;
         }
 
@@ -370,7 +378,7 @@ public partial class MainWindow : Window
             limit: 400);
         CardList.ItemsSource = results;
         BumpThumbnailLoadGeneration();
-        Status($"Showing {results.Count} card(s).");
+        Status(Loc.T("status.showing_cards", results.Count));
     }
 
     private void CardResultsViewMode_Changed(object sender, RoutedEventArgs e)
@@ -490,14 +498,14 @@ public partial class MainWindow : Window
 
         if (_selected is null)
         {
-            CardTitleText.Text = "(none selected)";
+            CardTitleText.Text = Loc.T("app.none_selected");
             CardMetaText.Text = "";
             CurrentArtImage.Source = null;
             return;
         }
 
         CardTitleText.Text = _selected.DisplayName;
-        CardMetaText.Text = $"Bundle {_selected.Bundle} ? id {_selected.Id} ? backup={_selected.HasBackup}";
+        CardMetaText.Text = Loc.T("card_art.meta", _selected.Bundle, _selected.Id, _selected.HasBackup);
         LoadCurrentPreview();
     }
 
@@ -513,14 +521,17 @@ public partial class MainWindow : Window
             _modService.ExtractCardArt(GamePathBox.Text, _selected, _previewTempPath);
             CurrentArtImage.Source = LoadBitmap(_previewTempPath);
             var info = _modService.GetTextureInfo(GamePathBox.Text, _selected);
-            DetailText.Text =
-                $"Texture '{info.Name}' {CardArtTextureSizes.Describe(info.Width, info.Height)} " +
-                $"format={info.Format} mips={info.MipCount}";
+            DetailText.Text = Loc.T(
+                "card_art.texture_detail",
+                info.Name,
+                CardArtTextureSizes.Describe(info.Width, info.Height),
+                info.Format,
+                info.MipCount);
         }
         catch (Exception ex)
         {
             CurrentArtImage.Source = null;
-            DetailText.Text = "Preview failed: " + ex.Message;
+            DetailText.Text = Loc.T("status.preview_failed", ex.Message);
         }
     }
 
@@ -538,8 +549,8 @@ public partial class MainWindow : Window
     {
         var dlg = new OpenFileDialog
         {
-            Title = "Select replacement card art",
-            Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp|All files|*.*"
+            Title = Loc.T("card_art.select_image_title"),
+            Filter = Loc.T("card_art.images_filter")
         };
         if (dlg.ShowDialog(this) != true)
             return;
@@ -548,7 +559,7 @@ public partial class MainWindow : Window
         var validation = ImagePreparation.Validate(dlg.FileName);
         var sizeLabel = validation.IsValid
             ? CardArtTextureSizes.Describe(validation.Width, validation.Height)
-            : "unreadable";
+            : Loc.T("app.unreadable");
         ImagePathText.Text = validation.IsValid && !string.IsNullOrEmpty(validation.Info)
             ? $"Replacement ({sizeLabel}): {dlg.FileName} ? {validation.Info}"
             : $"Replacement ({sizeLabel}): {dlg.FileName}";
@@ -564,17 +575,17 @@ public partial class MainWindow : Window
     {
         if (_modService is null || _selected is null)
         {
-            MessageBox.Show("Select a card first.", AppCaption);
+            MessageBox.Show(Loc.T("common.select_card_first"), AppCaption);
             return;
         }
         if (string.IsNullOrWhiteSpace(GamePathBox.Text))
         {
-            MessageBox.Show("Set the Master Duel LocalData path first.", AppCaption);
+            MessageBox.Show(Loc.T("common.set_localdata_first"), AppCaption);
             return;
         }
         if (string.IsNullOrWhiteSpace(_replacementImagePath))
         {
-            MessageBox.Show("Select a replacement image first.", AppCaption);
+            MessageBox.Show(Loc.T("card_art.need_replacement"), AppCaption);
             return;
         }
 
@@ -595,7 +606,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(_previewTempPath) || !File.Exists(_previewTempPath))
         {
             MessageBox.Show(
-                "Could not load current live art for comparison. Check the game path and try again.",
+                Loc.T("card_art.load_live_failed"),
                 AppCaption,
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
@@ -603,7 +614,7 @@ public partial class MainWindow : Window
         }
 
         var liveIsOverframe = false;
-        var beforeMeta = "Current live art";
+        var beforeMeta = Loc.T("card_art.current_live_art");
         try
         {
             var info = _modService.GetTextureInfo(gamePath, card);
@@ -615,13 +626,13 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            beforeMeta = "Live size unavailable: " + ex.Message;
+            beforeMeta = Loc.T("card_art.live_size_unavailable", ex.Message);
         }
 
         var afterValidation = ImagePreparation.Validate(image);
         var afterMeta = afterValidation.IsValid
             ? CardArtTextureSizes.Describe(afterValidation.Width, afterValidation.Height)
-            : "unreadable";
+            : Loc.T("app.unreadable");
         if (afterValidation.IsValid && !string.IsNullOrEmpty(afterValidation.Info))
             afterMeta += " - " + afterValidation.Info;
 
@@ -637,12 +648,12 @@ public partial class MainWindow : Window
         };
         if (confirm.ShowDialog() != true)
         {
-            Status("Card art replace cancelled.");
+            Status(Loc.T("status.replace_cancelled"));
             return;
         }
 
         SetUiBusy(true);
-        Status("Replacing card art...");
+        Status(Loc.T("status.replacing"));
         try
         {
             // Always backup (same as Over-frame) so Replace stays reversible via Restore.
@@ -674,8 +685,8 @@ public partial class MainWindow : Window
 
         var dlg = new SaveFileDialog
         {
-            Title = "Extract card art",
-            Filter = "PNG|*.png",
+            Title = Loc.T("card_art.extract_title"),
+            Filter = Loc.T("card_art.png_filter"),
             FileName = DefaultPngExportFileName(_selected)
         };
         if (dlg.ShowDialog(this) != true)
@@ -704,7 +715,7 @@ public partial class MainWindow : Window
         try
         {
             var ok = _modService.RestoreCardArt(GamePathBox.Text, _selected, _database);
-            Status(ok ? "Restored from backup." : "No bundle backup found for this card.");
+            Status(ok ? Loc.T("status.restored_backup") : Loc.T("status.no_bundle_backup"));
             if (ok)
             {
                 _thumbnailCache.Invalidate(_selected);
@@ -729,7 +740,7 @@ public partial class MainWindow : Window
     {
         if (_database is null)
         {
-            MessageBox.Show("Open database.db first.", AppCaption);
+            MessageBox.Show(Loc.T("common.open_database_first"), AppCaption);
             return;
         }
 
@@ -738,7 +749,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(gamePath) || !GamePathLocator.IsValidGamePath(gamePath, out pathError))
         {
             MessageBox.Show(
-                pathError ?? "Set a valid Master Duel LocalData path first (Home tab).",
+                pathError ?? Loc.T("common.set_localdata_home"),
                 AppCaption,
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
@@ -751,23 +762,22 @@ public partial class MainWindow : Window
         {
             var latest = _database.GetLatestCreatedAtUtc();
             var latestText = latest is DateTimeOffset dto
-                ? dto.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " UTC"
-                : "(none — run Update entire DB first)";
-            confirmBody =
-                "Upsert only cards from AssetBundles whose File.GetCreationTimeUtc is after the latest created_at in:\n" +
-                _database.MasterDatabasePath +
-                "\n\nLatest DB created_at: " + latestText +
-                "\nOlder files are skipped entirely (not opened).\nGame path:\n" + gamePath +
-                "\n\nExisting catalog rows are kept. User favorites/mods in user.db are kept. Continue?";
-            confirmTitle = "Update new files only";
+                ? Loc.T("tools.created_at_utc", dto.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss"))
+                : Loc.T("tools.no_created_at");
+            confirmBody = Loc.T(
+                "tools.update_new_confirm",
+                _database.MasterDatabasePath,
+                latestText,
+                gamePath);
+            confirmTitle = Loc.T("tools.update_new_confirm_title");
         }
         else
         {
-            confirmBody =
-                "Replace the entire master card catalog in:\n" + _database.MasterDatabasePath +
-                "\n\nwith data extracted from:\n" + gamePath +
-                "\n\nUser favorites/mods in user.db are kept. Continue?";
-            confirmTitle = "Update entire DB";
+            confirmBody = Loc.T(
+                "tools.update_entire_confirm",
+                _database.MasterDatabasePath,
+                gamePath);
+            confirmTitle = Loc.T("tools.update_entire_confirm_title");
         }
 
         var confirm = MessageBox.Show(
@@ -780,8 +790,8 @@ public partial class MainWindow : Window
 
         SetToolsLongRunningButtonsEnabled(false);
         SetUiBusy(true);
-        ToolsUpdateDbStatusText.Text = "Starting…";
-        Status(incremental ? "Updating new catalog files from game…" : "Updating entire card database from game…");
+        ToolsUpdateDbStatusText.Text = Loc.T("app.starting");
+        Status(incremental ? Loc.T("tools.update_db_starting_incr") : Loc.T("tools.update_db_starting_full"));
 
         var database = _database;
         var progress = new Progress<string>(msg =>
@@ -809,7 +819,7 @@ public partial class MainWindow : Window
             if (!result.Success)
             {
                 ToolsUpdateDbStatusText.Text = result.Message;
-                Status("Database update failed: " + result.Message);
+                Status(Loc.T("tools.update_db_failed", result.Message));
                 MessageBox.Show(result.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -823,8 +833,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ToolsUpdateDbStatusText.Text = "Error: " + ex.Message;
-            Status("Database update failed: " + ex.Message);
+            ToolsUpdateDbStatusText.Text = Loc.T("app.error_prefix", ex.Message);
+            Status(Loc.T("tools.update_db_failed", ex.Message));
             MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
@@ -838,13 +848,13 @@ public partial class MainWindow : Window
     {
         if (_database is null)
         {
-            MessageBox.Show("Open database.db first.", AppCaption);
+            MessageBox.Show(Loc.T("common.open_database_first"), AppCaption);
             return;
         }
 
         if (_overFrameService is null)
         {
-            MessageBox.Show("Over-frame service is not initialized.", AppCaption);
+            MessageBox.Show(Loc.T("common.overframe_service_missing"), AppCaption);
             return;
         }
 
@@ -853,7 +863,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(gamePath) || !GamePathLocator.IsValidGamePath(gamePath, out pathError))
         {
             MessageBox.Show(
-                pathError ?? "Set a valid Master Duel LocalData path first (Home tab).",
+                pathError ?? Loc.T("common.set_localdata_home"),
                 AppCaption,
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
@@ -862,12 +872,8 @@ public partial class MainWindow : Window
 
         var pending = _database.ListFloowanOverframeCards();
         var confirm = MessageBox.Show(
-            "Re-apply modded over-frames after an MD patch for " + pending.Count +
-            " card(s) recorded in user.db.\n\n" +
-            "This merges into the current of_card_asset gate (official OF entries are kept) " +
-            "and restores 704x1024 art from *-applied-overframe.png backups when live art was reset.\n\n" +
-            "Quit Master Duel first. Continue?",
-            "Restore overframes after patch",
+            Loc.T("tools.restore_of_confirm", pending.Count),
+            Loc.T("tools.restore_of_confirm_title"),
             MessageBoxButton.YesNo,
             MessageBoxImage.Question);
         if (confirm != MessageBoxResult.Yes)
@@ -875,8 +881,8 @@ public partial class MainWindow : Window
 
         SetToolsLongRunningButtonsEnabled(false);
         SetUiBusy(true);
-        ToolsRestoreOverframesStatusText.Text = "Starting…";
-        Status("Restoring modded over-frames after patch…");
+        ToolsRestoreOverframesStatusText.Text = Loc.T("app.starting");
+        Status(Loc.T("tools.restore_of_starting"));
 
         var database = _database;
         var service = _overFrameService;
@@ -902,8 +908,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ToolsRestoreOverframesStatusText.Text = "Error: " + ex.Message;
-            Status("Restore overframes failed: " + ex.Message);
+            ToolsRestoreOverframesStatusText.Text = Loc.T("app.error_prefix", ex.Message);
+            Status(Loc.T("tools.restore_of_failed", ex.Message));
             MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
@@ -917,13 +923,13 @@ public partial class MainWindow : Window
     {
         if (_database is null)
         {
-            MessageBox.Show("Open database.db first.", AppCaption);
+            MessageBox.Show(Loc.T("common.open_database_first"), AppCaption);
             return;
         }
 
         if (_overFrameService is null)
         {
-            MessageBox.Show("Over-frame service is not initialized.", AppCaption);
+            MessageBox.Show(Loc.T("common.overframe_service_missing"), AppCaption);
             return;
         }
 
@@ -932,7 +938,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(gamePath) || !GamePathLocator.IsValidGamePath(gamePath, out pathError))
         {
             MessageBox.Show(
-                pathError ?? "Set a valid Master Duel LocalData path first (Home tab).",
+                pathError ?? Loc.T("common.set_localdata_home"),
                 AppCaption,
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
@@ -940,12 +946,8 @@ public partial class MainWindow : Window
         }
 
         var confirm = MessageBox.Show(
-            "Slower full fix with asset scans\n\n" +
-            "This opens live card AssetBundles looking for 704x1024 textures the app already " +
-            "renders as over-frame, then writes missing user.db OF records and adds missing " +
-            "of_card_asset gate entries (official entries kept). Art is not rewritten.\n\n" +
-            "This is slower than Restore overframes after patch. Quit Master Duel first. Continue?",
-            "Slower full fix with asset scans",
+            Loc.T("tools.orphan_confirm"),
+            Loc.T("tools.orphan_confirm_title"),
             MessageBoxButton.YesNo,
             MessageBoxImage.Question);
         if (confirm != MessageBoxResult.Yes)
@@ -953,8 +955,8 @@ public partial class MainWindow : Window
 
         SetToolsLongRunningButtonsEnabled(false);
         SetUiBusy(true);
-        ToolsRestoreOverframesStatusText.Text = "Starting full OF orphan scan…";
-        Status("Scanning live art for orphan over-frames…");
+        ToolsRestoreOverframesStatusText.Text = Loc.T("tools.orphan_starting");
+        Status(Loc.T("tools.orphan_status"));
 
         var database = _database;
         var service = _overFrameService;
@@ -980,8 +982,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ToolsRestoreOverframesStatusText.Text = "Error: " + ex.Message;
-            Status("Orphan overframe repair failed: " + ex.Message);
+            ToolsRestoreOverframesStatusText.Text = Loc.T("app.error_prefix", ex.Message);
+            Status(Loc.T("tools.orphan_failed", ex.Message));
             MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
@@ -1017,12 +1019,12 @@ public partial class MainWindow : Window
                 "models");
             Directory.CreateDirectory(modelsRoot);
             OpenPathInExplorer(modelsRoot);
-            ToolsModelsStatusText.Text = "Opened: " + modelsRoot;
-            Status("Opened models directory: " + modelsRoot);
+            ToolsModelsStatusText.Text = Loc.T("tools.opened_path", modelsRoot);
+            Status(Loc.T("status.models_opened", modelsRoot));
         }
         catch (Exception ex)
         {
-            ToolsModelsStatusText.Text = "Error: " + ex.Message;
+            ToolsModelsStatusText.Text = Loc.T("app.error_prefix", ex.Message);
             MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
@@ -1043,8 +1045,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ToolsBackupStatusText.Text = "Error: " + ex.Message;
-            Status("Backup browser error: " + ex.Message);
+            ToolsBackupStatusText.Text = Loc.T("app.error_prefix", ex.Message);
+            Status(Loc.T("status.backup_error", ex.Message));
         }
     }
 
@@ -1059,7 +1061,7 @@ public partial class MainWindow : Window
 
         if (!Directory.Exists(_backupRoot))
         {
-            ToolsBackupStatusText.Text = "Backup folder does not exist.";
+            ToolsBackupStatusText.Text = Loc.T("tools.backup_missing_folder");
             return;
         }
 
@@ -1075,9 +1077,9 @@ public partial class MainWindow : Window
         }
 
         ToolsBackupStatusText.Text = dirs + files == 0
-            ? "Backup folder is empty."
-            : $"Showing {dirs} folder(s), {files} file(s) at root.";
-        Status("Backup browser refreshed.");
+            ? Loc.T("tools.backup_empty")
+            : Loc.T("tools.backup_showing", dirs, files);
+        Status(Loc.T("status.backup_refreshed"));
     }
 
     private static IEnumerable<(string path, bool isDirectory)> EnumerateBackupEntries(string directory)
@@ -1142,13 +1144,13 @@ public partial class MainWindow : Window
         {
             if (ToolsBackupTree.SelectedItem is not TreeViewItem item || item.Tag is not string path)
             {
-                Status("Select a backup file or folder first.");
+                Status(Loc.T("status.backup_select_first"));
                 return;
             }
 
             if (!File.Exists(path) && !Directory.Exists(path))
             {
-                Status("Selected path no longer exists. Refresh and try again.");
+                Status(Loc.T("status.backup_missing"));
                 return;
             }
 
@@ -1237,7 +1239,7 @@ public partial class MainWindow : Window
             () =>
             {
                 OfCardList.ItemsSource = Array.Empty<CardRecord>();
-                Status("Type at least 3 characters to search.");
+                Status(Loc.T("status.search_min_chars"));
             });
     }
 
@@ -1253,7 +1255,7 @@ public partial class MainWindow : Window
     {
         if (_database is null)
         {
-            Status("Open database.db first.");
+            Status(Loc.T("common.open_database_first"));
             return;
         }
 
@@ -1265,7 +1267,7 @@ public partial class MainWindow : Window
             limit: 400);
         OfCardList.ItemsSource = results;
         BumpThumbnailLoadGeneration();
-        Status($"Over-frame tab: {results.Count} card(s).");
+        Status(Loc.T("status.of_showing", results.Count));
     }
 
     private static void ApplyDebouncedTextSearch(string? text, Action runSearch, Action clearPartialQuery)
@@ -1297,7 +1299,7 @@ public partial class MainWindow : Window
 
         if (_ofSelected is null)
         {
-            OfCardTitleText.Text = "(none selected)";
+            OfCardTitleText.Text = Loc.T("app.none_selected");
             OfCardMetaText.Text = "";
             OfGateEntryText.Text = "";
             OfCurrentArtImage.Source = null;
@@ -1309,8 +1311,8 @@ public partial class MainWindow : Window
 
         OfCardTitleText.Text = _ofSelected.DisplayName;
         OfCardMetaText.Text =
-            $"Bundle {_ofSelected.Bundle}  ยท  id {_ofSelected.Id}  ยท  overframe={_ofSelected.IsOverframe}" +
-            (_ofSelected.OverframeBaseId is int baseId ? $"  ยท  base={baseId}" : "");
+            Loc.T("overframe.meta", _ofSelected.Bundle, _ofSelected.Id, _ofSelected.IsOverframe) +
+            (_ofSelected.OverframeBaseId is int baseId ? Loc.T("overframe.meta_base", baseId) : "");
         SuggestOfFrameStyle(_ofSelected);
         RefreshOfGateEntryStatus();
         LoadOfCurrentPreview();
@@ -1441,9 +1443,8 @@ public partial class MainWindow : Window
             return false;
 
         MessageBox.Show(
-            "Select a frame style before continuing.\n\n" +
-            "The Frame dropdown is empty — choose Effect, Normal, Fusion, etc.",
-            "Master Duel Modding — Frame required",
+            Loc.T("overframe.frame_required_body"),
+            Loc.T("overframe.frame_required_title"),
             MessageBoxButton.OK,
             MessageBoxImage.Warning);
         return true;
@@ -1453,7 +1454,7 @@ public partial class MainWindow : Window
     {
         if (_ofSelected is null || _overFrameService is null || string.IsNullOrWhiteSpace(GamePathBox.Text) || !_ofGateReady)
         {
-            OfGateEntryText.Text = _ofGateReady ? "" : "Gate not located yet ? open this tab or click Scan.";
+            OfGateEntryText.Text = _ofGateReady ? "" : Loc.T("overframe.gate_not_located");
             return;
         }
 
@@ -1464,16 +1465,16 @@ public partial class MainWindow : Window
             {
                 var artId = _ofSelected.ArtId
                             ?? _overFrameService.ResolveAndCacheArtId(GamePathBox.Text, _ofSelected, _database);
-                OfGateEntryText.Text = $"Gate: present (art id {artId})";
+                OfGateEntryText.Text = Loc.T("overframe.gate_present", artId);
             }
             else
             {
-                OfGateEntryText.Text = "Gate: not registered";
+                OfGateEntryText.Text = Loc.T("overframe.gate_not_registered");
             }
         }
         catch (Exception ex)
         {
-            OfGateEntryText.Text = "Gate check failed: " + ex.Message;
+            OfGateEntryText.Text = Loc.T("overframe.gate_check_failed", ex.Message);
         }
     }
 
@@ -1487,7 +1488,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            OfGateStatusText.Text = "Gate: not scanned yet";
+            OfGateStatusText.Text = Loc.T("overframe.gate_not_scanned");
             _ofGateReady = false;
         }
     }
@@ -1518,13 +1519,13 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(GamePathBox.Text))
         {
             if (showErrors)
-                MessageBox.Show("Set the Master Duel LocalData path first.", AppCaption);
+                MessageBox.Show(Loc.T("common.set_localdata_first"), AppCaption);
             return;
         }
 
         SetToolsLongRunningButtonsEnabled(false);
         SetUiBusy(true);
-        ReportOfGateScanStatus("Scanning for of_card_asset…");
+        ReportOfGateScanStatus(Loc.T("overframe.scanning"));
 
         var gamePath = GamePathBox.Text;
         var database = _database;
@@ -1583,7 +1584,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             _ofGateReady = false;
-            ReportOfGateScanStatus("Scan failed: " + ex.Message);
+            ReportOfGateScanStatus(Loc.T("overframe.scan_failed", ex.Message));
             if (showErrors)
                 MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
         }
@@ -1624,7 +1625,7 @@ public partial class MainWindow : Window
         {
             OfCurrentArtImage.Source = null;
             _ofLiveTextureIsOverframe = false;
-            Status("Preview failed: " + ex.Message);
+            Status(Loc.T("status.preview_failed", ex.Message));
         }
 
         UpdateOfCustomOverframeActionUi();
@@ -1640,7 +1641,7 @@ public partial class MainWindow : Window
 
         if (_ofSelected is null || _database is null)
         {
-            OfCustomOverframeButton.Content = "Custom overframe art";
+            OfCustomOverframeButton.Content = Loc.T("overframe.custom_art");
             OfCustomOverframeButton.IsEnabled = false;
             OfCustomOverframeWarningText.Visibility = Visibility.Collapsed;
             return;
@@ -1651,7 +1652,7 @@ public partial class MainWindow : Window
 
         if (!isOverframe)
         {
-            OfCustomOverframeButton.Content = "Custom overframe art";
+            OfCustomOverframeButton.Content = Loc.T("overframe.custom_art");
             OfCustomOverframeButton.IsEnabled = true;
             OfCustomOverframeWarningText.Visibility = Visibility.Collapsed;
             return;
@@ -1659,17 +1660,15 @@ public partial class MainWindow : Window
 
         if (hasEditableLayers)
         {
-            OfCustomOverframeButton.Content = "Edit overframe…";
+            OfCustomOverframeButton.Content = Loc.T("overframe.edit_art");
             OfCustomOverframeButton.IsEnabled = true;
             OfCustomOverframeWarningText.Visibility = Visibility.Collapsed;
             return;
         }
 
-        OfCustomOverframeButton.Content = "Custom overframe art";
+        OfCustomOverframeButton.Content = Loc.T("overframe.custom_art");
         OfCustomOverframeButton.IsEnabled = false;
-        OfCustomOverframeWarningText.Text =
-            "This card is already over-framed with no editable layers. " +
-            "Restore backups (or force-disable gate) first, then create a new custom overframe.";
+        OfCustomOverframeWarningText.Text = Loc.T("overframe.no_editable_layers");
         OfCustomOverframeWarningText.Visibility = Visibility.Visible;
     }
 
@@ -1718,7 +1717,7 @@ public partial class MainWindow : Window
         {
             OfReplacementImage.Source = LoadOfComposePreview(_ofReplacementImagePath);
             ApplyOfPreviewLayout(hasReplacement: true);
-            Status("Over-frame preview ready (not applied). Review, then Auto-create & apply.");
+            Status(Loc.T("overframe.preview_ready"));
             return;
         }
 
@@ -1729,19 +1728,19 @@ public partial class MainWindow : Window
         {
             OfCurrentArtImage.Source = LoadOfComposePreview(_ofPreviewTempPath);
             ApplyOfPreviewLayout(hasReplacement: false);
-            Status("Over-frame preview ready (live OF).");
+            Status(Loc.T("overframe.preview_live"));
             return;
         }
 
         // Non-OF: compose what Auto-create would produce (rembg + frame -> 704x1024), without Apply.
         if (_overFrameService is null || _autoOverFrameArtService is null || _ofSelected is null)
         {
-            MessageBox.Show("Select a card first.", AppCaption);
+            MessageBox.Show(Loc.T("common.select_card_first"), AppCaption);
             return;
         }
         if (string.IsNullOrWhiteSpace(GamePathBox.Text))
         {
-            MessageBox.Show("Set the Master Duel LocalData path first.", AppCaption);
+            MessageBox.Show(Loc.T("common.set_localdata_first"), AppCaption);
             return;
         }
         // Preview may run without a Frame selection (defaults to Effect for compose only).
@@ -1757,17 +1756,17 @@ public partial class MainWindow : Window
         {
             await ComposeAutoOverFrameReplacementAsync(card, progress, previewFrameStyle);
             Status(usedDefaultEffect
-                ? "Preview using Effect (no frame selected). Review, then Auto-create & apply."
-                : "Over-frame preview ready (not applied). Review, then Auto-create & apply.");
+                ? Loc.T("overframe.preview_effect_default")
+                : Loc.T("overframe.preview_ready"));
             // ComposeAutoOverFrameReplacementAsync already updated OfReplacementImage + layout.
         }
         catch (Exception ex)
         {
             CleanupOfAutoGeneratedTemp();
             _ofReplacementImagePath = null;
-            Status("Over-frame preview failed: " + ex.Message);
+            Status(Loc.T("overframe.preview_failed", ex.Message));
             MessageBox.Show(
-                "Could not compose over-frame preview:\n\n" + ex.Message,
+                Loc.T("overframe.preview_compose_failed", ex.Message),
                 AppCaption,
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
@@ -1945,12 +1944,12 @@ public partial class MainWindow : Window
     {
         if (_overFrameService is null || _autoOverFrameArtService is null || _ofSelected is null)
         {
-            MessageBox.Show("Select a card first.", AppCaption);
+            MessageBox.Show(Loc.T("common.select_card_first"), AppCaption);
             return;
         }
         if (string.IsNullOrWhiteSpace(GamePathBox.Text))
         {
-            MessageBox.Show("Set the Master Duel LocalData path first.", AppCaption);
+            MessageBox.Show(Loc.T("common.set_localdata_first"), AppCaption);
             return;
         }
         if (_database is null)
@@ -2022,12 +2021,12 @@ public partial class MainWindow : Window
     {
         if (_overFrameService is null || _autoOverFrameArtService is null || _ofSelected is null)
         {
-            MessageBox.Show("Select a card first.", AppCaption);
+            MessageBox.Show(Loc.T("common.select_card_first"), AppCaption);
             return;
         }
         if (string.IsNullOrWhiteSpace(GamePathBox.Text))
         {
-            MessageBox.Show("Set the Master Duel LocalData path first.", AppCaption);
+            MessageBox.Show(Loc.T("common.set_localdata_first"), AppCaption);
             return;
         }
         if (WarnIfFrameStyleNotSelected())
@@ -2084,12 +2083,12 @@ public partial class MainWindow : Window
     {
         if (_overFrameService is null || _ofSelected is null)
         {
-            MessageBox.Show("Select a card first.", AppCaption);
+            MessageBox.Show(Loc.T("common.select_card_first"), AppCaption);
             return;
         }
         if (string.IsNullOrWhiteSpace(GamePathBox.Text))
         {
-            MessageBox.Show("Set the Master Duel LocalData path first.", AppCaption);
+            MessageBox.Show(Loc.T("common.set_localdata_first"), AppCaption);
             return;
         }
 
@@ -2124,12 +2123,12 @@ public partial class MainWindow : Window
     {
         if (_overFrameService is null || _ofSelected is null)
         {
-            MessageBox.Show("Select a card first.", AppCaption);
+            MessageBox.Show(Loc.T("common.select_card_first"), AppCaption);
             return;
         }
         if (string.IsNullOrWhiteSpace(GamePathBox.Text))
         {
-            MessageBox.Show("Set the Master Duel LocalData path first.", AppCaption);
+            MessageBox.Show(Loc.T("common.set_localdata_first"), AppCaption);
             return;
         }
 
@@ -2222,7 +2221,7 @@ public partial class MainWindow : Window
         {
             OfCardTitleText.Text = _ofSelected.DisplayName;
             OfCardMetaText.Text =
-                $"Bundle {_ofSelected.Bundle}  ยท  id {_ofSelected.Id}  ยท  overframe={_ofSelected.IsOverframe}";
+                Loc.T("overframe.meta", _ofSelected.Bundle, _ofSelected.Id, _ofSelected.IsOverframe);
             RefreshOfGateEntryStatus();
             LoadOfCurrentPreview();
         }
@@ -2637,7 +2636,7 @@ public partial class MainWindow : Window
     {
         if (_database is null)
         {
-            Status("Open database.db first.");
+            Status(Loc.T("common.open_database_first"));
             return;
         }
 
@@ -2838,7 +2837,7 @@ public partial class MainWindow : Window
     {
         DbArtPreviewImage.Source = null;
         CleanupDbPreviewTemp();
-        DbArtMetaText.Text = "Select a card to preview live art.";
+        DbArtMetaText.Text = Loc.T("database.select_to_preview");
     }
 
     private void CleanupDbPreviewTemp()
@@ -2923,7 +2922,7 @@ public partial class MainWindow : Window
     {
         if (_database is null)
         {
-            Status("Open database.db first.");
+            Status(Loc.T("common.open_database_first"));
             return;
         }
 
@@ -2959,7 +2958,7 @@ public partial class MainWindow : Window
     {
         if (_database is null)
         {
-            Status("Open database.db first.");
+            Status(Loc.T("common.open_database_first"));
             return;
         }
 
@@ -2995,7 +2994,7 @@ public partial class MainWindow : Window
     {
         if (_database is null)
         {
-            Status("Open database.db first.");
+            Status(Loc.T("common.open_database_first"));
             return;
         }
 
