@@ -51,7 +51,7 @@ function Assert-Required([string] $Path) {
 Write-Host "=== Version check (informational) ==="
 $csproj = Get-Content $proj -Raw
 if ($csproj -notmatch "<Version>$([regex]::Escape($Version))</Version>") {
-    Write-Warning "csproj <Version> may not match $Version — confirm before tagging."
+    Write-Warning "csproj <Version> may not match $Version - confirm before tagging."
 }
 
 if (-not $SkipPublish) {
@@ -80,6 +80,15 @@ Assert-Required (Join-Path $publishDir "database.db")
 Assert-Required (Join-Path $publishDir "classdata.tpk")
 Assert-Required (Join-Path $publishDir "THIRD_PARTY_NOTICES.txt")
 Assert-Required (Join-Path $publishDir "frames")
+Assert-Required (Join-Path $publishDir "locales")
+
+$localeYamls = @(Get-ChildItem (Join-Path $publishDir "locales") -Filter "*.yaml" -File -ErrorAction SilentlyContinue)
+if ($localeYamls.Count -lt 1) {
+    throw "Missing locale YAML files under $publishDir/locales (expected en-US.yaml, th-TH.yaml, ...)."
+}
+if (-not (Test-Path (Join-Path $publishDir "locales/en-US.yaml"))) {
+    throw "Missing required baseline locale: $publishDir/locales/en-US.yaml"
+}
 
 if (Test-Path $stageDir) {
     Remove-Item $stageDir -Recurse -Force
@@ -90,6 +99,7 @@ Copy-Item (Join-Path $publishDir "database.db") $stageDir
 Copy-Item (Join-Path $publishDir "THIRD_PARTY_NOTICES.txt") $stageDir
 Copy-Item (Join-Path $publishDir "classdata.tpk") $stageDir
 Copy-Item (Join-Path $publishDir "frames") (Join-Path $stageDir "frames") -Recurse
+Copy-Item (Join-Path $publishDir "locales") (Join-Path $stageDir "locales") -Recurse
 
 $dlls = @(Get-ChildItem $stageDir -Filter "*.dll" -File -ErrorAction SilentlyContinue)
 if ($dlls.Count -gt 0) {
@@ -103,15 +113,37 @@ if (Test-Path $zipPath) {
 Compress-Archive -Path (Join-Path $stageDir "*") -DestinationPath $zipPath
 
 $zipItem = Get-Item $zipPath
-Write-Host ("=== Zip ready: {0} ({1:N1} MB) ===" -f $zipPath, ($zipItem.Length / 1MB))
+$sizeMb = [math]::Round($zipItem.Length / 1MB, 1)
+Write-Host "=== Zip ready: $zipPath ($sizeMb MB) ==="
 Get-ChildItem $stageDir | ForEach-Object {
     if ($_.PSIsContainer) {
-        $n = (Get-ChildItem $_.FullName -File).Count
-        "  DIR  $($_.Name)/ ($n files)"
+        $n = (Get-ChildItem $_.FullName -File -Recurse).Count
+        Write-Host ("  DIR  {0}/ ({1} files)" -f $_.Name, $n)
     }
     else {
-        "  {0,12:N0}  {1}" -f $_.Length, $_.Name
+        Write-Host ("  {0,12:N0}  {1}" -f $_.Length, $_.Name)
     }
+}
+
+# Confirm locales landed in the zip (not only the stage folder).
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $zipPath))
+try {
+    $localeEntries = @(
+        $zip.Entries |
+            Where-Object {
+                $name = $_.FullName.Replace('\', '/')
+                $name -like 'locales/*.yaml' -or $name -like 'locales/*.yml'
+            }
+    )
+    if ($localeEntries.Count -lt 1) {
+        throw "Zip is missing locales/*.yaml next to the exe."
+    }
+    Write-Host "=== Zip locales ==="
+    $localeEntries | ForEach-Object { Write-Host ("  {0}" -f $_.FullName) }
+}
+finally {
+    $zip.Dispose()
 }
 
 if (-not $CreateGitHubRelease) {
@@ -122,7 +154,7 @@ if (-not $CreateGitHubRelease) {
 Write-Host "=== Git tag + GitHub release ==="
 $existingTag = git tag -l $tag
 if (-not $existingTag) {
-    git tag -a $tag -m "Release $tag — Master Duel Modding Tool by AmidoriA"
+    git tag -a $tag -m "Release $tag - Master Duel Modding Tool by AmidoriA"
     if ($LASTEXITCODE -ne 0) { throw "git tag failed" }
     git push origin $tag
     if ($LASTEXITCODE -ne 0) { throw "git push tag failed" }
@@ -138,9 +170,9 @@ $notes = @"
 Release $tag.
 
 ### Download
-- **$zipName** — self-contained Windows x64 (includes .NET runtime). Unzip and run ``$exeName``.
+- **$zipName** - self-contained Windows x64 (includes .NET runtime). Unzip and run ``$exeName``.
 
-Ships with ``database.db``, ``classdata.tpk``, ``THIRD_PARTY_NOTICES.txt``, and ``frames/``.
+Ships with ``database.db``, ``classdata.tpk``, ``THIRD_PARTY_NOTICES.txt``, ``frames/``, and ``locales/``.
 
 ### Tutorial
 https://youtu.be/jXaKaVDhXdg
@@ -160,7 +192,7 @@ if ($releaseExists) {
     if ($LASTEXITCODE -ne 0) { throw "gh release upload failed" }
 }
 else {
-    gh release create $tag $zipPath --title "$tag — Master Duel Modding Tool by AmidoriA" --notes $notes
+    gh release create $tag $zipPath --title "$tag - Master Duel Modding Tool by AmidoriA" --notes $notes
     if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
 }
 
