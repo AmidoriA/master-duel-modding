@@ -74,6 +74,7 @@ Beside the single exe (names may change later; currently `Floowan.Desktop.exe`):
 | `classdata.tpk` | Sidecar |
 | `THIRD_PARTY_NOTICES.txt` | Sidecar |
 | `frames/` | PNG templates (from Core) |
+| `locales/` | UI translation YAML (`en-US.yaml`, `th-TH.yaml`, …) |
 
 - `user.db` is **runtime-created** — do not require in zip
 - No loose `.dll` beside exe if `IncludeNativeLibrariesForSelfExtract` works (ONNX natives extract at runtime)
@@ -100,6 +101,7 @@ Copy-Item "$src/database.db" $stage
 Copy-Item "$src/THIRD_PARTY_NOTICES.txt" $stage
 Copy-Item "$src/classdata.tpk" $stage
 Copy-Item "$src/frames" "$stage/frames" -Recurse
+Copy-Item "$src/locales" "$stage/locales" -Recurse
 
 Remove-Item $zip -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path "$stage/*" -DestinationPath $zip
@@ -114,6 +116,7 @@ Confirm the zip contains exactly:
 - One `.exe` at the root
 - `database.db`, `classdata.tpk`, `THIRD_PARTY_NOTICES.txt`
 - `frames/*.png` (dozens of frame PNGs)
+- `locales/*.yaml` (at least `en-US.yaml`; typically also `th-TH.yaml`)
 - No `user.db`, no `.pdb`, no `.lib`, no required loose `.dll` (unless native fallback)
 
 ## 5. Git tag (release only)
@@ -142,7 +145,7 @@ Release vX.Y.Z.
 ### Download
 - **MasterDuelModding-vX.Y.Z-win-x64.zip** — self-contained Windows x64 (includes .NET runtime). Unzip and run ``Floowan.Desktop.exe``.
 
-Ships with ``database.db``, ``classdata.tpk``, ``THIRD_PARTY_NOTICES.txt``, and ``frames/``.
+Ships with ``database.db``, ``classdata.tpk``, ``THIRD_PARTY_NOTICES.txt``, ``frames/``, and ``locales/``.
 
 ### Tutorial
 https://youtu.be/jXaKaVDhXdg
