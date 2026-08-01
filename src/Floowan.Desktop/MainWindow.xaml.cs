@@ -509,6 +509,11 @@ public partial class MainWindow : Window
         LoadCurrentPreview();
     }
 
+    /// <summary>
+    /// Loads live bundle art for the Card Art tab. Over-frame (DB flag and/or 704x1024)
+    /// uses foil-flattened full-canvas preview (same as Over-frame / Database tabs);
+    /// normal illusts load as-is.
+    /// </summary>
     private void LoadCurrentPreview()
     {
         if (_selected is null || _modService is null || string.IsNullOrWhiteSpace(GamePathBox.Text))
@@ -519,8 +524,14 @@ public partial class MainWindow : Window
             CleanupPreviewTemp();
             _previewTempPath = Path.Combine(Path.GetTempPath(), $"floowan-preview-{Guid.NewGuid():N}.png");
             _modService.ExtractCardArt(GamePathBox.Text, _selected, _previewTempPath);
-            CurrentArtImage.Source = LoadBitmap(_previewTempPath);
             var info = _modService.GetTextureInfo(GamePathBox.Text, _selected);
+            var isOverframe = CardArtModService.IsLiveOverFrameTexture(
+                _selected.IsOverframe, info.Width, info.Height);
+
+            CurrentArtImage.Source = isOverframe
+                ? LoadOfComposePreview(_previewTempPath)
+                : LoadBitmap(_previewTempPath);
+
             DetailText.Text = Loc.T(
                 "card_art.texture_detail",
                 info.Name,
