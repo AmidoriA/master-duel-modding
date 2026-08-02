@@ -131,6 +131,21 @@ public class Sam2PointCutoutServiceTests
     }
 
     [Fact]
+    public void UnionMasks_AllowsEmptyExistingWorkingMask()
+    {
+        using var empty = new Image<L8>(4, 4);
+        using var addition = new Image<L8>(4, 4);
+        addition[1, 1] = new L8(255);
+        addition[2, 2] = new L8(200);
+
+        using var union = Sam2PointCutoutService.UnionMasks(empty, addition);
+
+        Assert.Equal(0, union[0, 0].PackedValue);
+        Assert.Equal(255, union[1, 1].PackedValue);
+        Assert.Equal(200, union[2, 2].PackedValue);
+    }
+
+    [Fact]
     public void UnionMasks_TakesPerPixelMaximum()
     {
         using var a = new Image<L8>(3, 1);
