@@ -1,3 +1,4 @@
+using Floowan.Core.Assets;
 using Floowan.Core.Backup;
 using Floowan.Core.Imaging;
 using Floowan.Core.Models;
@@ -198,6 +199,20 @@ CREATE TABLE IF NOT EXISTS user.of_edit_layer (
         EnsureUserAppConfigColumn("of_card_asset_bundle", "VARCHAR(8)");
         EnsureUserAppConfigColumn("locale", "VARCHAR(32)");
         EnsureUserAppConfigRow();
+        MigrateStaleOfCardAssetBundleId();
+    }
+
+    /// <summary>
+    /// Pre-patch gate id <c>a589d3b5</c> was replaced by live <see cref="OfCardAssetLocator.DefaultBundleId"/>.
+    /// Rewrite the seed so new sessions prefer the current hash without a full LocalData scan.
+    /// </summary>
+    private void MigrateStaleOfCardAssetBundleId()
+    {
+        var cached = GetOfCardAssetBundleId();
+        if (!string.Equals(cached, "a589d3b5", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        SetOfCardAssetBundleId(OfCardAssetLocator.DefaultBundleId);
     }
 
     private void EnsureUserCardStateColumn(string column, string typeSql)

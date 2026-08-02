@@ -6,11 +6,17 @@ namespace Floowan.Core.Assets;
 
 /// <summary>
 /// Locates the AssetBundle that contains the <c>of_card_asset</c> TextAsset.
-/// Prefers a cached id from <see cref="CardDatabase"/> / app_config; otherwise
-/// performs a one-time LocalData (+ StreamingAssets) scan.
+/// Prefers session / DB cache / the known live default id; a full LocalData scan runs
+/// only when the caller sets <c>allowFullScan</c> (UI must confirm first).
 /// </summary>
 public sealed class OfCardAssetLocator
 {
+    /// <summary>
+    /// Current post-patch live gate bundle id (replaced legacy <c>a589d3b5</c>).
+    /// Used when user.db has no verified cache — not a full filesystem scan.
+    /// </summary>
+    public const string DefaultBundleId = "22817d01";
+
     /// <summary>
     /// Live Master Duel AssetBundle file names are 8 lowercase hex digits with no extension.
     /// Skips leftovers such as <c>*.gatebak</c> and other non-live files that would win a
@@ -45,13 +51,16 @@ public sealed class OfCardAssetLocator
         !string.IsNullOrWhiteSpace(fileName) && LiveBundleFileName.IsMatch(fileName);
 
     /// <summary>
-    /// Resolve the on-disk path to the of_card_asset bundle, scanning once if needed.
+    /// Resolve the on-disk path to the of_card_asset bundle.
+    /// Tries session → DB cache → <see cref="DefaultBundleId"/>. Full directory scan
+    /// only when <paramref name="allowFullScan"/> is true (caller must have user consent).
     /// </summary>
     public OfCardAssetLocateResult Locate(
         string playerDataPath,
         CardDatabase? database = null,
         IProgress<string>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool allowFullScan = false)
     {
         if (!GamePathLocator.IsValidGamePath(playerDataPath, out var pathError))
             return OfCardAssetLocateResult.Fail(pathError ?? "Invalid game path.");
@@ -62,38 +71,31 @@ public sealed class OfCardAssetLocator
         var cached = database?.GetOfCardAssetBundleId();
         if (!string.IsNullOrWhiteSpace(cached) && IsLiveBundleFileName(cached))
         {
-            try
-            {
-                var path = BundlePathResolver.ResolveExistingBundlePath(playerDataPath, cached);
-                if (_textAssets.TryFindTextAsset(path, TextAssetBundleService.OfCardAssetName, out _))
-                {
-                    RememberSession(cached, path);
-                    return OfCardAssetLocateResult.Ok(cached, path, scanned: false);
-                }
-            }
-            catch (FileNotFoundException)
-            {
-                // stale cache — clear and rescan
-            }
-            catch (InvalidOperationException)
-            {
-                // stale cache — clear and rescan
-            }
-            catch (IOException)
-            {
-                // unreadable / locked — clear and rescan
-            }
+            if (TryBindKnownBundle(playerDataPath, cached, database, persist: false, out var cachedHit))
+                return cachedHit;
 
-            // Cached id missing or no longer contains of_card_asset (e.g. MD moved gate
-            // a589d3b5 → 22817d01). Drop stale id so every selection does not re-hit it.
+            // Stale cache (e.g. pre-patch a589d3b5) — clear so we don't keep retrying it.
             try { database?.SetOfCardAssetBundleId(null); } catch { /* read-only ok */ }
             ClearSession();
         }
         else if (!string.IsNullOrWhiteSpace(cached))
         {
-            // Non-live cached value (extension / garbage) — clear.
             try { database?.SetOfCardAssetBundleId(null); } catch { /* read-only ok */ }
             ClearSession();
+        }
+
+        // Known live default — prefer over a full LocalData walk.
+        if (!string.Equals(cached, DefaultBundleId, StringComparison.OrdinalIgnoreCase) &&
+            TryBindKnownBundle(playerDataPath, DefaultBundleId, database, persist: true, out var defaultHit))
+        {
+            return defaultHit;
+        }
+
+        if (!allowFullScan)
+        {
+            return OfCardAssetLocateResult.Fail(
+                $"Could not open of_card_asset at cached id or default '{DefaultBundleId}'. " +
+                "Use Tools → Scan / locate of_card_asset (requires confirmation) to search LocalData.");
         }
 
         progress?.Report("Scanning LocalData for of_card_asset…");
@@ -161,6 +163,43 @@ public sealed class OfCardAssetLocator
         return null;
     }
 
+    private bool TryBindKnownBundle(
+        string playerDataPath,
+        string bundleId,
+        CardDatabase? database,
+        bool persist,
+        out OfCardAssetLocateResult result)
+    {
+        result = OfCardAssetLocateResult.Fail("");
+        try
+        {
+            var path = BundlePathResolver.ResolveExistingBundlePath(playerDataPath, bundleId);
+            if (!_textAssets.TryFindTextAsset(path, TextAssetBundleService.OfCardAssetName, out _))
+                return false;
+
+            RememberSession(bundleId, path);
+            if (persist)
+            {
+                try { database?.SetOfCardAssetBundleId(bundleId); } catch { /* read-only ok */ }
+            }
+
+            result = OfCardAssetLocateResult.Ok(bundleId, path, scanned: false);
+            return true;
+        }
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
     private bool TryUseSessionCache(string playerDataPath, out OfCardAssetLocateResult result)
     {
         result = OfCardAssetLocateResult.Fail("");
@@ -175,8 +214,6 @@ public sealed class OfCardAssetLocator
                 return false;
             }
 
-            // Prefer resolving via id so LocalData vs StreamingAssets preference stays correct
-            // if the session path was deleted but the same id reappeared elsewhere.
             string path;
             try
             {
@@ -234,7 +271,7 @@ public sealed class OfCardAssetLocateResult
             Success = true,
             Message = scanned
                 ? $"Found of_card_asset in bundle {bundleId} (scan complete)."
-                : $"Using cached of_card_asset bundle {bundleId}.",
+                : $"Using of_card_asset bundle {bundleId}.",
             BundleId = bundleId,
             BundlePath = bundlePath,
             Scanned = scanned

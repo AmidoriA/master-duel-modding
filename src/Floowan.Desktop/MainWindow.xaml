@@ -523,13 +523,13 @@
               <DockPanel>
                 <TextBlock x:Name="ToolsOfGateHeader" DockPanel.Dock="Top" Text="of_card_asset gate" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                 <TextBlock x:Name="ToolsOfGateHelpText" DockPanel.Dock="Top"
-                           Text="Locate the AssetBundle that contains TextAsset of_card_asset under LocalData/0000 and StreamingAssets, cache its id in user.db, and sync is_overframe flags from the live gate. Runs off the UI thread so the app stays responsive during the scan."
+                           Text="Resolve of_card_asset from the cached bundle id or the known live default, then optionally sync is_overframe flags. A full LocalData/StreamingAssets search only runs after you confirm — it is never started automatically on tab open."
                            Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                   <Button x:Name="ToolsScanOfCardAssetButton" Content="Scan / locate of_card_asset…"
                           Click="ToolsScanOfCardAsset_Click" Background="{StaticResource AccentBrush}"
                           Padding="12,4" Margin="0,0,8,0"
-                          ToolTip="Find of_card_asset, cache the bundle id, and sync Over-frame flags from the gate. Long filesystem/AssetBundle work runs in the background."/>
+                          ToolTip="Try the cached/default gate id first; if missing, ask before scanning LocalData for of_card_asset, then sync Over-frame flags."/>
                 </StackPanel>
                 <TextBlock x:Name="ToolsScanOfCardAssetStatusText"
                            Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
