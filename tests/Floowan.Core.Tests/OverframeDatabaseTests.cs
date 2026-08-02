@@ -74,6 +74,27 @@ public class OverframeDatabaseTests
     }
 
     [Fact]
+    public void Open_MigratesStaleOfCardAssetBundleId_ToDefault()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "floowan-of-stale-" + Guid.NewGuid().ToString("N") + ".db");
+        var user = Path.Combine(Path.GetTempPath(), "floowan-of-stale-user-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            CreateMinimalDatabase(path);
+            using (var db = new CardDatabase(path, user))
+                db.SetOfCardAssetBundleId("a589d3b5");
+
+            using (var db2 = new CardDatabase(path, user))
+                Assert.Equal(OfCardAssetLocator.DefaultBundleId, db2.GetOfCardAssetBundleId());
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* ignore */ }
+            try { File.Delete(user); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
     public void FloowanOverframe_Survives_SyncFromGate_And_ListsForRestore()
     {
         var path = Path.Combine(Path.GetTempPath(), "floowan-of-flag-" + Guid.NewGuid().ToString("N") + ".db");

@@ -134,10 +134,12 @@ public sealed class TextAssetBundleService : IDisposable
             }
         }
 
+        // Prefer TryOpen so missing TextAssets do not throw (avoids first-chance
+        // InvalidOperationException spam while scanning thousands of bundles).
         try
         {
-            using var session = Open(bundlePath, assetName);
-            return session.BaseField is not null;
+            using var session = TryOpen(bundlePath, assetName);
+            return session?.BaseField is not null;
         }
         catch
         {
@@ -170,47 +172,98 @@ public sealed class TextAssetBundleService : IDisposable
 
     private TextAssetSession Open(string bundlePath, string assetName)
     {
+        var session = TryOpen(bundlePath, assetName);
+        if (session is null)
+            throw new InvalidOperationException($"TextAsset '{assetName}' not found in bundle.");
+        return session;
+    }
+
+    private TextAssetSession? TryOpen(string bundlePath, string assetName)
+    {
         var am = new AssetsManager();
-        am.LoadClassPackage(_classDataPath);
-        var bundleInst = am.LoadBundleFile(bundlePath, unpackIfPacked: true);
-        var (_, _, baseField) = FindTextAssetInBundle(am, bundleInst, assetName);
-        return new TextAssetSession(am, baseField);
+        try
+        {
+            am.LoadClassPackage(_classDataPath);
+            var bundleInst = am.LoadBundleFile(bundlePath, unpackIfPacked: true);
+            if (!TryFindTextAssetInBundle(am, bundleInst, assetName, out var assetsInst, out _, out var baseField) ||
+                assetsInst is null ||
+                baseField is null)
+            {
+                am.UnloadAll();
+                return null;
+            }
+
+            return new TextAssetSession(am, baseField);
+        }
+        catch
+        {
+            am.UnloadAll();
+            throw;
+        }
     }
 
     private static (AssetsFileInstance Assets, AssetFileInfo Info, AssetTypeValueField BaseField)
         FindTextAssetInBundle(AssetsManager am, BundleFileInstance bundleInst, string assetName)
     {
+        if (!TryFindTextAssetInBundle(am, bundleInst, assetName, out var assetsInst, out var info, out var baseField) ||
+            assetsInst is null ||
+            info is null ||
+            baseField is null)
+        {
+            throw new InvalidOperationException($"TextAsset '{assetName}' not found in bundle.");
+        }
+
+        return (assetsInst, info, baseField);
+    }
+
+    private static bool TryFindTextAssetInBundle(
+        AssetsManager am,
+        BundleFileInstance bundleInst,
+        string assetName,
+        out AssetsFileInstance? assetsInst,
+        out AssetFileInfo? info,
+        out AssetTypeValueField? baseField)
+    {
+        assetsInst = null;
+        info = null;
+        baseField = null;
+
         var dirCount = bundleInst.file.BlockAndDirInfo.DirectoryInfos.Count;
         for (var i = 0; i < dirCount; i++)
         {
             if (!bundleInst.file.IsAssetsFile(i))
                 continue;
 
-            AssetsFileInstance? assetsInst;
+            AssetsFileInstance? loaded;
             try
             {
-                assetsInst = am.LoadAssetsFileFromBundle(bundleInst, i, false);
+                loaded = am.LoadAssetsFileFromBundle(bundleInst, i, false);
             }
             catch
             {
                 continue;
             }
 
-            if (assetsInst?.file is null)
+            if (loaded?.file is null)
                 continue;
 
-            am.LoadClassDatabaseFromPackage(assetsInst.file.Metadata.UnityVersion);
-            var infos = assetsInst.file.GetAssetsOfType(AssetClassID.TextAsset);
-            foreach (var info in infos)
+            am.LoadClassDatabaseFromPackage(loaded.file.Metadata.UnityVersion);
+            var infos = loaded.file.GetAssetsOfType(AssetClassID.TextAsset);
+            foreach (var candidate in infos)
             {
-                var baseField = am.GetBaseField(assetsInst, info);
-                var name = baseField["m_Name"].AsString;
-                if (string.Equals(name, assetName, StringComparison.Ordinal))
-                    return (assetsInst, info, baseField);
+                var field = am.GetBaseField(loaded, candidate);
+                var name = field["m_Name"].AsString;
+                if (!string.Equals(name, assetName, StringComparison.Ordinal))
+                    continue;
+
+                assetsInst = loaded;
+                info = candidate;
+                baseField = field;
+                return true;
             }
         }
 
-        throw new InvalidOperationException($"TextAsset '{assetName}' not found in bundle.");
+        return false;
     }
 
     private static int FindDirectoryIndex(BundleFileInstance bundleInst, AssetsFileInstance assetsInst)
