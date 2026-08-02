@@ -1080,8 +1080,10 @@ public partial class Sam2MaskPaintWindow : Window
     }
 
     /// <summary>
-    /// Builds a selection highlight with soft alpha from mask strength (SAM logits are soft).
+    /// Builds a binary selection highlight (selected vs not) at
+    /// <see cref="OverFrameAutoArtComposer.MaskKeepThreshold"/> so preview matches keep semantics.
     /// Display-only — does not change the L8 subject mask or in-game cutout hardness.
+    /// Overlay Image.Opacity still scales the solid tint.
     /// </summary>
     private static BitmapSource ToMaskHighlightBitmap(Image<L8> mask, byte b, byte g, byte r, byte a)
     {
@@ -1089,29 +1091,7 @@ public partial class Sam2MaskPaintWindow : Window
         var h = mask.Height;
         var stride = w * 4;
         var pixels = new byte[stride * h];
-        for (var y = 0; y < h; y++)
-        {
-            var row = mask.DangerousGetPixelRowMemory(y).Span;
-            var dest = y * stride;
-            for (var x = 0; x < w; x++)
-            {
-                var m = row[x].PackedValue;
-                if (m == 0)
-                {
-                    dest += 4;
-                    continue;
-                }
-
-                // Preserve soft boundary alphas instead of hard-thresholding at MaskKeepThreshold.
-                var ha = (byte)((m * a + 127) / 255);
-                pixels[dest++] = b;
-                pixels[dest++] = g;
-                pixels[dest++] = r;
-                pixels[dest++] = ha;
-            }
-        }
-
-        SoftenHighlightEdgePixels(pixels, w, h, stride);
+        Sam2PointCutoutService.WriteBinaryMaskHighlightBgra(mask, b, g, r, a, pixels, stride);
 
         var bmp = BitmapSource.Create(w, h, 96, 96, PixelFormats.Bgra32, null, pixels, stride);
         bmp.Freeze();
@@ -1119,8 +1099,8 @@ public partial class Sam2MaskPaintWindow : Window
     }
 
     /// <summary>
-    /// Light 1-px edge soften for hard (binary) masks so HighQuality scaling has soft alphas to blend.
-    /// Purely cosmetic — source L8 masks are unchanged.
+    /// Light 1-px edge soften for paint/lasso prompt overlays so HighQuality scaling has soft alphas to blend.
+    /// Purely cosmetic — source L8 paint masks are unchanged; selection highlights use binary packing instead.
     /// </summary>
     private static void SoftenHighlightEdgePixels(byte[] pixels, int w, int h, int stride)
     {
