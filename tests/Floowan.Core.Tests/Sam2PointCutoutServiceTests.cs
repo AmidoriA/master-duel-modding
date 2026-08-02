@@ -104,6 +104,33 @@ public class Sam2PointCutoutServiceTests
     }
 
     [Fact]
+    public void WriteBinaryMaskHighlightBgra_ThresholdsSoftMaskToSolidOrEmpty()
+    {
+        using var mask = new Image<L8>(4, 1);
+        mask[0, 0] = new L8(0);
+        mask[1, 0] = new L8((byte)(OverFrameAutoArtComposer.MaskKeepThreshold - 1));
+        mask[2, 0] = new L8(OverFrameAutoArtComposer.MaskKeepThreshold);
+        mask[3, 0] = new L8(200); // soft mid — still solid, not scaled alpha
+
+        var pixels = new byte[4 * 4];
+        Sam2PointCutoutService.WriteBinaryMaskHighlightBgra(
+            mask, b: 10, g: 20, r: 30, overlayAlpha: 170, pixels, stride: 16);
+
+        Assert.Equal(0, pixels[3]);
+        Assert.Equal(0, pixels[7]);
+
+        Assert.Equal(10, pixels[8]);
+        Assert.Equal(20, pixels[9]);
+        Assert.Equal(30, pixels[10]);
+        Assert.Equal(170, pixels[11]);
+
+        Assert.Equal(10, pixels[12]);
+        Assert.Equal(20, pixels[13]);
+        Assert.Equal(30, pixels[14]);
+        Assert.Equal(170, pixels[15]);
+    }
+
+    [Fact]
     public void UnionMasks_TakesPerPixelMaximum()
     {
         using var a = new Image<L8>(3, 1);

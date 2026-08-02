@@ -201,7 +201,7 @@
                VerticalAlignment="Center"
                IsHitTestVisible="False"
                RenderOptions.BitmapScalingMode="HighQuality"/>
-        <!-- HighQuality scales soft highlight alphas; overlays are display-only (OF cutout stays binary). -->
+        <!-- NearestNeighbor keeps binary selection highlights crisp when scaled (display-only). -->
         <Image x:Name="ExistingSubjectOverlay"
                Stretch="Uniform"
                HorizontalAlignment="Center"
@@ -209,7 +209,7 @@
                IsHitTestVisible="False"
                Visibility="Collapsed"
                Opacity="0.5"
-               RenderOptions.BitmapScalingMode="HighQuality"/>
+               RenderOptions.BitmapScalingMode="NearestNeighbor"/>
         <Image x:Name="MaskOverlay"
                Stretch="Uniform"
                HorizontalAlignment="Center"
@@ -224,7 +224,7 @@
                IsHitTestVisible="False"
                Visibility="Collapsed"
                Opacity="0.5"
-               RenderOptions.BitmapScalingMode="HighQuality"/>
+               RenderOptions.BitmapScalingMode="NearestNeighbor"/>
         <Polyline x:Name="LassoPolyline"
                   Stroke="#FFC84A"
                   StrokeThickness="2"

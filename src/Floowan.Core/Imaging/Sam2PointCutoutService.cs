@@ -337,6 +337,49 @@ public sealed class Sam2PointCutoutService : IDisposable
     }
 
     /// <summary>
+    /// Packs an L8 selection mask into BGRA32 highlight pixels with a hard keep threshold.
+    /// Selected pixels (≥ threshold) get solid overlay color+alpha; others stay transparent.
+    /// Display-only — does not mutate the source mask or change cutout semantics.
+    /// </summary>
+    public static void WriteBinaryMaskHighlightBgra(
+        Image<L8> mask,
+        byte b,
+        byte g,
+        byte r,
+        byte overlayAlpha,
+        Span<byte> bgraPixels,
+        int stride,
+        byte keepThreshold = OverFrameAutoArtComposer.MaskKeepThreshold)
+    {
+        ArgumentNullException.ThrowIfNull(mask);
+        var w = mask.Width;
+        var h = mask.Height;
+        if (stride < w * 4)
+            throw new ArgumentException("BGRA stride must be at least width * 4.", nameof(stride));
+        if (bgraPixels.Length < stride * h)
+            throw new ArgumentException("BGRA buffer too small for mask dimensions.", nameof(bgraPixels));
+
+        bgraPixels.Clear();
+        for (var y = 0; y < h; y++)
+        {
+            var row = mask.DangerousGetPixelRowMemory(y).Span;
+            var dest = y * stride;
+            for (var x = 0; x < w; x++)
+            {
+                if (row[x].PackedValue >= keepThreshold)
+                {
+                    bgraPixels[dest] = b;
+                    bgraPixels[dest + 1] = g;
+                    bgraPixels[dest + 2] = r;
+                    bgraPixels[dest + 3] = overlayAlpha;
+                }
+
+                dest += 4;
+            }
+        }
+    }
+
+    /// <summary>
     /// Applies <paramref name="mask"/> as alpha onto a clone of <paramref name="source"/>.
     /// </summary>
     public static Image<Rgba32> ApplyMaskAsAlpha(Image<Rgba32> source, Image<L8> mask)
