@@ -37,6 +37,7 @@ public partial class MainWindow : Window
     private readonly CardFrameStyleResolver _frameStyleResolver = new();
     private readonly CardLinkMarkerLoader _linkMarkerLoader = new();
     private int _ofFrameSuggestGeneration;
+    private int _ofGateEntryGeneration;
     private CardRecord? _selected;
     private CardRecord? _ofSelected;
     private string? _replacementImagePath;
@@ -263,6 +264,7 @@ public partial class MainWindow : Window
         GamePathBox.Text = path;
         try { _database?.SetStoredGamePath(path); } catch { /* read-only ok */ }
         _ofGateReady = false;
+        _ofInitialScanStarted = false;
         RefreshOfGateStatusFromCache();
         UpdateHomePathsExpanderExpanded();
         if (_dbSelected is not null)
@@ -1325,8 +1327,9 @@ public partial class MainWindow : Window
             Loc.T("overframe.meta", _ofSelected.Bundle, _ofSelected.Id, _ofSelected.IsOverframe) +
             (_ofSelected.OverframeBaseId is int baseId ? Loc.T("overframe.meta_base", baseId) : "");
         SuggestOfFrameStyle(_ofSelected);
-        RefreshOfGateEntryStatus();
+        // Preview first — gate status may Locate/scan and must not block the OF art preview.
         LoadOfCurrentPreview();
+        RefreshOfGateEntryStatus();
         UpdateOfCustomOverframeActionUi();
     }
 
@@ -1461,7 +1464,7 @@ public partial class MainWindow : Window
         return true;
     }
 
-    private void RefreshOfGateEntryStatus()
+    private async void RefreshOfGateEntryStatus()
     {
         if (_ofSelected is null || _overFrameService is null || string.IsNullOrWhiteSpace(GamePathBox.Text) || !_ofGateReady)
         {
@@ -1469,24 +1472,45 @@ public partial class MainWindow : Window
             return;
         }
 
+        var card = _ofSelected;
+        var gamePath = GamePathBox.Text;
+        var database = _database;
+        var service = _overFrameService;
+        var generation = Interlocked.Increment(ref _ofGateEntryGeneration);
+        OfGateEntryText.Text = Loc.T("overframe.gate_checking");
+
+        var inGate = false;
+        object? artId = null;
         try
         {
-            var inGate = _overFrameService.IsInGate(GamePathBox.Text, _ofSelected, _database);
-            if (inGate)
+            (inGate, artId) = await Task.Run(() =>
             {
-                var artId = _ofSelected.ArtId
-                            ?? _overFrameService.ResolveAndCacheArtId(GamePathBox.Text, _ofSelected, _database);
-                OfGateEntryText.Text = Loc.T("overframe.gate_present", artId);
-            }
-            else
-            {
-                OfGateEntryText.Text = Loc.T("overframe.gate_not_registered");
-            }
+                var present = service.IsInGate(gamePath, card, database);
+                object? resolvedArtId = null;
+                if (present)
+                {
+                    resolvedArtId = card.ArtId is int cachedArtId && cachedArtId > 0
+                        ? cachedArtId
+                        : service.ResolveAndCacheArtId(gamePath, card, database);
+                }
+
+                return (present, resolvedArtId);
+            }).ConfigureAwait(true);
         }
         catch (Exception ex)
         {
+            if (generation != _ofGateEntryGeneration || !ReferenceEquals(_ofSelected, card))
+                return;
             OfGateEntryText.Text = Loc.T("overframe.gate_check_failed", ex.Message);
+            return;
         }
+
+        if (generation != _ofGateEntryGeneration || !ReferenceEquals(_ofSelected, card))
+            return;
+
+        OfGateEntryText.Text = inGate
+            ? Loc.T("overframe.gate_present", artId ?? "?")
+            : Loc.T("overframe.gate_not_registered");
     }
 
     private void RefreshOfGateStatusFromCache()
@@ -1494,13 +1518,14 @@ public partial class MainWindow : Window
         var cached = _database?.GetOfCardAssetBundleId();
         if (!string.IsNullOrWhiteSpace(cached))
         {
-            OfGateStatusText.Text = $"Gate bundle (cached): {cached}";
-            _ofGateReady = true;
+            OfGateStatusText.Text = Loc.T("overframe.gate_bundle_cached", cached);
+            // Do not set _ofGateReady from an unverified cache id. After an MD patch the
+            // cached hash (e.g. a589d3b5) may be gone; marking ready would skip
+            // EnsureOfGateAsync and force a full Locate/scan on the UI thread per selection.
         }
         else
         {
             OfGateStatusText.Text = Loc.T("overframe.gate_not_scanned");
-            _ofGateReady = false;
         }
     }
 

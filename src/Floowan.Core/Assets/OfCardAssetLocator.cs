@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Floowan.Core.Data;
 using Floowan.Core.Game;
 
@@ -10,7 +11,18 @@ namespace Floowan.Core.Assets;
 /// </summary>
 public sealed class OfCardAssetLocator
 {
+    /// <summary>
+    /// Live Master Duel AssetBundle file names are 8 lowercase hex digits with no extension.
+    /// Skips leftovers such as <c>*.gatebak</c> and other non-live files that would win a
+    /// size-ordered scan or force expensive Open/Find failures.
+    /// </summary>
+    private static readonly Regex LiveBundleFileName = new(
+        @"^[0-9a-f]{8}$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     private readonly TextAssetBundleService _textAssets;
+    private string? _sessionBundleId;
+    private string? _sessionBundlePath;
 
     public OfCardAssetLocator(string? classDataPath = null)
     {
@@ -28,6 +40,10 @@ public sealed class OfCardAssetLocator
     public void CacheBundleId(CardDatabase database, string bundleId) =>
         database.SetOfCardAssetBundleId(bundleId);
 
+    /// <summary>True when <paramref name="fileName"/> is a live MD bundle id (8 hex, no extension).</summary>
+    public static bool IsLiveBundleFileName(string? fileName) =>
+        !string.IsNullOrWhiteSpace(fileName) && LiveBundleFileName.IsMatch(fileName);
+
     /// <summary>
     /// Resolve the on-disk path to the of_card_asset bundle, scanning once if needed.
     /// </summary>
@@ -40,23 +56,44 @@ public sealed class OfCardAssetLocator
         if (!GamePathLocator.IsValidGamePath(playerDataPath, out var pathError))
             return OfCardAssetLocateResult.Fail(pathError ?? "Invalid game path.");
 
+        if (TryUseSessionCache(playerDataPath, out var sessionHit))
+            return sessionHit;
+
         var cached = database?.GetOfCardAssetBundleId();
-        if (!string.IsNullOrWhiteSpace(cached))
+        if (!string.IsNullOrWhiteSpace(cached) && IsLiveBundleFileName(cached))
         {
             try
             {
                 var path = BundlePathResolver.ResolveExistingBundlePath(playerDataPath, cached);
                 if (_textAssets.TryFindTextAsset(path, TextAssetBundleService.OfCardAssetName, out _))
+                {
+                    RememberSession(cached, path);
                     return OfCardAssetLocateResult.Ok(cached, path, scanned: false);
+                }
             }
             catch (FileNotFoundException)
             {
-                // stale cache — rescan
+                // stale cache — clear and rescan
             }
             catch (InvalidOperationException)
             {
-                // stale cache — rescan
+                // stale cache — clear and rescan
             }
+            catch (IOException)
+            {
+                // unreadable / locked — clear and rescan
+            }
+
+            // Cached id missing or no longer contains of_card_asset (e.g. MD moved gate
+            // a589d3b5 → 22817d01). Drop stale id so every selection does not re-hit it.
+            try { database?.SetOfCardAssetBundleId(null); } catch { /* read-only ok */ }
+            ClearSession();
+        }
+        else if (!string.IsNullOrWhiteSpace(cached))
+        {
+            // Non-live cached value (extension / garbage) — clear.
+            try { database?.SetOfCardAssetBundleId(null); } catch { /* read-only ok */ }
+            ClearSession();
         }
 
         progress?.Report("Scanning LocalData for of_card_asset…");
@@ -65,6 +102,7 @@ public sealed class OfCardAssetLocator
             return OfCardAssetLocateResult.Fail(
                 "Could not find TextAsset 'of_card_asset' under LocalData/0000 or StreamingAssets.");
 
+        RememberSession(found.Value.BundleId, found.Value.Path);
         database?.SetOfCardAssetBundleId(found.Value.BundleId);
         return OfCardAssetLocateResult.Ok(found.Value.BundleId, found.Value.Path, scanned: true);
     }
@@ -92,8 +130,10 @@ public sealed class OfCardAssetLocator
         }
 
         // Prefer smaller files: of_card_asset gate bundles are tiny.
+        // Only live 8-hex bundle names — skip *.gatebak and other leftovers.
         var candidates = roots
             .SelectMany(root => Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            .Where(path => IsLiveBundleFileName(Path.GetFileName(path)))
             .Select(path =>
             {
                 try { return (Path: path, Length: new FileInfo(path).Length); }
@@ -119,6 +159,64 @@ public sealed class OfCardAssetLocator
         }
 
         return null;
+    }
+
+    private bool TryUseSessionCache(string playerDataPath, out OfCardAssetLocateResult result)
+    {
+        result = OfCardAssetLocateResult.Fail("");
+        if (string.IsNullOrWhiteSpace(_sessionBundleId) || string.IsNullOrWhiteSpace(_sessionBundlePath))
+            return false;
+
+        try
+        {
+            if (!File.Exists(_sessionBundlePath))
+            {
+                ClearSession();
+                return false;
+            }
+
+            // Prefer resolving via id so LocalData vs StreamingAssets preference stays correct
+            // if the session path was deleted but the same id reappeared elsewhere.
+            string path;
+            try
+            {
+                path = BundlePathResolver.ResolveExistingBundlePath(playerDataPath, _sessionBundleId);
+            }
+            catch (FileNotFoundException)
+            {
+                ClearSession();
+                return false;
+            }
+
+            if (!string.Equals(path, _sessionBundlePath, StringComparison.OrdinalIgnoreCase))
+                _sessionBundlePath = path;
+
+            if (!_textAssets.TryFindTextAsset(path, TextAssetBundleService.OfCardAssetName, out _))
+            {
+                ClearSession();
+                return false;
+            }
+
+            result = OfCardAssetLocateResult.Ok(_sessionBundleId, path, scanned: false);
+            return true;
+        }
+        catch
+        {
+            ClearSession();
+            return false;
+        }
+    }
+
+    private void RememberSession(string bundleId, string path)
+    {
+        _sessionBundleId = bundleId;
+        _sessionBundlePath = path;
+    }
+
+    private void ClearSession()
+    {
+        _sessionBundleId = null;
+        _sessionBundlePath = null;
     }
 }
 

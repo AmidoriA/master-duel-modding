@@ -130,6 +130,7 @@ overframe:
   gate_present: "Gate: present (art id {0})"
   gate_not_registered: "Gate: not registered"
   gate_check_failed: "Gate check failed: {0}"
+  gate_checking: "Gate: checking…"
   gate_bundle_cached: "Gate bundle (cached): {0}"
   scanning: "Scanning for of_card_asset…"
   scan_failed: "Scan failed: {0}"
