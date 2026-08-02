@@ -98,29 +98,38 @@ public sealed class Sam2PointCutoutService : IDisposable
     /// <paramref name="pointX"/>/<paramref name="pointY"/> source-pixel coordinates.
     /// Returns RGB source + L8 mask (caller disposes both).
     /// </summary>
+    /// <param name="upscaleForOverFrame">
+    /// When true (default), ×2 Real-ESRGAN may grow 512-class art for OF compose.
+    /// SAM editor incremental click/paint must pass false so the mask stays on the
+    /// editor canvas size (union into an empty working mask must not resize-mismatch).
+    /// </param>
     public Task<(Image<Rgba32> Source, Image<L8> Mask)> PrepareSubjectWithPointAsync(
         string sourceImagePath,
         float pointX,
         float pointY,
         IProgress<string>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool upscaleForOverFrame = true)
     {
         return PrepareSubjectWithPromptsAsync(
             sourceImagePath,
             [new PromptPoint(pointX, pointY, Label: 1f)],
             progress,
-            cancellationToken);
+            cancellationToken,
+            upscaleForOverFrame);
     }
 
     /// <summary>
     /// Runs SAM2 using prompts derived from a user-painted region (bounding box +
     /// positive points inside the paint). Returns RGB source + L8 mask (caller disposes both).
     /// </summary>
+    /// <param name="upscaleForOverFrame">See <see cref="PrepareSubjectWithPointAsync"/>.</param>
     public async Task<(Image<Rgba32> Source, Image<L8> Mask)> PrepareSubjectWithPaintedRegionAsync(
         string sourceImagePath,
         Image<L8> paintMask,
         IProgress<string>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool upscaleForOverFrame = true)
     {
         ArgumentNullException.ThrowIfNull(paintMask);
         if (!File.Exists(sourceImagePath))
@@ -154,17 +163,20 @@ public sealed class Sam2PointCutoutService : IDisposable
             sourceImagePath,
             prompts,
             progress,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            upscaleForOverFrame).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Runs SAM2 with explicit image-space prompts (positive points and/or box corners).
     /// </summary>
+    /// <param name="upscaleForOverFrame">See <see cref="PrepareSubjectWithPointAsync"/>.</param>
     public async Task<(Image<Rgba32> Source, Image<L8> Mask)> PrepareSubjectWithPromptsAsync(
         string sourceImagePath,
         IReadOnlyList<PromptPoint> prompts,
         IProgress<string>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool upscaleForOverFrame = true)
     {
         if (!File.Exists(sourceImagePath))
             throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
@@ -172,12 +184,13 @@ public sealed class Sam2PointCutoutService : IDisposable
             throw new ArgumentException("At least one SAM 2 prompt is required.", nameof(prompts));
 
         await EnsureModelsAsync(progress, cancellationToken).ConfigureAwait(false);
-        if (ArtUpscaleService.IsFeatureEnabled)
+        if (upscaleForOverFrame && ArtUpscaleService.IsFeatureEnabled)
             await _artUpscale.EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
         progress?.Report("Running SAM 2 cutout…");
 
         // Capture for Task.Run closure.
         var promptList = prompts.ToArray();
+        var doUpscale = upscaleForOverFrame;
         return await Task.Run(() =>
         {
             using var prepared = PrepareCleanSource(sourceImagePath, progress);
@@ -193,11 +206,14 @@ public sealed class Sam2PointCutoutService : IDisposable
                 if (keep == 0)
                 {
                     throw new InvalidOperationException(
-                        "SAM 2 found no opaque subject for that painted region. Paint a different area.");
+                        "SAM 2 found no opaque subject at that prompt. Try a different point or region.");
                 }
 
-                Image<Rgba32>? bg = null;
-                _artUpscale.UpscalePreparedLayersInPlace(ref source, ref mask, ref bg, progress);
+                if (doUpscale)
+                {
+                    Image<Rgba32>? bg = null;
+                    _artUpscale.UpscalePreparedLayersInPlace(ref source, ref mask, ref bg, progress);
+                }
 
                 progress?.Report("SAM 2 subject mask ready.");
                 return (source, mask);

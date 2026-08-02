@@ -798,7 +798,7 @@ public partial class Sam2MaskPaintWindow : Window
             });
 
             var prepared = await _sam2.PrepareSubjectWithPaintedRegionAsync(
-                _artPath, promptClone, progress);
+                _artPath, promptClone, progress, upscaleForOverFrame: false);
 
             if (generation != _samGeneration)
             {
@@ -808,9 +808,10 @@ public partial class Sam2MaskPaintWindow : Window
             }
 
             PushWorkingHistory();
-            var next = Sam2PointCutoutService.UnionMasks(_workingClickMask, prepared.Mask);
+            using var aligned = AlignSamMaskToWorkingCanvas(prepared.Mask);
             prepared.Mask.Dispose();
             prepared.Source.Dispose();
+            var next = Sam2PointCutoutService.UnionMasks(_workingClickMask, aligned);
             _workingClickMask.Dispose();
             _workingClickMask = next;
             ClearPaintPrompt();
@@ -870,7 +871,7 @@ public partial class Sam2MaskPaintWindow : Window
             });
 
             var prepared = await _sam2.PrepareSubjectWithPointAsync(
-                _artPath, imageX, imageY, progress);
+                _artPath, imageX, imageY, progress, upscaleForOverFrame: false);
 
             if (generation != _samGeneration)
             {
@@ -880,11 +881,12 @@ public partial class Sam2MaskPaintWindow : Window
             }
 
             PushWorkingHistory();
-            var next = subtract
-                ? Sam2PointCutoutService.SubtractMasks(_workingClickMask, prepared.Mask)
-                : Sam2PointCutoutService.UnionMasks(_workingClickMask, prepared.Mask);
+            using var aligned = AlignSamMaskToWorkingCanvas(prepared.Mask);
             prepared.Mask.Dispose();
             prepared.Source.Dispose();
+            var next = subtract
+                ? Sam2PointCutoutService.SubtractMasks(_workingClickMask, aligned)
+                : Sam2PointCutoutService.UnionMasks(_workingClickMask, aligned);
             _workingClickMask.Dispose();
             _workingClickMask = next;
             RefreshWorkingClickOverlay();
@@ -913,6 +915,19 @@ public partial class Sam2MaskPaintWindow : Window
                 PaintHost.Cursor = Cursors.Cross;
             }
         }
+    }
+
+    /// <summary>
+    /// Keeps SAM results on the editor canvas. Defensive against any path that still
+    /// returns a different size (e.g. legacy upscale) so empty working masks can union.
+    /// Caller owns the returned image; <paramref name="samMask"/> is not disposed.
+    /// </summary>
+    private Image<L8> AlignSamMaskToWorkingCanvas(Image<L8> samMask)
+    {
+        if (samMask.Width == _workingClickMask.Width && samMask.Height == _workingClickMask.Height)
+            return samMask.Clone();
+
+        return ResizeMaskTo(samMask, _workingClickMask.Width, _workingClickMask.Height);
     }
 
     private bool TryMapHostToImage(WpfPoint hostPos, out float imageX, out float imageY) =>
