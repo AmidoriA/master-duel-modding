@@ -635,12 +635,14 @@ ON CONFLICT(id) DO UPDATE SET
         return string.IsNullOrWhiteSpace(s) ? null : s;
     }
 
-    public void SetOfCardAssetBundleId(string bundleId)
+    public void SetOfCardAssetBundleId(string? bundleId)
     {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText =
             "UPDATE user.app_config SET of_card_asset_bundle = $bundle WHERE id = (SELECT id FROM user.app_config ORDER BY id LIMIT 1);";
-        cmd.Parameters.AddWithValue("$bundle", bundleId);
+        cmd.Parameters.AddWithValue(
+            "$bundle",
+            string.IsNullOrWhiteSpace(bundleId) ? DBNull.Value : bundleId.Trim());
         cmd.ExecuteNonQuery();
     }
 

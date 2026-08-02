@@ -129,6 +129,7 @@ overframe:
   gate_present: "เกต: มีอยู่ (art id {0})"
   gate_not_registered: "เกต: ยังไม่ได้ลงทะเบียน"
   gate_check_failed: "ตรวจเกตไม่สำเร็จ: {0}"
+  gate_checking: "เกต: กำลังตรวจ…"
   gate_bundle_cached: "บันเดิลเกต (แคช): {0}"
   scanning: "กำลังสแกนหา of_card_asset…"
   scan_failed: "สแกนไม่สำเร็จ: {0}"

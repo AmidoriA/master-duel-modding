@@ -931,24 +931,32 @@ public sealed class OverFrameModService : IDisposable
 
     public bool IsInGate(string playerDataPath, CardRecord card, CardDatabase? database = null)
     {
-        var gateLocate = _locator.Locate(playerDataPath, database);
-        if (!gateLocate.Success || gateLocate.BundlePath is null)
-            return false;
-
-        var bytes = _textAssets.ReadTextAssetBytes(gateLocate.BundlePath);
-        var gate = OfCardAssetGate.Parse(bytes);
         try
         {
-            var artId = ResolveAndCacheArtId(playerDataPath, card, database);
-            if (gate.Contains(artId))
-                return true;
+            var gateLocate = _locator.Locate(playerDataPath, database);
+            if (!gateLocate.Success || gateLocate.BundlePath is null)
+                return false;
+
+            var bytes = _textAssets.ReadTextAssetBytes(gateLocate.BundlePath);
+            var gate = OfCardAssetGate.Parse(bytes);
+            try
+            {
+                var artId = ResolveAndCacheArtId(playerDataPath, card, database);
+                if (gate.Contains(artId))
+                    return true;
+            }
+            catch
+            {
+                // fall through to legacy check
+            }
+
+            return gate.Contains(card.Id);
         }
         catch
         {
-            // fall through to legacy check
+            // Locate/parse/open failures must not block OF preview selection.
+            return false;
         }
-
-        return gate.Contains(card.Id);
     }
 
     public OfCardAssetGate? ReadGate(string playerDataPath, CardDatabase? database = null)
