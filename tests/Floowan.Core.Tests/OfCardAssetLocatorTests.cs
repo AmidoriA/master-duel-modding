@@ -19,4 +19,11 @@ public class OfCardAssetLocatorTests
     {
         Assert.Equal(expected, OfCardAssetLocator.IsLiveBundleFileName(name));
     }
+
+    [Fact]
+    public void DefaultBundleId_IsCurrentLivePostPatchGate()
+    {
+        Assert.Equal("22817d01", OfCardAssetLocator.DefaultBundleId);
+        Assert.True(OfCardAssetLocator.IsLiveBundleFileName(OfCardAssetLocator.DefaultBundleId));
+    }
 }

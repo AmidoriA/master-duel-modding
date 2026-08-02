@@ -66,7 +66,8 @@ public partial class MainWindow : Window
     private PendingAutoOfEditLayers? _pendingAutoOfEditLayers;
     private string? _dbPreviewTempPath;
     private bool _ofGateReady;
-    private bool _ofInitialScanStarted;
+    /// <summary>True after we attempted a quiet cache/default bind for the current game path (no full scan).</summary>
+    private bool _ofKnownGateBindStarted;
     /// <summary>True when live texture is already over-frame sized (DB flag and/or 704?1024).</summary>
     private bool _ofLiveTextureIsOverframe;
 
@@ -264,7 +265,7 @@ public partial class MainWindow : Window
         GamePathBox.Text = path;
         try { _database?.SetStoredGamePath(path); } catch { /* read-only ok */ }
         _ofGateReady = false;
-        _ofInitialScanStarted = false;
+        _ofKnownGateBindStarted = false;
         RefreshOfGateStatusFromCache();
         UpdateHomePathsExpanderExpanded();
         if (_dbSelected is not null)
@@ -1219,13 +1220,14 @@ public partial class MainWindow : Window
             return;
         if (!ReferenceEquals(MainTabs.SelectedItem, OverFrameTab))
             return;
-        if (_ofInitialScanStarted || _ofGateReady)
+        if (_ofKnownGateBindStarted || _ofGateReady)
             return;
         if (string.IsNullOrWhiteSpace(GamePathBox.Text) || _overFrameService is null)
             return;
 
-        _ofInitialScanStarted = true;
-        _ = EnsureOfGateAsync(showErrors: false);
+        _ofKnownGateBindStarted = true;
+        // Bind cache / default gate id only — never start a full LocalData scan without confirmation.
+        _ = TryBindKnownGateQuietAsync();
     }
 
     private void OfSearchBox_KeyDown(object sender, KeyEventArgs e)
@@ -1546,9 +1548,47 @@ public partial class MainWindow : Window
     }
 
     private async void ToolsScanOfCardAsset_Click(object sender, RoutedEventArgs e) =>
-        await EnsureOfGateAsync(showErrors: true);
+        await EnsureOfGateAsync(showErrors: true, allowPromptForFullScan: true);
 
-    private async Task EnsureOfGateAsync(bool showErrors)
+    /// <summary>
+    /// Resolve gate from session/DB cache or the known default id — no full LocalData scan, no prompt.
+    /// </summary>
+    private async Task TryBindKnownGateQuietAsync()
+    {
+        if (_overFrameService is null || string.IsNullOrWhiteSpace(GamePathBox.Text))
+            return;
+
+        var gamePath = GamePathBox.Text;
+        var database = _database;
+        var service = _overFrameService;
+
+        try
+        {
+            var locate = await Task.Run(() =>
+                service.EnsureGateLocated(gamePath, database, allowFullScan: false)).ConfigureAwait(true);
+
+            if (!locate.Success)
+            {
+                ReportOfGateScanStatus(
+                    Loc.T("overframe.gate_need_scan", OfCardAssetLocator.DefaultBundleId));
+                return;
+            }
+
+            _ofGateReady = true;
+            ReportOfGateScanStatus(locate.Message + (locate.BundleId is null ? "" : $" ({locate.BundleId})"));
+            RefreshOfGateEntryStatus();
+        }
+        catch (Exception ex)
+        {
+            ReportOfGateScanStatus(Loc.T("overframe.gate_check_failed", ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Ensures the of_card_asset gate is bound. Tries cache/default first; only runs a full
+    /// LocalData scan after the user confirms (when <paramref name="allowPromptForFullScan"/>).
+    /// </summary>
+    private async Task EnsureOfGateAsync(bool showErrors, bool allowPromptForFullScan = true)
     {
         if (_overFrameService is null)
             return;
@@ -1559,63 +1599,82 @@ public partial class MainWindow : Window
             return;
         }
 
-        SetToolsLongRunningButtonsEnabled(false);
-        SetUiBusy(true);
-        ReportOfGateScanStatus(Loc.T("overframe.scanning"));
-
         var gamePath = GamePathBox.Text;
         var database = _database;
         var service = _overFrameService;
-        var progress = new Progress<string>(ReportOfGateScanStatus);
+
+        SetToolsLongRunningButtonsEnabled(false);
+        SetUiBusy(true);
+        ReportOfGateScanStatus(Loc.T("overframe.locating_known_gate"));
 
         try
         {
-            // Locate + gate sync (art-id matching across card bundles) must stay off the UI thread.
-            var work = await Task.Run(() =>
-            {
-                var locate = service.EnsureGateLocated(gamePath, database, progress);
-                if (!locate.Success || database is null)
-                    return (Locate: locate, Synced: (int?)null, SyncError: (string?)null);
+            var locate = await Task.Run(() =>
+                service.EnsureGateLocated(gamePath, database, allowFullScan: false)).ConfigureAwait(true);
 
+            if (!locate.Success && allowPromptForFullScan)
+            {
+                SetUiBusy(false);
+                var confirm = MessageBox.Show(
+                    Loc.T("tools.scan_of_card_confirm", OfCardAssetLocator.DefaultBundleId),
+                    Loc.T("tools.scan_of_card_confirm_title"),
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+                if (confirm != MessageBoxResult.Yes)
+                {
+                    ReportOfGateScanStatus(Loc.T("overframe.scan_declined"));
+                    if (showErrors)
+                        MessageBox.Show(Loc.T("overframe.scan_declined"), AppCaption);
+                    return;
+                }
+
+                SetUiBusy(true);
+                ReportOfGateScanStatus(Loc.T("overframe.scanning"));
+                var progress = new Progress<string>(ReportOfGateScanStatus);
+                locate = await Task.Run(() =>
+                    service.EnsureGateLocated(gamePath, database, progress, allowFullScan: true))
+                    .ConfigureAwait(true);
+            }
+
+            if (!locate.Success)
+            {
+                _ofGateReady = false;
+                ReportOfGateScanStatus(locate.Message);
+                if (showErrors)
+                    MessageBox.Show(locate.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            int? synced = null;
+            string? syncError = null;
+            if (database is not null)
+            {
+                ReportOfGateScanStatus(Loc.T("overframe.syncing_gate"));
+                var progress = new Progress<string>(ReportOfGateScanStatus);
                 try
                 {
-                    var marked = service.SyncDatabaseFromGate(gamePath, database, progress);
-                    return (Locate: locate, Synced: (int?)marked, SyncError: (string?)null);
+                    synced = await Task.Run(() =>
+                        service.SyncDatabaseFromGate(gamePath, database, progress)).ConfigureAwait(true);
                 }
                 catch (Exception syncEx)
                 {
-                    return (Locate: locate, Synced: (int?)null, SyncError: syncEx.Message);
+                    syncError = syncEx.Message;
                 }
-            });
+            }
 
-            var result = work.Locate;
-            if (result.Success)
+            _ofGateReady = true;
+            var detail = locate.Message + (locate.BundleId is null ? "" : $" ({locate.BundleId})");
+            if (syncError is not null)
+                ReportOfGateScanStatus(detail + " Sync skipped: " + syncError);
+            else if (synced is int marked)
             {
-                _ofGateReady = true;
-                var detail = result.Message + (result.BundleId is null ? "" : $" ({result.BundleId})");
-                if (work.SyncError is not null)
-                {
-                    ReportOfGateScanStatus(detail + " Sync skipped: " + work.SyncError);
-                }
-                else if (work.Synced is int marked)
-                {
-                    ReportOfGateScanStatus($"{result.Message} Synced {marked} over-frame flag(s).");
-                    RunOfSearch();
-                }
-                else
-                {
-                    ReportOfGateScanStatus(detail);
-                }
-
-                RefreshOfGateEntryStatus();
+                ReportOfGateScanStatus($"{locate.Message} Synced {marked} over-frame flag(s).");
+                RunOfSearch();
             }
             else
-            {
-                _ofGateReady = false;
-                ReportOfGateScanStatus(result.Message);
-                if (showErrors)
-                    MessageBox.Show(result.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
+                ReportOfGateScanStatus(detail);
+
+            RefreshOfGateEntryStatus();
         }
         catch (Exception ex)
         {

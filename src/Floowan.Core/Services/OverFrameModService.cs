@@ -35,8 +35,9 @@ public sealed class OverFrameModService : IDisposable
         string playerDataPath,
         CardDatabase? database = null,
         IProgress<string>? progress = null,
-        CancellationToken cancellationToken = default) =>
-        _locator.Locate(playerDataPath, database, progress, cancellationToken);
+        CancellationToken cancellationToken = default,
+        bool allowFullScan = false) =>
+        _locator.Locate(playerDataPath, database, progress, cancellationToken, allowFullScan);
 
     public OverFrameResult ApplyOverFrame(
         string playerDataPath,
