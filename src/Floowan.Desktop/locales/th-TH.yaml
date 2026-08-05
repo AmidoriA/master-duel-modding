@@ -202,10 +202,10 @@ database:
 
 tools:
   card_database: "ฐานข้อมูลการ์ด"
-  card_database_help: "สร้างใหม่หรืออัปเดตแบบเพิ่มทีละส่วนแคตตาล็อกการ์ดหลัก (database.db) จากพาธ LocalData ที่หน้าหลัก รวมถึง StreamingAssets/AssetBundle ของการติดตั้ง (ชื่อ คำอธิบาย บันเดิล card_type created_at) ให้ความสำคัญกับดาวน์โหลดใน LocalData เมื่อมีทั้งคู่ โหมดเพิ่มทีละส่วนจะข้าม AssetBundle ที่ File.GetCreationTimeUtc ไม่ใหม่กว่า MAX(created_at) ในฐานข้อมูล — ไฟล์เหล่านั้นจะไม่ถูกเปิด"
+  card_database_help: "สร้างใหม่หรืออัปเดตแบบเพิ่มทีละส่วนแคตตาล็อกการ์ดหลัก (database.db) จากพาธ LocalData ที่หน้าหลัก รวมถึง StreamingAssets/AssetBundle ของการติดตั้ง (ชื่อ คำอธิบาย บันเดิล card_type created_at) ให้ความสำคัญกับดาวน์โหลดใน LocalData เมื่อมีทั้งคู่ โหมดเพิ่มทีละส่วนจะข้าม AssetBundle ภาพประกอบที่ File.GetCreationTimeUtc ไม่ใหม่กว่า MAX(created_at) ในฐานข้อมูล แต่ยังเปิดบันเดิล CARD_* (ชื่อ/คำอธิบาย/prop) เพราะแพตช์ MD มักเขียนทับโดยไม่รีเฟรช CreationTime"
   update_entire_db: "อัปเดตฐานข้อมูลทั้งหมด"
   update_new_files: "อัปเดตเฉพาะไฟล์ใหม่"
-  update_new_files_tooltip: "เปิดเฉพาะ AssetBundle ที่ File.GetCreationTimeUtc ใหม่กว่า created_at ล่าสุดใน database.db ไฟล์เก่าจะถูกข้ามทั้งหมด"
+  update_new_files_tooltip: "เปิดเฉพาะ AssetBundle ภาพประกอบที่ File.GetCreationTimeUtc ใหม่กว่า created_at ล่าสุดใน database.db ยังอ่าน CARD_* เพื่อจับคู่ชื่อ/ประเภทกับอาร์ตใหม่"
   of_gate: "เกต of_card_asset"
   of_gate_help: "หา of_card_asset จาก bundle id ที่แคชไว้หรือค่าเริ่มต้นที่ทราบ แล้วซิงก์แฟล็ก is_overframe ได้ตามต้องการ การค้นหาเต็มใน LocalData/StreamingAssets จะรันหลังยืนยันเท่านั้น — ไม่เริ่มอัตโนมัติเมื่อเปิดแท็บ"
   scan_of_card: "สแกน / ค้นหา of_card_asset…"
@@ -239,7 +239,7 @@ tools:
   update_entire_confirm_title: "อัปเดตฐานข้อมูลทั้งหมด"
   update_entire_confirm: "แทนที่แคตตาล็อกการ์ดหลักทั้งหมดใน:\n{0}\n\nด้วยข้อมูลที่ดึงจาก:\n{1}\n\nรายการโปรด/มอดใน user.db จะคงอยู่ ดำเนินการต่อ?"
   update_new_confirm_title: "อัปเดตเฉพาะไฟล์ใหม่"
-  update_new_confirm: "อัปเซิร์ตเฉพาะการ์ดจาก AssetBundle ที่ File.GetCreationTimeUtc ใหม่กว่า created_at ล่าสุดใน:\n{0}\n\ncreated_at ล่าสุดในฐานข้อมูล: {1}\nไฟล์เก่าจะถูกข้ามทั้งหมด (ไม่เปิด)\nพาธเกม:\n{2}\n\nแถวแคตตาล็อกเดิมคงอยู่ รายการโปรด/มอดใน user.db คงอยู่ ดำเนินการต่อ?"
+  update_new_confirm: "อัปเซิร์ตเฉพาะการ์ดจาก AssetBundle ภาพประกอบที่ File.GetCreationTimeUtc ใหม่กว่า created_at ล่าสุดใน:\n{0}\n\ncreated_at ล่าสุดในฐานข้อมูล: {1}\nข้ามไฟล์ภาพประกอบเก่า แต่ยังอ่าน CARD_* (ชื่อ/คำอธิบาย/prop)\nพาธเกม:\n{2}\n\nแถวแคตตาล็อกเดิมคงอยู่ รายการโปรด/มอดใน user.db คงอยู่ ดำเนินการต่อ?"
   no_created_at: "(ยังไม่มี — รันอัปเดตฐานข้อมูลทั้งหมดก่อน)"
   created_at_utc: "{0} UTC"
   restore_of_confirm_title: "กู้คืนโอเวอร์เฟรมหลังแพตช์"

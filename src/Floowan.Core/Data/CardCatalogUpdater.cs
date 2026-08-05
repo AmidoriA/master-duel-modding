@@ -46,10 +46,12 @@ public sealed class CardCatalogUpdater
     }
 
     /// <summary>
-    /// Incremental update: skips every AssetBundle whose
-    /// <see cref="File.GetCreationTimeUtc"/> is strictly after
+    /// Incremental update: skips illustration AssetBundles whose
+    /// <see cref="File.GetCreationTimeUtc"/> is not after
     /// <see cref="CardDatabase.GetLatestCreatedAtUtc"/> (DB <c>MAX(created_at)</c>)
-    /// before any AssetsTools open. Upserts matching rows; does not delete existing catalog cards.
+    /// before any AssetsTools open. CARD_* TextAsset bundles are still read (MD patches
+    /// often overwrite them without refreshing CreationTime). Upserts matching rows;
+    /// does not delete existing catalog cards.
     /// </summary>
     public CardCatalogUpdateResult UpdateNewFilesOnly(
         CardDatabase database,
@@ -67,7 +69,8 @@ public sealed class CardCatalogUpdater
         }
 
         progress?.Report(
-            $"Cutoff: illustration File.GetCreationTimeUtc after DB MAX(created_at) = {latest:o}");
+            $"Cutoff: illustration File.GetCreationTimeUtc after DB MAX(created_at) = {latest:o} " +
+            "(CARD_* TextAsset bundles are still opened)");
 
         var extract = _extractor.Extract(
             playerDataPath,
