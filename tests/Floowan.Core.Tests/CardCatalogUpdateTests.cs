@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text;
+using Floowan.Core.Assets;
 using Floowan.Core.Data;
 using Floowan.Core.Imaging;
 using Microsoft.Data.Sqlite;
@@ -464,10 +465,10 @@ CREATE TABLE card (
     }
 
     [Fact]
-    public void CardCatalogExtractor_Incremental_SkipsOldFiles_WithoutOpening()
+    public void CardCatalogExtractor_Incremental_SkipsOldIllustOnlyFiles_WithoutOpening()
     {
-        // Old junk in the size window would normally hit LoadBundleFile ("Skipping unreadable…").
-        // With a cutoff after the file's creation time, incremental must skip before open.
+        // Illust-only size (> card-data max 2 MiB) with an old creation time must be skipped
+        // before LoadBundleFile. CARD_* size-window files may still open despite the cutoff.
         var install = Path.Combine(Path.GetTempPath(), "floowan-catalog-inc-skip-" + Guid.NewGuid().ToString("N"));
         var player = Path.Combine(install, "LocalData", "deadbeef");
         var local0000 = Path.Combine(player, "0000", "aa");
@@ -476,7 +477,7 @@ CREATE TABLE card (
         File.WriteAllBytes(Path.Combine(install, "masterduel_Data", "data.unity3d"), Array.Empty<byte>());
 
         var junkPath = Path.Combine(local0000, "oldbundle");
-        File.WriteAllBytes(junkPath, new byte[32 * 1024]);
+        File.WriteAllBytes(junkPath, new byte[3 * 1024 * 1024]);
         var oldStamp = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         File.SetCreationTimeUtc(junkPath, oldStamp);
         File.SetLastWriteTimeUtc(junkPath, oldStamp);
@@ -503,5 +504,68 @@ CREATE TABLE card (
         {
             try { Directory.Delete(install, recursive: true); } catch { /* ignore */ }
         }
+    }
+
+    [Fact]
+    public void CardCatalogExtractor_Incremental_WithNoNewIllust_DoesNotRequireCardData()
+    {
+        // Phase 1 finds nothing new → early empty success without locating CARD_*.
+        // (Previously a single date gate skipped CARD_* and still failed when any new art existed;
+        // when nothing is new we must not error on missing CARD_*.)
+        var install = Path.Combine(Path.GetTempPath(), "floowan-catalog-inc-card-" + Guid.NewGuid().ToString("N"));
+        var player = Path.Combine(install, "LocalData", "deadbeef");
+        var local0000 = Path.Combine(player, "0000", "aa");
+        Directory.CreateDirectory(local0000);
+        Directory.CreateDirectory(Path.Combine(install, "masterduel_Data"));
+        File.WriteAllBytes(Path.Combine(install, "masterduel_Data", "data.unity3d"), Array.Empty<byte>());
+
+        var cardSized = Path.Combine(local0000, "cardsized");
+        File.WriteAllBytes(cardSized, new byte[32 * 1024]);
+        var oldStamp = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        File.SetCreationTimeUtc(cardSized, oldStamp);
+        File.SetLastWriteTimeUtc(cardSized, DateTime.UtcNow);
+
+        var cutoff = new DateTimeOffset(2024, 6, 1, 0, 0, 0, TimeSpan.Zero);
+
+        try
+        {
+            var notes = new List<string>();
+            var progress = new Progress<string>(s => { lock (notes) notes.Add(s); });
+            var result = new CardCatalogExtractor().Extract(
+                player, progress, illustCreatedAfterUtc: cutoff);
+
+            Assert.True(result.Success);
+            Assert.Empty(result.Rows);
+            List<string> snapshot;
+            lock (notes) snapshot = notes.ToList();
+            Assert.Contains(snapshot, n => n.Contains("nothing to upsert", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(snapshot, n => n.Contains("Locating CARD_", StringComparison.OrdinalIgnoreCase));
+            Assert.True(CardCatalogExtractor.IsCardDataSizeCandidate(32 * 1024));
+        }
+        finally
+        {
+            try { Directory.Delete(install, recursive: true); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
+    public void CardCatalogExtractor_CardDataSizeWindow_IncludesLiveBundleSizes()
+    {
+        // Live post-patch LocalData sizes (≈64–764 KiB) must stay inside the window.
+        Assert.True(CardCatalogExtractor.IsCardDataSizeCandidate(64_253));
+        Assert.True(CardCatalogExtractor.IsCardDataSizeCandidate(117_640));
+        Assert.True(CardCatalogExtractor.IsCardDataSizeCandidate(763_996));
+        Assert.True(CardCatalogExtractor.IsCardDataSizeCandidate(72_473));
+        Assert.True(CardCatalogExtractor.IsCardDataSizeCandidate(64));
+        Assert.False(CardCatalogExtractor.IsCardDataSizeCandidate(63));
+        Assert.False(CardCatalogExtractor.IsCardDataSizeCandidate(2 * 1024 * 1024 + 1));
+    }
+
+    [Fact]
+    public void CardCatalogExtractor_DefaultCardDataBundleIds_AreLiveHexNames()
+    {
+        Assert.Equal(4, CardCatalogExtractor.DefaultCardDataBundleIds.Length);
+        foreach (var id in CardCatalogExtractor.DefaultCardDataBundleIds)
+            Assert.True(OfCardAssetLocator.IsLiveBundleFileName(id), id);
     }
 }

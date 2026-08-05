@@ -33,17 +33,21 @@ namespace Floowan.Core.Data;
 /// via <see cref="File.GetCreationTimeUtc"/>.
 /// </para>
 /// <para>
-/// Incremental scans (optional creation cutoff) skip <b>entire</b> AssetBundle files whose
+/// Incremental scans (optional creation cutoff) skip <b>illustration</b> AssetBundle files whose
 /// <see cref="File.GetCreationTimeUtc"/> is not strictly after that cutoff (DB
-/// <c>MAX(created_at)</c>) — no <c>LoadBundleFile</c>, CARD_* parse, or illust parse for those
-/// files. Only newer candidates are opened with AssetsTools.
+/// <c>MAX(created_at)</c>). CARD_* TextAsset bundles in the card-data size window are still opened
+/// so names/descriptions/types stay available after MD patches that overwrite those files in place
+/// without refreshing CreationTime (same idea as Floowandereeze always reading
+/// <c>card/data/.../en-us/card_*</c> without a date filter).
 /// </para>
 /// </summary>
 public sealed class CardCatalogExtractor
 {
     // LZ4-packed bundles rarely expose path/asset strings as plaintext, so we open
     // size-filtered candidates with AssetsTools instead of relying on ASCII scans.
-    private const long MinCardDataBytes = 8 * 1024;
+    // Floor matches CardLinkMarkerLoader / Floowandereeze (no hard min there); CARD_*
+    // live bundles today are tens–hundreds of KiB, but post-patch stubs can be smaller.
+    private const long MinCardDataBytes = 64;
     private const long MaxCardDataBytes = 2 * 1024 * 1024;
     private const long MinIllustBytes = 16 * 1024;
     // Inclusive upper bound for illustration candidates. Must stay above large LocalData
@@ -59,6 +63,25 @@ public sealed class CardCatalogExtractor
         length is >= MinIllustBytes and <= MaxIllustBytes;
 
     /// <summary>
+    /// Whether a file length falls in the CARD_* TextAsset bundle size window.
+    /// </summary>
+    public static bool IsCardDataSizeCandidate(long length) =>
+        length is >= MinCardDataBytes and <= MaxCardDataBytes;
+
+    /// <summary>
+    /// Post-patch live LocalData ids for CARD_Indx / CARD_Name / CARD_Desc / CARD_Prop
+    /// (verified Aug 2026). Tried before a size-window scan — same idea as
+    /// <see cref="Assets.OfCardAssetLocator.DefaultBundleId"/>.
+    /// </summary>
+    public static readonly string[] DefaultCardDataBundleIds =
+    [
+        "414312b4", // CARD_Indx
+        "650cbaa0", // CARD_Name
+        "309a68f2", // CARD_Desc
+        "9441014c", // CARD_Prop
+    ];
+
+    /// <summary>
     /// AssetsTools.NET class-package load is not safe to run concurrently against the same file.
     /// </summary>
     private static readonly object ClassPackageLoadGate = new();
@@ -71,9 +94,11 @@ public sealed class CardCatalogExtractor
     }
 
     /// <param name="illustCreatedAfterUtc">
-    /// When set (incremental mode), any AssetBundle with <see cref="File.GetCreationTimeUtc"/>
-    /// ≤ this cutoff is skipped entirely before AssetsTools open — no CARD_* or illust parse.
-    /// Only files strictly newer than the cutoff are candidates for <c>LoadBundleFile</c>.
+    /// When set (incremental mode), illustration AssetBundles with
+    /// <see cref="File.GetCreationTimeUtc"/> ≤ this cutoff are skipped before AssetsTools open.
+    /// CARD_* TextAsset bundles are still opened when their size falls in the card-data window:
+    /// MD patches often overwrite those files in place (LastWriteTime updates, CreationTime stays
+    /// old), and Floowandereeze always reads <c>card/data/.../en-us/card_*</c> without a date gate.
     /// </param>
     public CardCatalogExtractResult Extract(
         string playerDataPath,
@@ -91,94 +116,88 @@ public sealed class CardCatalogExtractor
 
         DateTime? illustCutoffUtc = illustCreatedAfterUtc?.UtcDateTime;
         if (illustCutoffUtc is not null)
-            progress?.Report($"Incremental: only files newer than {illustCutoffUtc:o} (File.GetCreationTimeUtc vs DB created_at); older files are not opened.");
+            progress?.Report(
+                $"Incremental: illustration files newer than {illustCutoffUtc:o} " +
+                "(File.GetCreationTimeUtc vs DB created_at); CARD_* located separately without a date gate.");
 
-        progress?.Report($"Scanning {bundleFiles.Count} bundles for card data and illustrations…");
         var artToBundle = new ConcurrentDictionary<int, string>();
         var artBundlePaths = new ConcurrentDictionary<int, string>();
         var cardData = new CardDataPayloads();
         var skippedOldBundles = 0;
         var openedBundles = 0;
 
-        var checkedCount = 0;
-        // One AssetsManager per worker thread; serialize LoadClassPackage.
-        Parallel.ForEach(
-            bundleFiles,
-            new ParallelOptions
-            {
-                CancellationToken = cancellationToken,
-                MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount)
-            },
-            () => CreateAssetsManager(),
-            (path, _, am) =>
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var n = Interlocked.Increment(ref checkedCount);
-                if (n % 400 == 0)
-                    progress?.Report($"Scanning bundles… {n}/{bundleFiles.Count}");
-
-                // Incremental: date gate before any size window / LoadBundleFile.
-                if (illustCutoffUtc is DateTime cutoff)
-                {
-                    try
-                    {
-                        if (File.GetCreationTimeUtc(path) <= cutoff)
-                        {
-                            Interlocked.Increment(ref skippedOldBundles);
-                            return am;
-                        }
-                    }
-                    catch
-                    {
-                        Interlocked.Increment(ref skippedOldBundles);
-                        return am;
-                    }
-                }
-
-                long length;
-                try { length = new FileInfo(path).Length; }
-                catch { return am; }
-
-                var mayHaveCardData = !cardData.IsComplete
-                    && length is >= MinCardDataBytes and <= MaxCardDataBytes;
-                var mayHaveIllust = IsIllustrationSizeCandidate(length);
-                if (!mayHaveCardData && !mayHaveIllust)
-                    return am;
-
-                try
-                {
-                    Interlocked.Increment(ref openedBundles);
-                    // Single LoadBundleFile per path — a second load on a dirty manager
-                    // silently drops illustration hits.
-                    TryCollectFromBundle(
-                        am, path, mayHaveCardData, mayHaveIllust,
-                        cardData, artToBundle, artBundlePaths, progress);
-                }
-                catch (Exception ex)
-                {
-                    // Skip unreadable / non-bundle files; keep the scan going.
-                    progress?.Report($"Skipping unreadable bundle {Path.GetFileName(path)}: {ex.GetType().Name}");
-                }
-                finally
-                {
-                    am.UnloadAll(unloadClassData: false);
-                }
-
-                return am;
-            },
-            am => am.UnloadAll());
-
-        if (illustCutoffUtc is not null && skippedOldBundles > 0)
-            progress?.Report($"Skipped {skippedOldBundles} files older than cutoff (not opened). Opened {openedBundles} newer candidates.");
-
-        if (illustCutoffUtc is not null && artToBundle.IsEmpty)
+        if (illustCutoffUtc is DateTime cutoff)
         {
-            progress?.Report("No new illustration files after cutoff; nothing to upsert.");
-            return CardCatalogExtractResult.Ok(
-                Array.Empty<CatalogCardRow>(),
-                cryptoKey: 0,
-                illustCount: 0,
-                bundlesScanned: bundleFiles.Count);
+            // Phase 1 — illustrations only (date-gated). Skip CARD_* work when nothing is new.
+            progress?.Report($"Scanning {bundleFiles.Count} bundles for new illustrations…");
+            ScanBundles(
+                bundleFiles,
+                cardData,
+                artToBundle,
+                artBundlePaths,
+                collectCardData: false,
+                illustCutoffUtc: cutoff,
+                collectIllusts: true,
+                ref skippedOldBundles,
+                ref openedBundles,
+                progress,
+                cancellationToken);
+
+            if (skippedOldBundles > 0)
+                progress?.Report(
+                    $"Skipped {skippedOldBundles} illustration candidates older than cutoff. " +
+                    $"Opened {openedBundles} newer illust candidates.");
+
+            if (artToBundle.IsEmpty)
+            {
+                progress?.Report("No new illustration files after cutoff; nothing to upsert.");
+                return CardCatalogExtractResult.Ok(
+                    Array.Empty<CatalogCardRow>(),
+                    cryptoKey: 0,
+                    illustCount: 0,
+                    bundlesScanned: bundleFiles.Count);
+            }
+
+            // Phase 2 — CARD_* without date gate (MD patches overwrite in place; CreationTime stays old).
+            // Floowandereeze always reads card/data/.../en-us/card_* without a date filter.
+            progress?.Report("Locating CARD_* TextAssets (no illust cutoff)…");
+            TryBindKnownCardDataBundles(playerDataPath, cardData, progress);
+            if (!cardData.IsComplete)
+            {
+                var cardOpened = 0;
+                var unusedSkip = 0;
+                ScanBundles(
+                    bundleFiles,
+                    cardData,
+                    artToBundle,
+                    artBundlePaths,
+                    collectCardData: true,
+                    illustCutoffUtc: null,
+                    collectIllusts: false,
+                    ref unusedSkip,
+                    ref cardOpened,
+                    progress,
+                    cancellationToken);
+                openedBundles += cardOpened;
+            }
+        }
+        else
+        {
+            // Full rebuild — bind known CARD_* ids first, then single pass for the rest + illusts.
+            progress?.Report($"Scanning {bundleFiles.Count} bundles for card data and illustrations…");
+            TryBindKnownCardDataBundles(playerDataPath, cardData, progress);
+            ScanBundles(
+                bundleFiles,
+                cardData,
+                artToBundle,
+                artBundlePaths,
+                collectCardData: true,
+                illustCutoffUtc: null,
+                collectIllusts: true,
+                ref skippedOldBundles,
+                ref openedBundles,
+                progress,
+                cancellationToken);
         }
 
         if (cardData.Indx is null || cardData.Name is null || cardData.Desc is null || cardData.Prop is null)
@@ -300,66 +319,33 @@ public sealed class CardCatalogExtractor
             throw new InvalidOperationException(pathError ?? "Invalid game path.");
 
         progress?.Report("Loading CARD_Prop for card types…");
-        var bundleFiles = EnumerateBundleFiles(playerDataPath);
-        if (bundleFiles.Count == 0)
-            throw new InvalidOperationException(
-                "No AssetBundle files found under LocalData/0000 or StreamingAssets/AssetBundle.");
-
         var cardData = new CardDataPayloads();
-        var checkedCount = 0;
-        // Illust maps unused (collectIllusts: false); shared so workers don't allocate per file.
-        var unusedArt = new ConcurrentDictionary<int, string>();
-        var unusedArtPaths = new ConcurrentDictionary<int, string>();
+        TryBindKnownCardDataBundles(playerDataPath, cardData, progress);
+        if (!cardData.HasIndxAndProp)
+        {
+            var bundleFiles = EnumerateBundleFiles(playerDataPath);
+            if (bundleFiles.Count == 0)
+                throw new InvalidOperationException(
+                    "No AssetBundle files found under LocalData/0000 or StreamingAssets/AssetBundle.");
 
-        Parallel.ForEach(
-            bundleFiles,
-            new ParallelOptions
-            {
-                CancellationToken = cancellationToken,
-                MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount)
-            },
-            () => CreateAssetsManager(),
-            (path, _, am) =>
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (cardData.HasIndxAndProp)
-                    return am;
-
-                var n = Interlocked.Increment(ref checkedCount);
-                if (n % 400 == 0)
-                    progress?.Report($"Scanning for CARD_Prop… {n}/{bundleFiles.Count}");
-
-                long length;
-                try { length = new FileInfo(path).Length; }
-                catch { return am; }
-
-                if (length is < MinCardDataBytes or > MaxCardDataBytes)
-                    return am;
-
-                try
-                {
-                    // Illust collection off — type map only needs CARD_Indx / CARD_Prop TextAssets.
-                    TryCollectFromBundle(
-                        am, path,
-                        collectCardData: true,
-                        collectIllusts: false,
-                        cardData,
-                        unusedArt,
-                        unusedArtPaths,
-                        progress);
-                }
-                catch
-                {
-                    // Skip unreadable / non-bundle files.
-                }
-                finally
-                {
-                    am.UnloadAll(unloadClassData: false);
-                }
-
-                return am;
-            },
-            am => am.UnloadAll());
+            var unusedArt = new ConcurrentDictionary<int, string>();
+            var unusedArtPaths = new ConcurrentDictionary<int, string>();
+            var skipped = 0;
+            var opened = 0;
+            ScanBundles(
+                bundleFiles,
+                cardData,
+                unusedArt,
+                unusedArtPaths,
+                collectCardData: true,
+                illustCutoffUtc: null,
+                collectIllusts: false,
+                ref skipped,
+                ref opened,
+                progress,
+                cancellationToken,
+                stopWhenIndxAndPropOnly: true);
+        }
 
         if (cardData.Indx is null || cardData.Prop is null)
         {
@@ -379,6 +365,165 @@ public sealed class CardCatalogExtractor
 
         progress?.Report($"Loaded types for {map.Count} CARD_Prop ids.");
         return map;
+    }
+
+    private void TryBindKnownCardDataBundles(
+        string playerDataPath,
+        CardDataPayloads cardData,
+        IProgress<string>? progress)
+    {
+        if (cardData.IsComplete)
+            return;
+
+        var unusedArt = new ConcurrentDictionary<int, string>();
+        var unusedArtPaths = new ConcurrentDictionary<int, string>();
+        var am = CreateAssetsManager();
+        try
+        {
+            foreach (var bundleId in DefaultCardDataBundleIds)
+            {
+                if (cardData.IsComplete)
+                    break;
+
+                string path;
+                try
+                {
+                    path = BundlePathResolver.ResolveExistingBundlePath(playerDataPath, bundleId);
+                }
+                catch (FileNotFoundException)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    TryCollectFromBundle(
+                        am, path,
+                        collectCardData: true,
+                        collectIllusts: false,
+                        cardData,
+                        unusedArt,
+                        unusedArtPaths,
+                        progress);
+                }
+                catch
+                {
+                    // stale / unloadable default — fall through to scan
+                }
+                finally
+                {
+                    am.UnloadAll(unloadClassData: false);
+                }
+            }
+        }
+        finally
+        {
+            am.UnloadAll();
+        }
+
+        if (cardData.IsComplete)
+            progress?.Report("Bound CARD_* TextAssets from known live bundle ids.");
+        else if (cardData.HasIndxAndProp)
+            progress?.Report("Bound CARD_Indx/CARD_Prop from known ids; scanning for remaining CARD_*…");
+    }
+
+    private void ScanBundles(
+        IReadOnlyList<string> bundleFiles,
+        CardDataPayloads cardData,
+        ConcurrentDictionary<int, string> artToBundle,
+        ConcurrentDictionary<int, string> artBundlePaths,
+        bool collectCardData,
+        DateTime? illustCutoffUtc,
+        bool collectIllusts,
+        ref int skippedOldBundles,
+        ref int openedBundles,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken,
+        bool stopWhenIndxAndPropOnly = false)
+    {
+        var skipped = 0;
+        var opened = 0;
+        var checkedCount = 0;
+
+        Parallel.ForEach(
+            bundleFiles,
+            new ParallelOptions
+            {
+                CancellationToken = cancellationToken,
+                MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount)
+            },
+            () => CreateAssetsManager(),
+            (path, _, am) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var cardDataDone = stopWhenIndxAndPropOnly
+                    ? cardData.HasIndxAndProp
+                    : cardData.IsComplete;
+                if (collectCardData && !collectIllusts && cardDataDone)
+                    return am;
+
+                var n = Interlocked.Increment(ref checkedCount);
+                if (n % 400 == 0)
+                    progress?.Report($"Scanning bundles… {n}/{bundleFiles.Count}");
+
+                long length;
+                try { length = new FileInfo(path).Length; }
+                catch { return am; }
+
+                var needCardData = collectCardData && !(stopWhenIndxAndPropOnly
+                    ? cardData.HasIndxAndProp
+                    : cardData.IsComplete);
+                var mayHaveCardData = needCardData && IsCardDataSizeCandidate(length);
+
+                var creationTooOldForIllust = false;
+                if (collectIllusts && illustCutoffUtc is DateTime cutoff)
+                {
+                    try
+                    {
+                        creationTooOldForIllust = File.GetCreationTimeUtc(path) <= cutoff;
+                    }
+                    catch
+                    {
+                        creationTooOldForIllust = true;
+                    }
+                }
+
+                var mayHaveIllust = collectIllusts
+                    && !creationTooOldForIllust
+                    && IsIllustrationSizeCandidate(length);
+
+                if (!mayHaveCardData && !mayHaveIllust)
+                {
+                    if (creationTooOldForIllust)
+                        Interlocked.Increment(ref skipped);
+                    return am;
+                }
+
+                try
+                {
+                    Interlocked.Increment(ref opened);
+                    // Single LoadBundleFile per path — a second load on a dirty manager
+                    // silently drops illustration hits.
+                    TryCollectFromBundle(
+                        am, path, mayHaveCardData, mayHaveIllust,
+                        cardData, artToBundle, artBundlePaths, progress);
+                }
+                catch (Exception ex)
+                {
+                    progress?.Report($"Skipping unreadable bundle {Path.GetFileName(path)}: {ex.GetType().Name}");
+                }
+                finally
+                {
+                    am.UnloadAll(unloadClassData: false);
+                }
+
+                return am;
+            },
+            am => am.UnloadAll());
+
+        skippedOldBundles += skipped;
+        openedBundles += opened;
     }
 
     private AssetsManager CreateAssetsManager()

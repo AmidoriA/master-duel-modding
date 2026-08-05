@@ -203,10 +203,10 @@ database:
 
 tools:
   card_database: "Card database"
-  card_database_help: "Rebuild or incrementally refresh the master card catalog (database.db) from the Home LocalData path plus install StreamingAssets/AssetBundle (names, descriptions, bundles, card_type, created_at). Prefer LocalData downloads when both exist. Incremental mode skips any AssetBundle whose File.GetCreationTimeUtc is not after MAX(created_at) already stored in the database — those files are never opened."
+  card_database_help: "Rebuild or incrementally refresh the master card catalog (database.db) from the Home LocalData path plus install StreamingAssets/AssetBundle (names, descriptions, bundles, card_type, created_at). Prefer LocalData downloads when both exist. Incremental mode skips illustration AssetBundles whose File.GetCreationTimeUtc is not after MAX(created_at) already stored in the database; CARD_* name/desc/prop bundles are still opened (MD patches often overwrite them without refreshing CreationTime)."
   update_entire_db: "Update entire DB"
   update_new_files: "Update new files only"
-  update_new_files_tooltip: "Only open AssetBundles whose File.GetCreationTimeUtc is after the latest created_at in database.db; older files are skipped entirely."
+  update_new_files_tooltip: "Only open illustration AssetBundles whose File.GetCreationTimeUtc is after the latest created_at in database.db. CARD_* TextAsset bundles are still read so new art can be joined to names/types."
   of_gate: "of_card_asset gate"
   of_gate_help: "Resolve of_card_asset from the cached bundle id or the known live default, then optionally sync is_overframe flags. A full LocalData/StreamingAssets search only runs after you confirm — it is never started automatically on tab open."
   scan_of_card: "Scan / locate of_card_asset…"
@@ -240,7 +240,7 @@ tools:
   update_entire_confirm_title: "Update entire DB"
   update_entire_confirm: "Replace the entire master card catalog in:\n{0}\n\nwith data extracted from:\n{1}\n\nUser favorites/mods in user.db are kept. Continue?"
   update_new_confirm_title: "Update new files only"
-  update_new_confirm: "Upsert only cards from AssetBundles whose File.GetCreationTimeUtc is after the latest created_at in:\n{0}\n\nLatest DB created_at: {1}\nOlder files are skipped entirely (not opened).\nGame path:\n{2}\n\nExisting catalog rows are kept. User favorites/mods in user.db are kept. Continue?"
+  update_new_confirm: "Upsert only cards from illustration AssetBundles whose File.GetCreationTimeUtc is after the latest created_at in:\n{0}\n\nLatest DB created_at: {1}\nOlder illustration files are skipped; CARD_* name/desc/prop bundles are still read.\nGame path:\n{2}\n\nExisting catalog rows are kept. User favorites/mods in user.db are kept. Continue?"
   no_created_at: "(none — run Update entire DB first)"
   created_at_utc: "{0} UTC"
   restore_of_confirm_title: "Restore overframes after patch"
