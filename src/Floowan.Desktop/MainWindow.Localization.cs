@@ -28,6 +28,7 @@ public partial class MainWindow
         OverFrameTab.Header = Loc.T("tabs.overframe");
         DatabaseTab.Header = Loc.T("tabs.database");
         ToolsTab.Header = Loc.T("tabs.tools");
+        ImportExportTab.Header = Loc.T("tabs.import_export");
         OptionsTab.Header = Loc.T("tabs.options");
         AboutTab.Header = Loc.T("tabs.about");
 
@@ -135,6 +136,13 @@ public partial class MainWindow
         ToolsOpenBackupRootButton.Content = Loc.T("tools.open_explorer");
         ToolsRefreshBackupsButton.Content = Loc.T("common.refresh");
         ToolsOpenSelectedButton.Content = Loc.T("tools.open_selected");
+
+        ImportExportHeader.Text = Loc.T("import_export.header");
+        ImportExportHelpText.Text = Loc.T("import_export.help");
+        ImportExportExportButton.Content = Loc.T("import_export.export");
+        ImportExportExportButton.ToolTip = Loc.T("import_export.export_tooltip");
+        ImportExportImportButton.Content = Loc.T("import_export.import");
+        ImportExportImportButton.ToolTip = Loc.T("import_export.import_tooltip");
 
         OptionsHeader.Text = Loc.T("options.title");
         OptionsIntroText.Text = Loc.T("options.intro");
