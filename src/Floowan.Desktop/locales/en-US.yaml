@@ -406,6 +406,8 @@ import_export:
   select_all: "Select all"
   select_none: "Select none"
   selected_count: "{0} of {1} selected"
+  selected_sidebar: "Selected"
+  selected_sidebar_empty: "No cards selected."
   select_at_least_one: "Select at least one card."
   export_pick_title: "Export over-frames"
   export_pick_intro: "Select cards currently registered in of_card_asset (Floowan or other mods). Applied art and optional edit layers are packed when available."
