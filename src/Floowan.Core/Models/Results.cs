@@ -148,3 +148,9 @@ public sealed class OverFrameOrphanRepairBatchResult
         };
     }
 }
+
+/// <summary>
+/// A catalog card that appears in the live <c>of_card_asset</c> gate (any mod source).
+/// </summary>
+public readonly record struct GatedOverFrameCard(CardRecord Card, int ArtId, int BaseArtId);
+

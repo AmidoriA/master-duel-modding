@@ -114,8 +114,11 @@ public sealed class OverFrameBundleExportItem
     public int CardId { get; init; }
     public string DisplayName { get; init; } = "";
     public string Name { get; init; } = "";
+    public int ArtId { get; init; }
+    public int BaseArtId { get; init; }
     public bool HasEditLayer { get; init; }
     public bool HasAppliedCanvas { get; init; }
+    public bool IsFloowanTracked { get; init; }
 }
 
 public sealed class OverFrameBundleExportResult
