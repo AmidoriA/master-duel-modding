@@ -47,7 +47,7 @@ tabs:
   overframe: "โอเวอร์เฟรม"
   database: "ฐานข้อมูล"
   tools: "เครื่องมือ"
-  import_export: "นำเข้า/ส่งออก"
+  import_export: "แพ็ก/แกะมอด"
   options: "ตัวเลือก"
   about: "เกี่ยวกับ"
 
@@ -396,7 +396,7 @@ sam:
   color_orange_tip: "ไฮไลต์การเลือกสีส้ม"
 
 import_export:
-  header: "นำเข้า / ส่งออก"
+  header: "แพ็ก/แกะมอด"
   help: "แชร์มอดโอเวอร์เฟรมระหว่างเครื่องด้วยไฟล์ .overframes ไฟล์เดียว การส่งออกสแกนเกต of_card_asset ที่มีอยู่ (มอดใดก็ได้) แพ็กอาร์ต OF เมื่อมี และรวมเลเยอร์แก้ไขจาก user.db เมื่อมี การนำเข้าจะเขียนการ์ดที่เลือกลง LocalData และกู้คืนเลเยอร์"
   export: "ส่งออกโอเวอร์เฟรม…"
   export_tooltip: "เลือกการ์ดจากเกต of_card_asset แล้วบันทึกเป็น .overframes"
