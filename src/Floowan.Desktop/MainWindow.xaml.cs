@@ -933,6 +933,248 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void ImportExportExport_Click(object sender, RoutedEventArgs e)
+    {
+        if (_database is null)
+        {
+            MessageBox.Show(Loc.T("common.open_database_first"), AppCaption);
+            return;
+        }
+
+        if (_overFrameService is null)
+        {
+            MessageBox.Show(Loc.T("common.overframe_service_missing"), AppCaption);
+            return;
+        }
+
+        var gamePath = GamePathBox.Text?.Trim() ?? "";
+        string? pathError = null;
+        if (string.IsNullOrWhiteSpace(gamePath) || !GamePathLocator.IsValidGamePath(gamePath, out pathError))
+        {
+            MessageBox.Show(
+                pathError ?? Loc.T("common.set_localdata_home"),
+                AppCaption,
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        using var bundleService = new OverFrameBundleService(_overFrameService);
+        IReadOnlyList<OverFrameBundleExportItem> candidates;
+        try
+        {
+            SetUiBusy(true);
+            Status(Loc.T("app.working"));
+            var database = _database;
+            candidates = await Task.Run(() => bundleService.ListExportCandidates(database, gamePath));
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        finally
+        {
+            SetUiBusy(false);
+        }
+
+        if (candidates.Count == 0)
+        {
+            ImportExportStatusText.Text = Loc.T("import_export.export_none");
+            MessageBox.Show(Loc.T("import_export.export_none"), AppCaption, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var pickItems = candidates.Select(c =>
+        {
+            var badges = new List<string>();
+            if (c.HasAppliedCanvas) badges.Add(Loc.T("import_export.export_badge_canvas"));
+            if (c.HasEditLayer) badges.Add(Loc.T("import_export.export_badge_layer"));
+            if (badges.Count == 0) badges.Add(Loc.T("import_export.export_badge_neither"));
+            var label = Loc.T("import_export.label_with_badges", c.DisplayName, string.Join(", ", badges));
+            return new CardPickDialog.PickItem
+            {
+                Id = c.CardId,
+                Label = label,
+                IsSelected = c.HasAppliedCanvas || c.HasEditLayer
+            };
+        }).ToList();
+
+        var pick = new CardPickDialog(
+            this,
+            Loc.T("import_export.export_pick_title"),
+            Loc.T("import_export.export_pick_intro"),
+            pickItems);
+        if (pick.ShowDialog() != true)
+            return;
+
+        var save = new SaveFileDialog
+        {
+            Title = Loc.T("import_export.export_save_title"),
+            Filter = Loc.T("import_export.export_filter"),
+            FileName = "floowan-overframes.overframes",
+            AddExtension = true,
+            DefaultExt = ".overframes"
+        };
+        if (save.ShowDialog(this) != true)
+            return;
+
+        var selectedIds = pick.SelectedIds;
+        var version = typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+        SetUiBusy(true);
+        ImportExportStatusText.Text = Loc.T("app.starting");
+        Status(Loc.T("app.starting"));
+        try
+        {
+            var database = _database;
+            var progress = new Progress<string>(msg =>
+            {
+                ImportExportStatusText.Text = msg;
+                Status(msg);
+            });
+            var result = await Task.Run(() =>
+                bundleService.Export(gamePath, database, selectedIds, save.FileName, version, progress));
+            ImportExportStatusText.Text = result.Message;
+            Status(result.Message);
+            MessageBox.Show(
+                result.Message,
+                AppCaption,
+                MessageBoxButton.OK,
+                result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        }
+        catch (Exception ex)
+        {
+            ImportExportStatusText.Text = Loc.T("app.error_prefix", ex.Message);
+            Status(Loc.T("app.error_prefix", ex.Message));
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            SetUiBusy(false);
+        }
+    }
+
+    private async void ImportExportImport_Click(object sender, RoutedEventArgs e)
+    {
+        if (_database is null)
+        {
+            MessageBox.Show(Loc.T("common.open_database_first"), AppCaption);
+            return;
+        }
+
+        if (_overFrameService is null)
+        {
+            MessageBox.Show(Loc.T("common.overframe_service_missing"), AppCaption);
+            return;
+        }
+
+        var gamePath = GamePathBox.Text?.Trim() ?? "";
+        string? pathError = null;
+        if (string.IsNullOrWhiteSpace(gamePath) || !GamePathLocator.IsValidGamePath(gamePath, out pathError))
+        {
+            MessageBox.Show(
+                pathError ?? Loc.T("common.set_localdata_home"),
+                AppCaption,
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var open = new OpenFileDialog
+        {
+            Title = Loc.T("import_export.import_open_title"),
+            Filter = Loc.T("import_export.export_filter"),
+            CheckFileExists = true
+        };
+        if (open.ShowDialog(this) != true)
+            return;
+
+        using var bundleService = new OverFrameBundleService(_overFrameService);
+        OverFrameBundleManifest manifest;
+        try
+        {
+            manifest = bundleService.ReadManifest(open.FileName);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        if (manifest.Cards.Count == 0)
+        {
+            MessageBox.Show(Loc.T("import_export.import_empty"), AppCaption, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var pickItems = manifest.Cards.Select(c =>
+        {
+            var badges = new List<string>();
+            if (!string.IsNullOrWhiteSpace(c.AppliedPng)) badges.Add(Loc.T("import_export.export_badge_canvas"));
+            if (c.HasEditLayer) badges.Add(Loc.T("import_export.export_badge_layer"));
+            var name = string.IsNullOrWhiteSpace(c.Name) ? $"#{c.CardId}" : c.Name;
+            var label = badges.Count == 0
+                ? name
+                : Loc.T("import_export.label_with_badges", name, string.Join(", ", badges));
+            return new CardPickDialog.PickItem
+            {
+                Id = c.CardId,
+                Label = label,
+                IsSelected = true
+            };
+        }).ToList();
+
+        var pick = new CardPickDialog(
+            this,
+            Loc.T("import_export.import_pick_title"),
+            Loc.T("import_export.import_pick_intro"),
+            pickItems);
+        if (pick.ShowDialog() != true)
+            return;
+
+        var selectedIds = pick.SelectedIds;
+        var confirm = MessageBox.Show(
+            Loc.T("import_export.import_confirm", selectedIds.Count),
+            Loc.T("import_export.import_confirm_title"),
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes)
+            return;
+
+        SetUiBusy(true);
+        ImportExportStatusText.Text = Loc.T("app.starting");
+        Status(Loc.T("app.starting"));
+        try
+        {
+            var database = _database;
+            var progress = new Progress<string>(msg =>
+            {
+                ImportExportStatusText.Text = msg;
+                Status(msg);
+            });
+            var result = await Task.Run(() =>
+                bundleService.Import(gamePath, database, open.FileName, selectedIds, createBackup: true, progress: progress));
+            ImportExportStatusText.Text = result.Message;
+            Status(result.Message);
+            RunOfSearch();
+            MessageBox.Show(
+                result.Message + Environment.NewLine + Environment.NewLine + OfRestartHint,
+                AppCaption,
+                MessageBoxButton.OK,
+                result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        }
+        catch (Exception ex)
+        {
+            ImportExportStatusText.Text = Loc.T("app.error_prefix", ex.Message);
+            Status(Loc.T("app.error_prefix", ex.Message));
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            SetUiBusy(false);
+        }
+    }
+
     private async void ToolsOrphanOverframes_Click(object sender, RoutedEventArgs e)
     {
         if (_database is null)
