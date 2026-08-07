@@ -28,8 +28,7 @@
                 BorderBrush="#3A4652" BorderThickness="1">
           <Grid>
             <Image Width="72" Height="104" Stretch="Uniform"
-                   HorizontalAlignment="Center" VerticalAlignment="Center"
-                   Loaded="CardThumbnailImage_Loaded"/>
+                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
             <TextBlock Text="OF" FontSize="9" FontWeight="SemiBold" Foreground="#7DCEA0"
                        HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,4,0"
                        Visibility="{Binding IsOverframe, Converter={StaticResource BoolToVisibilityConverter}}"/>

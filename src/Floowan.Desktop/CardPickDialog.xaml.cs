@@ -1,14 +1,11 @@
-using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Threading;
 using Floowan.Core.Models;
 using Floowan.Desktop.Localization;
 
@@ -75,16 +72,12 @@ public partial class CardPickDialog : Window
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 
-    private const double ViewportLoadBufferPx = 160;
-
     private readonly ObservableCollection<PickItem> _items;
     private readonly ObservableCollection<PickItem> _selectedSidebar = new();
     private readonly ICollectionView _view;
     private readonly string? _gamePath;
     private readonly CardThumbnailCache _thumbnailCache;
-    private readonly ConcurrentDictionary<int, byte> _inflightLoads = new();
-    private CancellationTokenSource _thumbLoadCts = new();
-    private bool _visibleLoadPassScheduled;
+    private readonly ViewportThumbnailLoader<PickItem> _thumbLoader;
 
     public CardPickDialog(
         Window owner,
@@ -99,6 +92,13 @@ public partial class CardPickDialog : Window
         IntroText.Text = intro;
         _gamePath = gamePath;
         _thumbnailCache = new CardThumbnailCache();
+        _thumbLoader = new ViewportThumbnailLoader<PickItem>(
+            _thumbnailCache,
+            () => _gamePath,
+            item => item.Id,
+            item => item.AsCardRecord(),
+            (item, src) => item.Thumbnail = src,
+            dispatcher: Dispatcher);
 
         _items = new ObservableCollection<PickItem>(items);
         foreach (var item in _items)
@@ -123,12 +123,8 @@ public partial class CardPickDialog : Window
         SelectedSidebarEmpty.Text = Loc.T("import_export.selected_sidebar_empty");
         RefreshSelectionUi();
 
-        CardList.ItemContainerGenerator.StatusChanged += (_, _) =>
-        {
-            if (CardList.ItemContainerGenerator.Status == GeneratorStatus.ContainersGenerated)
-                ScheduleVisibleThumbnailLoads();
-        };
-        Loaded += (_, _) => ScheduleVisibleThumbnailLoads();
+        _thumbLoader.Attach(CardList, CardScrollViewer, VisibleItems);
+        Loaded += (_, _) => _thumbLoader.ScheduleVisibleLoads();
     }
 
     public IReadOnlyList<int> SelectedIds =>
@@ -149,18 +145,8 @@ public partial class CardPickDialog : Window
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         _view.Refresh();
-        CancelThumbnailLoadsAndReloadVisible();
+        _thumbLoader.CancelAndReloadVisible();
     }
-
-    private void CardScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
-    {
-        if (e.VerticalChange == 0 && e.ViewportHeightChange == 0 && e.ExtentHeightChange == 0)
-            return;
-        ScheduleVisibleThumbnailLoads();
-    }
-
-    private void CardScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e) =>
-        ScheduleVisibleThumbnailLoads();
 
     private void OnPickItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -239,7 +225,7 @@ public partial class CardPickDialog : Window
             return;
 
         container.BringIntoView();
-        ScheduleVisibleThumbnailLoads();
+        _thumbLoader.ScheduleVisibleLoads();
     }
 
     private static T? FindVisualAncestor<T>(DependencyObject? current) where T : DependencyObject
@@ -252,124 +238,6 @@ public partial class CardPickDialog : Window
         }
 
         return null;
-    }
-
-    private void CancelThumbnailLoadsAndReloadVisible()
-    {
-        var previous = _thumbLoadCts;
-        _thumbLoadCts = new CancellationTokenSource();
-        try
-        {
-            previous.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-            /* ignore */
-        }
-
-        previous.Dispose();
-        // Leave in-flight ids until their tasks finish; finally re-schedules so still-visible
-        // cards can start again under the new token.
-        ScheduleVisibleThumbnailLoads();
-    }
-
-    private void ScheduleVisibleThumbnailLoads()
-    {
-        if (_visibleLoadPassScheduled)
-            return;
-
-        _visibleLoadPassScheduled = true;
-        Dispatcher.BeginInvoke(
-            () =>
-            {
-                _visibleLoadPassScheduled = false;
-                StartLoadsForViewport();
-            },
-            DispatcherPriority.Background);
-    }
-
-    private void StartLoadsForViewport()
-    {
-        if (!IsLoaded || CardScrollViewer is null || CardList is null)
-            return;
-
-        var token = _thumbLoadCts.Token;
-        if (token.IsCancellationRequested)
-            return;
-
-        foreach (var item in VisibleItems())
-        {
-            if (token.IsCancellationRequested)
-                return;
-
-            var card = item.AsCardRecord();
-            if (_thumbnailCache.TryGet(card, out var cached)
-                && !ReferenceEquals(cached, _thumbnailCache.Placeholder))
-            {
-                if (!ReferenceEquals(item.Thumbnail, cached))
-                    item.Thumbnail = cached;
-                continue;
-            }
-
-            if (!IsItemInScrollViewport(item))
-                continue;
-
-            if (!_inflightLoads.TryAdd(item.Id, 0))
-                continue;
-
-            _ = LoadThumbnailForItemAsync(item, token);
-        }
-    }
-
-    private bool IsItemInScrollViewport(PickItem item)
-    {
-        var container = CardList.ItemContainerGenerator.ContainerFromItem(item) as FrameworkElement;
-        if (container is null || !container.IsLoaded || container.ActualHeight <= 0)
-            return false;
-
-        try
-        {
-            var transform = container.TransformToAncestor(CardScrollViewer);
-            var bounds = transform.TransformBounds(
-                new Rect(0, 0, container.ActualWidth, container.ActualHeight));
-            var viewport = new Rect(
-                0,
-                -ViewportLoadBufferPx,
-                CardScrollViewer.ViewportWidth,
-                CardScrollViewer.ViewportHeight + (2 * ViewportLoadBufferPx));
-            return viewport.IntersectsWith(bounds);
-        }
-        catch (InvalidOperationException)
-        {
-            return false;
-        }
-    }
-
-    private async Task LoadThumbnailForItemAsync(PickItem item, CancellationToken token)
-    {
-        try
-        {
-            var loaded = await _thumbnailCache.GetOrLoadAsync(_gamePath, item.AsCardRecord(), token)
-                .ConfigureAwait(true);
-            if (token.IsCancellationRequested)
-                return;
-            item.Thumbnail = loaded;
-        }
-        catch (OperationCanceledException)
-        {
-            /* superseded by search/scroll cancel */
-        }
-        catch
-        {
-            if (!token.IsCancellationRequested)
-                item.Thumbnail = _thumbnailCache.Placeholder;
-        }
-        finally
-        {
-            _inflightLoads.TryRemove(item.Id, out _);
-            if (token.IsCancellationRequested)
-                ScheduleVisibleThumbnailLoads();
-        }
     }
 
     private void Ok_Click(object sender, RoutedEventArgs e)
@@ -397,16 +265,7 @@ public partial class CardPickDialog : Window
 
     private void Window_Closed(object? sender, EventArgs e)
     {
-        try
-        {
-            _thumbLoadCts.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-            /* ignore */
-        }
-
-        _thumbLoadCts.Dispose();
+        _thumbLoader.Dispose();
         _thumbnailCache.Dispose();
     }
 }

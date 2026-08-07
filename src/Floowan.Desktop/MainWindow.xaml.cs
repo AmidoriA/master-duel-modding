@@ -84,16 +84,19 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _dbFilterDebounceTimer;
     private readonly DispatcherTimer _ofActionStatusClearTimer;
     private readonly CardThumbnailCache _thumbnailCache = new();
+    private readonly ViewportThumbnailLoader<CardRecord> _cardArtThumbLoader;
+    private readonly ViewportThumbnailLoader<CardRecord> _ofCardThumbLoader;
 
     /// <summary>Session-scoped results view: list vs thumbnails (shared by Card Art and Over-frame).</summary>
     private bool _useThumbnailView;
     private bool _viewModeUpdating;
     private bool _dbFilterUiUpdating;
-    private int _thumbnailLoadGeneration;
     private int _uiBusyDepth;
     public MainWindow()
     {
         InitializeComponent();
+        _cardArtThumbLoader = CreateListThumbnailLoader(CardList);
+        _ofCardThumbLoader = CreateListThumbnailLoader(OfCardList);
         _cardSearchDebounceTimer = CreateSearchDebounceTimer(OnCardSearchDebounceTick);
         _ofSearchDebounceTimer = CreateSearchDebounceTimer(OnOfSearchDebounceTick);
         _dbFilterDebounceTimer = CreateSearchDebounceTimer(OnDbFilterDebounceTick);
@@ -105,6 +108,16 @@ public partial class MainWindow : Window
         Loaded += OnLoaded;
         Closed += (_, _) => Cleanup();
     }
+
+    private ViewportThumbnailLoader<CardRecord> CreateListThumbnailLoader(ListBox list) =>
+        new(
+            _thumbnailCache,
+            () => GamePathBox.Text,
+            card => card.Id,
+            card => card,
+            (card, src) => ApplyListThumbnail(list, card, src),
+            () => _useThumbnailView,
+            dispatcher: Dispatcher);
 
     /// <summary>
     /// Blocks interaction with a dim overlay. Avoids Window.IsEnabled=false, which
@@ -356,6 +369,7 @@ public partial class MainWindow : Window
             () =>
             {
                 CardList.ItemsSource = Array.Empty<CardRecord>();
+                _cardArtThumbLoader.CancelAndReloadVisible();
                 Status(Loc.T("status.search_min_chars"));
             });
     }
@@ -380,7 +394,8 @@ public partial class MainWindow : Window
             searchDescription: SearchDescBox.IsChecked == true,
             limit: 400);
         CardList.ItemsSource = results;
-        BumpThumbnailLoadGeneration();
+        EnsureListThumbnailLoaderAttached(CardList, _cardArtThumbLoader);
+        _cardArtThumbLoader.CancelAndReloadVisible();
         Status(Loc.T("status.showing_cards", results.Count));
     }
 
@@ -422,7 +437,10 @@ public partial class MainWindow : Window
                 thumbnails,
                 useDisplayMemberPath: false,
                 listItemTemplate: TryFindResource("OfCardListItemTemplate") as DataTemplate);
-            BumpThumbnailLoadGeneration();
+            EnsureListThumbnailLoaderAttached(CardList, _cardArtThumbLoader);
+            EnsureListThumbnailLoaderAttached(OfCardList, _ofCardThumbLoader);
+            _cardArtThumbLoader.CancelAndReloadVisible();
+            _ofCardThumbLoader.CancelAndReloadVisible();
         }
         finally
         {
@@ -450,42 +468,39 @@ public partial class MainWindow : Window
         }
     }
 
-    private void BumpThumbnailLoadGeneration() => Interlocked.Increment(ref _thumbnailLoadGeneration);
-
-    private async void CardThumbnailImage_Loaded(object sender, RoutedEventArgs e)
+    private void EnsureListThumbnailLoaderAttached(ListBox list, ViewportThumbnailLoader<CardRecord> loader)
     {
-        if (!_useThumbnailView)
-            return;
-        if (sender is not Image image || image.DataContext is not CardRecord card)
+        if (!list.IsLoaded)
             return;
 
-        var generation = _thumbnailLoadGeneration;
-        if (_thumbnailCache.TryGet(card, out var cached) && !ReferenceEquals(cached, _thumbnailCache.Placeholder))
-        {
-            image.Source = cached;
+        var scroll = ViewportThumbnailLoader<CardRecord>.FindScrollViewer(list);
+        if (scroll is null)
             return;
-        }
 
-        image.Source = _thumbnailCache.Placeholder;
+        loader.Attach(list, scroll, () => EnumerateListCards(list));
+    }
 
-        try
+    private static IEnumerable<CardRecord> EnumerateListCards(ListBox list)
+    {
+        foreach (var obj in list.Items)
         {
-            var loaded = await _thumbnailCache.GetOrLoadAsync(GamePathBox.Text, card);
-            if (generation != _thumbnailLoadGeneration)
-                return;
-            if (!image.IsLoaded || image.DataContext is not CardRecord current || current.Id != card.Id)
-                return;
-            image.Source = loaded;
+            if (obj is CardRecord card)
+                yield return card;
         }
-        catch (OperationCanceledException)
-        {
-            /* ignore */
-        }
-        catch
-        {
-            if (image.IsLoaded)
-                image.Source = _thumbnailCache.Placeholder;
-        }
+    }
+
+    private static void ApplyListThumbnail(ListBox list, CardRecord card, ImageSource source)
+    {
+        if (list.ItemContainerGenerator.ContainerFromItem(card) is not FrameworkElement container)
+            return;
+
+        var image = ViewportThumbnailLoader<CardRecord>.FindDescendantImage(container);
+        if (image is null)
+            return;
+        if (image.DataContext is CardRecord current && current.Id != card.Id)
+            return;
+
+        image.Source = source;
     }
 
     private void CardList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -683,6 +698,7 @@ public partial class MainWindow : Window
                 ReplacementImage.Opacity = 0.0;
                 ReplacementImage.IsHitTestVisible = false;
                 _thumbnailCache.Invalidate(card);
+                _cardArtThumbLoader.CancelAndReloadVisible();
                 LoadCurrentPreview();
             }
         }
@@ -733,6 +749,7 @@ public partial class MainWindow : Window
             if (ok)
             {
                 _thumbnailCache.Invalidate(_selected);
+                _cardArtThumbLoader.CancelAndReloadVisible();
                 LoadCurrentPreview();
             }
         }
@@ -1526,6 +1543,7 @@ public partial class MainWindow : Window
             () =>
             {
                 OfCardList.ItemsSource = Array.Empty<CardRecord>();
+                _ofCardThumbLoader.CancelAndReloadVisible();
                 Status(Loc.T("status.search_min_chars"));
             });
     }
@@ -1553,7 +1571,8 @@ public partial class MainWindow : Window
             overframeOnly: OfOverframeOnlyBox.IsChecked == true,
             limit: 400);
         OfCardList.ItemsSource = results;
-        BumpThumbnailLoadGeneration();
+        EnsureListThumbnailLoaderAttached(OfCardList, _ofCardThumbLoader);
+        _ofCardThumbLoader.CancelAndReloadVisible();
         Status(Loc.T("status.of_showing", results.Count));
     }
 
@@ -2713,7 +2732,8 @@ public partial class MainWindow : Window
 
     private void Cleanup()
     {
-        BumpThumbnailLoadGeneration();
+        _cardArtThumbLoader.Dispose();
+        _ofCardThumbLoader.Dispose();
         _cardSearchDebounceTimer.Stop();
         _ofSearchDebounceTimer.Stop();
         _dbFilterDebounceTimer.Stop();
