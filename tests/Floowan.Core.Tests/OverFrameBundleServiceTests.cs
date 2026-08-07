@@ -132,4 +132,79 @@ public class OverFrameBundleServiceTests
     {
         Assert.Equal(".overframes", OverFrameBundleService.FileExtension);
     }
+
+    [Fact]
+    public void Import_ForcesBackup_AndFailsOnInvalidGamePath()
+    {
+        var master = Path.Combine(Path.GetTempPath(), "floowan-of-import-master-" + Guid.NewGuid().ToString("N") + ".db");
+        var user = Path.Combine(Path.GetTempPath(), "floowan-of-import-user-" + Guid.NewGuid().ToString("N") + ".db");
+        var zipPath = Path.Combine(Path.GetTempPath(), "floowan-of-import-" + Guid.NewGuid().ToString("N") + ".overframes");
+        try
+        {
+            CreateMinimalMasterDb(master);
+            using (var zip = ZipFile.Open(zipPath, ZipArchiveMode.Create))
+            {
+                var entry = zip.CreateEntry(OverFrameBundleService.ManifestFileName);
+                using var writer = new StreamWriter(entry.Open());
+                writer.Write("""{"formatVersion":1,"cards":[{"cardId":1,"name":"Test","hasEditLayer":false}]}""");
+            }
+
+            using var db = new Floowan.Core.Data.CardDatabase(master, user);
+            using var service = new OverFrameBundleService();
+            // createBackup: false must still be forced on inside Import (same as create-new OF).
+            var result = service.Import(
+                playerDataPath: Path.Combine(Path.GetTempPath(), "not-a-localdata-" + Guid.NewGuid().ToString("N")),
+                database: db,
+                bundlePath: zipPath,
+                cardIds: new[] { 1 },
+                createBackup: false);
+
+            Assert.False(result.Success);
+            Assert.False(string.IsNullOrWhiteSpace(result.Message));
+        }
+        finally
+        {
+            try { File.Delete(zipPath); } catch { /* ignore */ }
+            try { File.Delete(master); } catch { /* ignore */ }
+            try { File.Delete(user); } catch { /* ignore */ }
+        }
+    }
+
+    private static void CreateMinimalMasterDb(string path)
+    {
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Mode = Microsoft.Data.Sqlite.SqliteOpenMode.ReadWriteCreate
+        }.ToString());
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE app_config (
+              id INTEGER PRIMARY KEY,
+              mipmap_count INTEGER NOT NULL,
+              game_path VARCHAR(610) NOT NULL,
+              packer VARCHAR(5) NOT NULL,
+              create_backup BOOLEAN NOT NULL
+            );
+            INSERT INTO app_config (id, mipmap_count, game_path, packer, create_backup)
+            VALUES (1, 1, 'C:\game', 'lz4', 1);
+
+            CREATE TABLE card (
+              name VARCHAR(255) NOT NULL,
+              description VARCHAR(255) NOT NULL,
+              bundle VARCHAR(8) NOT NULL,
+              modded_name VARCHAR(255),
+              modded_description VARCHAR(255),
+              data_index INTEGER NOT NULL,
+              id INTEGER NOT NULL PRIMARY KEY,
+              favorite BOOLEAN NOT NULL,
+              has_backup BOOLEAN NOT NULL,
+              UNIQUE (bundle)
+            );
+            INSERT INTO card (name, description, bundle, data_index, id, favorite, has_backup)
+            VALUES ('Test', 'desc', 'bundle1', 0, 1, 0, 0);
+            """;
+        cmd.ExecuteNonQuery();
+    }
 }
