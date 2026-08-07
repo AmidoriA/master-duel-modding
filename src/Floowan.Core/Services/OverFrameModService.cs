@@ -75,25 +75,13 @@ public sealed class OverFrameModService : IDisposable
         byte[]? gateRollbackBytes = null;
         try
         {
-            // Always snapshot pre-OF art once so Auto-create can re-run without nesting frames.
-            TryPreserveOriginalArtBackup(card, cardBundlePath);
-
-            if (createBackup)
-            {
-                // Never seed the "original" card backup from an already over-framed live bundle.
-                if (!card.IsOverframe || _backupService.HasBundleBackup(card.Bundle))
-                {
-                    if (_backupService.TryCreateBundleBackupIfMissing(cardBundlePath, card.Bundle, out var newBackup))
-                        cardBackup = newBackup;
-                    else
-                        cardBackup = _backupService.GetBundleBackupPath(card.Bundle);
-                }
-
-                // Keep a one-time vanilla gate file for disaster recovery, but never roll back
-                // a failed apply to that stale snapshot (it would wipe every other OF entry).
-                _backupService.BackupGateBundleFile(gateLocate.BundlePath, gateLocate.BundleId);
-                database?.SetHasBackup(card.Id, true);
-            }
+            PrepareOverFrameWriteBackups(
+                card,
+                cardBundlePath,
+                gateLocate,
+                createBackup,
+                database,
+                out cardBackup);
 
             // Per-apply rollback snapshot of the live gate (includes all prior OF registrations).
             gateRollbackBytes = _textAssets.ReadTextAssetBytes(gateLocate.BundlePath);
@@ -183,10 +171,26 @@ public sealed class OverFrameModService : IDisposable
         if (!gateLocate.Success || gateLocate.BundlePath is null || gateLocate.BundleId is null)
             return OverFrameResult.Fail(gateLocate.Message);
 
+        string? cardBundlePath = null;
         try
         {
-            if (createBackup)
-                _backupService.BackupGateBundleFile(gateLocate.BundlePath, gateLocate.BundleId);
+            cardBundlePath = BundlePathResolver.ResolveExistingBundlePath(playerDataPath, card.Bundle);
+        }
+        catch
+        {
+            /* Gate-only can still proceed if the illustration bundle is temporarily missing. */
+        }
+
+        try
+        {
+            // Same pre-write backup mechanic as ApplyOverFrame / create-new OF.
+            PrepareOverFrameWriteBackups(
+                card,
+                cardBundlePath,
+                gateLocate,
+                createBackup,
+                database,
+                out _);
 
             var gateBytes = _textAssets.ReadTextAssetBytes(gateLocate.BundlePath);
             var gate = OfCardAssetGate.Parse(gateBytes);
@@ -960,13 +964,82 @@ public sealed class OverFrameModService : IDisposable
         }
     }
 
-    public OfCardAssetGate? ReadGate(string playerDataPath, CardDatabase? database = null)
+    public OfCardAssetGate? ReadGate(
+        string playerDataPath,
+        CardDatabase? database = null,
+        bool allowFullScan = false)
     {
-        var gateLocate = _locator.Locate(playerDataPath, database);
+        var gateLocate = _locator.Locate(playerDataPath, database, allowFullScan: allowFullScan);
         if (!gateLocate.Success || gateLocate.BundlePath is null)
             return null;
 
         return OfCardAssetGate.Parse(_textAssets.ReadTextAssetBytes(gateLocate.BundlePath));
+    }
+
+    /// <summary>
+    /// Cards currently registered in the live <c>of_card_asset</c> gate (any mod source).
+    /// Resolves triggers via <c>database.db</c> indexing (catalog <c>card.id</c> is the MD art id;
+    /// optional cached <c>user.art_id</c>). Does not scan AssetBundles.
+    /// </summary>
+    public IReadOnlyList<GatedOverFrameCard> ListGatedOverFrameCards(
+        string playerDataPath,
+        CardDatabase database,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default,
+        bool allowFullScan = false)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        if (!GamePathLocator.IsValidGamePath(playerDataPath, out var pathError))
+            throw new InvalidOperationException(pathError ?? "Invalid game path.");
+
+        progress?.Report("Reading of_card_asset gate…");
+        var gateLocate = _locator.Locate(playerDataPath, database, progress, cancellationToken, allowFullScan);
+        if (!gateLocate.Success || gateLocate.BundlePath is null)
+            throw new InvalidOperationException(gateLocate.Message);
+
+        var gate = OfCardAssetGate.Parse(_textAssets.ReadTextAssetBytes(gateLocate.BundlePath));
+        var entries = gate.ListEntries();
+        if (entries.Count == 0)
+            return Array.Empty<GatedOverFrameCard>();
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var triggers = entries.Select(e => (int)e.TriggerId).Distinct().ToList();
+        progress?.Report($"Indexing {triggers.Count} gate id(s) against database.db…");
+
+        // Prefer catalog id (illustration / alt-art rows) over cached art_id so a stale
+        // art_id on another card cannot shadow the real alternate-art catalog row.
+        var resolved = database.ResolveGateTriggers(triggers);
+
+        var results = new List<GatedOverFrameCard>(entries.Count);
+        var seenCards = new HashSet<int>();
+        var unresolved = 0;
+        foreach (var (trigger, baseArt) in entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!resolved.TryGetValue(trigger, out var card))
+            {
+                unresolved++;
+                continue;
+            }
+
+            if (!seenCards.Add(card.Id))
+                continue;
+
+            results.Add(new GatedOverFrameCard(card, trigger, baseArt));
+        }
+
+        if (unresolved > 0)
+        {
+            progress?.Report(
+                $"Resolved {results.Count} gate card(s); {unresolved} trigger(s) not in database.db.");
+        }
+        else
+        {
+            progress?.Report($"Resolved {results.Count} gate card(s) from database.db.");
+        }
+
+        results.Sort((a, b) => string.Compare(a.Card.DisplayName, b.Card.DisplayName, StringComparison.OrdinalIgnoreCase));
+        return results;
     }
 
     public int SyncDatabaseFromGate(
@@ -1252,6 +1325,46 @@ public sealed class OverFrameModService : IDisposable
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Shared pre-write backups used by create-new OF (<see cref="ApplyOverFrame"/>) and
+    /// gate-only registration (<see cref="EnableGateOnly"/>), including Import.
+    /// Snapshots pre-OF illustration once, seeds the card AssetBundle backup when safe,
+    /// and keeps a one-time vanilla gate file for disaster recovery.
+    /// </summary>
+    private void PrepareOverFrameWriteBackups(
+        CardRecord card,
+        string? cardBundlePath,
+        OfCardAssetLocateResult gateLocate,
+        bool createBackup,
+        CardDatabase? database,
+        out string? cardBackup)
+    {
+        cardBackup = null;
+
+        if (!string.IsNullOrWhiteSpace(cardBundlePath))
+            TryPreserveOriginalArtBackup(card, cardBundlePath);
+
+        if (!createBackup)
+            return;
+
+        // Never seed the "original" card backup from an already over-framed live bundle.
+        if (!string.IsNullOrWhiteSpace(cardBundlePath)
+            && (!card.IsOverframe || _backupService.HasBundleBackup(card.Bundle)))
+        {
+            if (_backupService.TryCreateBundleBackupIfMissing(cardBundlePath, card.Bundle, out var newBackup))
+                cardBackup = newBackup;
+            else
+                cardBackup = _backupService.GetBundleBackupPath(card.Bundle);
+        }
+
+        // Keep a one-time vanilla gate file for disaster recovery, but never roll back
+        // a failed apply to that stale snapshot (it would wipe every other OF entry).
+        if (gateLocate.BundlePath is not null && gateLocate.BundleId is not null)
+            _backupService.BackupGateBundleFile(gateLocate.BundlePath, gateLocate.BundleId);
+
+        database?.SetHasBackup(card.Id, true);
     }
 
     /// <summary>

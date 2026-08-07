@@ -28,8 +28,7 @@
                 BorderBrush="#3A4652" BorderThickness="1">
           <Grid>
             <Image Width="72" Height="104" Stretch="Uniform"
-                   HorizontalAlignment="Center" VerticalAlignment="Center"
-                   Loaded="CardThumbnailImage_Loaded"/>
+                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
             <TextBlock Text="OF" FontSize="9" FontWeight="SemiBold" Foreground="#7DCEA0"
                        HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,4,0"
                        Visibility="{Binding IsOverframe, Converter={StaticResource BoolToVisibilityConverter}}"/>
@@ -607,6 +606,36 @@
         </ScrollViewer>
       </TabItem>
 
+      <TabItem x:Name="ImportExportTab" Header="Mod pack/unpack">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
+          <StackPanel>
+            <Border Background="{StaticResource PanelBrush}" Padding="16" CornerRadius="4" Margin="0,0,0,12">
+              <DockPanel>
+                <TextBlock x:Name="ImportExportHeader" DockPanel.Dock="Top" Text="Mod pack/unpack"
+                           FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock x:Name="ImportExportHelpText" DockPanel.Dock="Top"
+                           Text="Share over-frame mods between PCs as a single .overframes file. Export scans the live of_card_asset gate (any mod), packs applied OF art when available, and includes Custom/Auto edit layers from user.db when present. Import applies selected cards to this LocalData and restores layers."
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                  <Button x:Name="ImportExportExportButton" Content="Export over-frames…"
+                          Click="ImportExportExport_Click" Background="{StaticResource AccentBrush}"
+                          Padding="12,4" Margin="0,0,8,0"
+                          ToolTip="Pick cards from the live of_card_asset gate, then save a .overframes bundle."/>
+                  <Button x:Name="ImportExportImportButton" Content="Import over-frames…"
+                          Click="ImportExportImport_Click"
+                          Padding="12,4" Margin="0,0,8,0"
+                          ToolTip="Open a .overframes bundle and choose which cards to apply on this PC."/>
+                </StackPanel>
+                <TextBlock x:Name="ImportExportStatusText"
+                           DockPanel.Dock="Top"
+                           Foreground="{StaticResource MutedBrush}"
+                           TextWrapping="Wrap"
+                           Margin="0,4,0,0"/>
+              </DockPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
 
       <TabItem x:Name="OptionsTab" Header="Options">
         <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
