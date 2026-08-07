@@ -1013,6 +1013,9 @@ public partial class MainWindow : Window
         var pickItems = candidates.Select(c =>
         {
             var badges = new List<string>();
+            var altBadge = CardPickDialog.PickItem.TryGetAltBadge(
+                string.IsNullOrWhiteSpace(c.DisplayName) ? c.Name : c.DisplayName);
+            if (altBadge is not null) badges.Add(altBadge);
             if (c.HasAppliedCanvas) badges.Add(Loc.T("import_export.export_badge_canvas"));
             if (c.HasEditLayer) badges.Add(Loc.T("import_export.export_badge_layer"));
             if (c.IsFloowanTracked) badges.Add(Loc.T("import_export.export_badge_floowan"));
@@ -1146,15 +1149,21 @@ public partial class MainWindow : Window
         var catalog = _database.GetByIds(manifest.Cards.Select(c => c.CardId));
         var pickItems = manifest.Cards.Select(c =>
         {
+            var name = string.IsNullOrWhiteSpace(c.Name) ? $"#{c.CardId}" : c.Name;
+            catalog.TryGetValue(c.CardId, out var card);
+            // Prefer live catalog name so (alt N) suffixes match Card Art / Over-frame lists.
+            if (!string.IsNullOrWhiteSpace(card?.DisplayName))
+                name = card.DisplayName;
+
             var badges = new List<string>();
+            var altBadge = CardPickDialog.PickItem.TryGetAltBadge(name);
+            if (altBadge is not null) badges.Add(altBadge);
             if (!string.IsNullOrWhiteSpace(c.AppliedPng)) badges.Add(Loc.T("import_export.export_badge_canvas"));
             if (c.HasEditLayer) badges.Add(Loc.T("import_export.export_badge_layer"));
-            var name = string.IsNullOrWhiteSpace(c.Name) ? $"#{c.CardId}" : c.Name;
             var badgeText = string.Join(", ", badges);
             var label = badges.Count == 0
                 ? name
                 : Loc.T("import_export.label_with_badges", name, badgeText);
-            catalog.TryGetValue(c.CardId, out var card);
             var bundle = !string.IsNullOrWhiteSpace(c.Bundle)
                 ? c.Bundle!
                 : (card?.Bundle ?? "");

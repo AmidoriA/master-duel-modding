@@ -23,7 +23,7 @@ public partial class CardPickDialog : Window
         /// <summary>Card name used for display and case-insensitive search.</summary>
         public string Name { get; init; } = "";
 
-        /// <summary>Optional badge line under the name (e.g. art, layers).</summary>
+        /// <summary>Optional badge line under the name (e.g. art, layers, alt).</summary>
         public string BadgeText { get; init; } = "";
 
         /// <summary>Full label (name + badges) for tooltips / legacy callers.</summary>
@@ -35,6 +35,21 @@ public partial class CardPickDialog : Window
         public bool IsOverframe { get; init; }
 
         public bool HasBadgeText => !string.IsNullOrWhiteSpace(BadgeText);
+
+        /// <summary>
+        /// Catalog names use <c>(alt N)</c> for duplicate arts; surface that as a short badge
+        /// so truncated titles still distinguish alternate arts in the thumbnail grid.
+        /// </summary>
+        public static string? TryGetAltBadge(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return null;
+            var open = name.LastIndexOf("(alt ", StringComparison.OrdinalIgnoreCase);
+            if (open < 0 || !name.EndsWith(')'))
+                return null;
+            var inner = name[(open + 1)..^1].Trim();
+            return string.IsNullOrWhiteSpace(inner) ? null : inner;
+        }
 
         public ImageSource? Thumbnail
         {
@@ -139,7 +154,9 @@ public partial class CardPickDialog : Window
         if (query.Length == 0)
             return true;
 
-        return item.Name.Contains(query, StringComparison.OrdinalIgnoreCase);
+        return item.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || item.BadgeText.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || item.Id.ToString().Contains(query, StringComparison.Ordinal);
     }
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
