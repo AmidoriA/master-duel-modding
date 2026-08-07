@@ -992,6 +992,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        var catalog = _database.GetByIds(candidates.Select(c => c.CardId));
         var pickItems = candidates.Select(c =>
         {
             var badges = new List<string>();
@@ -999,11 +1000,20 @@ public partial class MainWindow : Window
             if (c.HasEditLayer) badges.Add(Loc.T("import_export.export_badge_layer"));
             if (c.IsFloowanTracked) badges.Add(Loc.T("import_export.export_badge_floowan"));
             if (badges.Count == 0) badges.Add(Loc.T("import_export.export_badge_neither"));
-            var label = Loc.T("import_export.label_with_badges", c.DisplayName, string.Join(", ", badges));
+            var badgeText = string.Join(", ", badges);
+            var name = string.IsNullOrWhiteSpace(c.DisplayName) ? c.Name : c.DisplayName;
+            if (string.IsNullOrWhiteSpace(name))
+                name = $"#{c.CardId}";
+            var label = Loc.T("import_export.label_with_badges", name, badgeText);
+            catalog.TryGetValue(c.CardId, out var card);
             return new CardPickDialog.PickItem
             {
                 Id = c.CardId,
+                Name = name,
+                BadgeText = badgeText,
                 Label = label,
+                Bundle = card?.Bundle ?? "",
+                IsOverframe = card?.IsOverframe ?? true,
                 IsSelected = c.HasAppliedCanvas || c.HasEditLayer
             };
         }).ToList();
@@ -1012,7 +1022,8 @@ public partial class MainWindow : Window
             this,
             Loc.T("import_export.export_pick_title"),
             Loc.T("import_export.export_pick_intro"),
-            pickItems);
+            pickItems,
+            gamePath);
         if (pick.ShowDialog() != true)
             return;
 
@@ -1115,19 +1126,29 @@ public partial class MainWindow : Window
             return;
         }
 
+        var catalog = _database.GetByIds(manifest.Cards.Select(c => c.CardId));
         var pickItems = manifest.Cards.Select(c =>
         {
             var badges = new List<string>();
             if (!string.IsNullOrWhiteSpace(c.AppliedPng)) badges.Add(Loc.T("import_export.export_badge_canvas"));
             if (c.HasEditLayer) badges.Add(Loc.T("import_export.export_badge_layer"));
             var name = string.IsNullOrWhiteSpace(c.Name) ? $"#{c.CardId}" : c.Name;
+            var badgeText = string.Join(", ", badges);
             var label = badges.Count == 0
                 ? name
-                : Loc.T("import_export.label_with_badges", name, string.Join(", ", badges));
+                : Loc.T("import_export.label_with_badges", name, badgeText);
+            catalog.TryGetValue(c.CardId, out var card);
+            var bundle = !string.IsNullOrWhiteSpace(c.Bundle)
+                ? c.Bundle!
+                : (card?.Bundle ?? "");
             return new CardPickDialog.PickItem
             {
                 Id = c.CardId,
+                Name = name,
+                BadgeText = badgeText,
                 Label = label,
+                Bundle = bundle,
+                IsOverframe = card?.IsOverframe ?? !string.IsNullOrWhiteSpace(c.AppliedPng),
                 IsSelected = true
             };
         }).ToList();
@@ -1136,7 +1157,8 @@ public partial class MainWindow : Window
             this,
             Loc.T("import_export.import_pick_title"),
             Loc.T("import_export.import_pick_intro"),
-            pickItems);
+            pickItems,
+            gamePath);
         if (pick.ShowDialog() != true)
             return;
 
