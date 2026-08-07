@@ -974,7 +974,8 @@ public sealed class OverFrameModService : IDisposable
 
     /// <summary>
     /// Cards currently registered in the live <c>of_card_asset</c> gate (any mod source).
-    /// Resolves trigger art ids to catalog rows (populates missing <c>art_id</c> when needed).
+    /// Resolves triggers via <c>database.db</c> indexing (catalog <c>card.id</c> is the MD art id;
+    /// optional cached <c>user.art_id</c>). Does not scan AssetBundles.
     /// </summary>
     public IReadOnlyList<GatedOverFrameCard> ListGatedOverFrameCards(
         string playerDataPath,
@@ -997,21 +998,46 @@ public sealed class OverFrameModService : IDisposable
         if (entries.Count == 0)
             return Array.Empty<GatedOverFrameCard>();
 
-        progress?.Report($"Resolving {entries.Count} gate art id(s) to catalog cards…");
-        PopulateArtIdsForGate(playerDataPath, database, entries, progress, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        var triggers = entries.Select(e => (int)e.TriggerId).Distinct().ToList();
+        progress?.Report($"Indexing {triggers.Count} gate id(s) against database.db…");
+
+        // Master catalog id == Texture2D art id for illustration rows. Prefer that + cached art_id.
+        var byCatalogId = database.GetByIds(triggers);
+        var byCachedArtId = database.GetByArtIds(triggers);
 
         var results = new List<GatedOverFrameCard>(entries.Count);
         var seenCards = new HashSet<int>();
+        var unresolved = 0;
         foreach (var (trigger, baseArt) in entries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var card = database.GetByArtId(trigger) ?? database.GetById(trigger);
+            CardRecord? card = null;
+            if (byCachedArtId.TryGetValue(trigger, out var fromArt))
+                card = fromArt;
+            else if (byCatalogId.TryGetValue(trigger, out var fromId))
+                card = fromId;
+
             if (card is null)
+            {
+                unresolved++;
                 continue;
+            }
+
             if (!seenCards.Add(card.Id))
                 continue;
 
             results.Add(new GatedOverFrameCard(card, trigger, baseArt));
+        }
+
+        if (unresolved > 0)
+        {
+            progress?.Report(
+                $"Resolved {results.Count} gate card(s); {unresolved} trigger(s) not in database.db.");
+        }
+        else
+        {
+            progress?.Report($"Resolved {results.Count} gate card(s) from database.db.");
         }
 
         results.Sort((a, b) => string.Compare(a.Card.DisplayName, b.Card.DisplayName, StringComparison.OrdinalIgnoreCase));

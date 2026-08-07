@@ -851,6 +851,86 @@ LIMIT 1;";
         return reader.Read() ? ReadCard(reader) : null;
     }
 
+    /// <summary>
+    /// Batch lookup by catalog id. In Floowan's master DB, illustration <c>card.id</c> is the
+    /// Master Duel art id (Texture2D m_Name), so gate triggers resolve here without scanning bundles.
+    /// </summary>
+    public IReadOnlyDictionary<int, CardRecord> GetByIds(IEnumerable<int> ids)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        var idList = ids.Where(id => id > 0).Distinct().ToList();
+        if (idList.Count == 0)
+            return new Dictionary<int, CardRecord>();
+
+        var map = new Dictionary<int, CardRecord>(idList.Count);
+        const int chunkSize = 400;
+        for (var offset = 0; offset < idList.Count; offset += chunkSize)
+        {
+            var chunk = idList.Skip(offset).Take(chunkSize).ToList();
+            using var cmd = _connection.CreateCommand();
+            var names = new string[chunk.Count];
+            for (var i = 0; i < chunk.Count; i++)
+            {
+                names[i] = "$id" + i;
+                cmd.Parameters.AddWithValue(names[i], chunk[i]);
+            }
+
+            cmd.CommandText = $@"
+SELECT {_cardSelectList}
+{CardFromJoin}
+WHERE c.id IN ({string.Join(",", names)});";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var card = ReadCard(reader);
+                map[card.Id] = card;
+            }
+        }
+
+        return map;
+    }
+
+    /// <summary>
+    /// Batch lookup by cached <c>user.card_state.art_id</c> (when it differs from catalog id).
+    /// </summary>
+    public IReadOnlyDictionary<int, CardRecord> GetByArtIds(IEnumerable<int> artIds)
+    {
+        ArgumentNullException.ThrowIfNull(artIds);
+        var idList = artIds.Where(id => id > 0).Distinct().ToList();
+        if (idList.Count == 0)
+            return new Dictionary<int, CardRecord>();
+
+        // Keyed by art_id (not card id).
+        var map = new Dictionary<int, CardRecord>(idList.Count);
+        const int chunkSize = 400;
+        for (var offset = 0; offset < idList.Count; offset += chunkSize)
+        {
+            var chunk = idList.Skip(offset).Take(chunkSize).ToList();
+            using var cmd = _connection.CreateCommand();
+            var names = new string[chunk.Count];
+            for (var i = 0; i < chunk.Count; i++)
+            {
+                names[i] = "$art" + i;
+                cmd.Parameters.AddWithValue(names[i], chunk[i]);
+            }
+
+            cmd.CommandText = $@"
+SELECT {_cardSelectList}
+{CardFromJoin}
+WHERE u.art_id IN ({string.Join(",", names)})
+ORDER BY c.id;";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var card = ReadCard(reader);
+                if (card.ArtId is int art && !map.ContainsKey(art))
+                    map[art] = card;
+            }
+        }
+
+        return map;
+    }
+
     public void SetArtId(int cardId, int artId)
     {
         EnsureCardStateRow(cardId);

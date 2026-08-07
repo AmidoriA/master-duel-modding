@@ -64,28 +64,9 @@ public sealed class OverFrameBundleService : IDisposable
             cancellationToken.ThrowIfCancellationRequested();
             var card = entry.Card;
             var hasLayer = database.HasOfEditLayer(card.Id);
-            var hasCanvas = _modService.Backups.HasAppliedOverFrameBackup(card.Name);
-            if (!hasCanvas)
-            {
-                try
-                {
-                    var temp = Path.Combine(
-                        Path.GetTempPath(),
-                        "floowan-of-export-probe-" + Guid.NewGuid().ToString("N") + ".png");
-                    try
-                    {
-                        hasCanvas = _modService.TryExportCurrentOverFrameCanvas(playerDataPath, card, temp);
-                    }
-                    finally
-                    {
-                        try { if (File.Exists(temp)) File.Delete(temp); } catch { /* ignore */ }
-                    }
-                }
-                catch
-                {
-                    hasCanvas = false;
-                }
-            }
+            // Do not open every AssetBundle while listing — gated cards have live OF art;
+            // applied PNG backup is optional (Floowan-only). Packing extracts live art on export.
+            var hasBackupCanvas = _modService.Backups.HasAppliedOverFrameBackup(card.Name);
 
             items.Add(new OverFrameBundleExportItem
             {
@@ -95,8 +76,8 @@ public sealed class OverFrameBundleService : IDisposable
                 ArtId = entry.ArtId,
                 BaseArtId = entry.BaseArtId,
                 HasEditLayer = hasLayer,
-                HasAppliedCanvas = hasCanvas,
-                IsFloowanTracked = database.IsFloowanOverframe(card.Id)
+                HasAppliedCanvas = true,
+                IsFloowanTracked = database.IsFloowanOverframe(card.Id) || hasBackupCanvas
             });
         }
 

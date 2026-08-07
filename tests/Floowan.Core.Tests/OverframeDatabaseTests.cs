@@ -39,6 +39,16 @@ public class OverframeDatabaseTests
                 Assert.Equal(1, db.GetByArtId(1001)!.Id);
                 Assert.Equal(1, db.GetByBundle("aaa11111")!.Id);
 
+                var byIds = db.GetByIds([1, 2, 999]);
+                Assert.Equal(2, byIds.Count);
+                Assert.Equal("Alpha", byIds[1].Name);
+                Assert.Equal("Beta", byIds[2].Name);
+
+                var byArts = db.GetByArtIds([1001, 1002, 42]);
+                Assert.Equal(2, byArts.Count);
+                Assert.Equal(1, byArts[1001].Id);
+                Assert.Equal(2, byArts[1002].Id);
+
                 db.SetOverframe(2, true, 2);
                 var synced = db.SyncOverframeFromGate([(1001, 9)]);
                 Assert.Equal(1, synced);
