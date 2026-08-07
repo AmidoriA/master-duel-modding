@@ -111,7 +111,16 @@
                      Text="No cards selected."/>
           <ListBox x:Name="SelectedSidebarList" Background="Transparent" BorderThickness="0"
                    ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                   DisplayMemberPath="Name"/>
+                   DisplayMemberPath="Name"
+                   MouseLeftButtonUp="SelectedSidebarList_MouseLeftButtonUp">
+            <ListBox.ItemContainerStyle>
+              <Style TargetType="ListBoxItem">
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Padding" Value="4,3"/>
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+              </Style>
+            </ListBox.ItemContainerStyle>
+          </ListBox>
         </DockPanel>
       </Border>
     </Grid>

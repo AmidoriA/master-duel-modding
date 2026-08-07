@@ -214,6 +214,46 @@ public partial class CardPickDialog : Window
         e.Handled = true;
     }
 
+    private void SelectedSidebarList_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (FindVisualAncestor<ListBoxItem>(e.OriginalSource as DependencyObject)
+            is not { DataContext: PickItem item })
+            return;
+
+        ScrollFilteredCardIntoView(item);
+    }
+
+    /// <summary>
+    /// Scrolls the main thumbnail grid to <paramref name="item"/> when it passes the current
+    /// search filter. Quiet no-op when the card is filtered out of the visible set.
+    /// </summary>
+    private void ScrollFilteredCardIntoView(PickItem item)
+    {
+        if (!FilterItem(item))
+            return;
+
+        CardList.UpdateLayout();
+        CardScrollViewer.UpdateLayout();
+
+        if (CardList.ItemContainerGenerator.ContainerFromItem(item) is not FrameworkElement container)
+            return;
+
+        container.BringIntoView();
+        ScheduleVisibleThumbnailLoads();
+    }
+
+    private static T? FindVisualAncestor<T>(DependencyObject? current) where T : DependencyObject
+    {
+        while (current != null)
+        {
+            if (current is T match)
+                return match;
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return null;
+    }
+
     private void CancelThumbnailLoadsAndReloadVisible()
     {
         var previous = _thumbLoadCts;
