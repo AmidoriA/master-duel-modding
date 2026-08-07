@@ -42,7 +42,8 @@
             <DataTemplate>
               <Border Width="108" Margin="4" Padding="4" CornerRadius="3"
                       Background="#12161A" BorderBrush="#3A4652" BorderThickness="1"
-                      ToolTip="{Binding Label}">
+                      Cursor="Hand" ToolTip="{Binding Label}"
+                      MouseLeftButtonUp="CardCell_MouseLeftButtonUp">
                 <StackPanel>
                   <Grid Width="92" Height="130" HorizontalAlignment="Center">
                     <Border Width="76" Height="110" Background="#0C1014" CornerRadius="2"
@@ -52,7 +53,9 @@
                              HorizontalAlignment="Center" VerticalAlignment="Center"
                              Loaded="CardThumbnailImage_Loaded"/>
                     </Border>
-                    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                    <!-- Visual only: cell click toggles IsSelected; hit-testing off avoids double-toggle. -->
+                    <CheckBox IsChecked="{Binding IsSelected, Mode=OneWay}"
+                              IsHitTestVisible="False" Focusable="False"
                               HorizontalAlignment="Left" VerticalAlignment="Top"
                               Margin="0,0,0,0"/>
                     <TextBlock Text="OF" FontSize="9" FontWeight="SemiBold" Foreground="#7DCEA0"
