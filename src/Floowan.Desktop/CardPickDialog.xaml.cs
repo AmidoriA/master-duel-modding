@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Input;
 using Floowan.Core.Models;
 using Floowan.Desktop.Localization;
 
@@ -140,6 +141,15 @@ public partial class CardPickDialog : Window
     {
         foreach (var item in VisibleItems())
             item.IsSelected = false;
+    }
+
+    private void CardCell_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: PickItem item })
+            return;
+
+        item.IsSelected = !item.IsSelected;
+        e.Handled = true;
     }
 
     private async void CardThumbnailImage_Loaded(object sender, RoutedEventArgs e)
