@@ -75,25 +75,13 @@ public sealed class OverFrameModService : IDisposable
         byte[]? gateRollbackBytes = null;
         try
         {
-            // Always snapshot pre-OF art once so Auto-create can re-run without nesting frames.
-            TryPreserveOriginalArtBackup(card, cardBundlePath);
-
-            if (createBackup)
-            {
-                // Never seed the "original" card backup from an already over-framed live bundle.
-                if (!card.IsOverframe || _backupService.HasBundleBackup(card.Bundle))
-                {
-                    if (_backupService.TryCreateBundleBackupIfMissing(cardBundlePath, card.Bundle, out var newBackup))
-                        cardBackup = newBackup;
-                    else
-                        cardBackup = _backupService.GetBundleBackupPath(card.Bundle);
-                }
-
-                // Keep a one-time vanilla gate file for disaster recovery, but never roll back
-                // a failed apply to that stale snapshot (it would wipe every other OF entry).
-                _backupService.BackupGateBundleFile(gateLocate.BundlePath, gateLocate.BundleId);
-                database?.SetHasBackup(card.Id, true);
-            }
+            PrepareOverFrameWriteBackups(
+                card,
+                cardBundlePath,
+                gateLocate,
+                createBackup,
+                database,
+                out cardBackup);
 
             // Per-apply rollback snapshot of the live gate (includes all prior OF registrations).
             gateRollbackBytes = _textAssets.ReadTextAssetBytes(gateLocate.BundlePath);
@@ -183,10 +171,26 @@ public sealed class OverFrameModService : IDisposable
         if (!gateLocate.Success || gateLocate.BundlePath is null || gateLocate.BundleId is null)
             return OverFrameResult.Fail(gateLocate.Message);
 
+        string? cardBundlePath = null;
         try
         {
-            if (createBackup)
-                _backupService.BackupGateBundleFile(gateLocate.BundlePath, gateLocate.BundleId);
+            cardBundlePath = BundlePathResolver.ResolveExistingBundlePath(playerDataPath, card.Bundle);
+        }
+        catch
+        {
+            /* Gate-only can still proceed if the illustration bundle is temporarily missing. */
+        }
+
+        try
+        {
+            // Same pre-write backup mechanic as ApplyOverFrame / create-new OF.
+            PrepareOverFrameWriteBackups(
+                card,
+                cardBundlePath,
+                gateLocate,
+                createBackup,
+                database,
+                out _);
 
             var gateBytes = _textAssets.ReadTextAssetBytes(gateLocate.BundlePath);
             var gate = OfCardAssetGate.Parse(gateBytes);
@@ -1327,6 +1331,46 @@ public sealed class OverFrameModService : IDisposable
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Shared pre-write backups used by create-new OF (<see cref="ApplyOverFrame"/>) and
+    /// gate-only registration (<see cref="EnableGateOnly"/>), including Import.
+    /// Snapshots pre-OF illustration once, seeds the card AssetBundle backup when safe,
+    /// and keeps a one-time vanilla gate file for disaster recovery.
+    /// </summary>
+    private void PrepareOverFrameWriteBackups(
+        CardRecord card,
+        string? cardBundlePath,
+        OfCardAssetLocateResult gateLocate,
+        bool createBackup,
+        CardDatabase? database,
+        out string? cardBackup)
+    {
+        cardBackup = null;
+
+        if (!string.IsNullOrWhiteSpace(cardBundlePath))
+            TryPreserveOriginalArtBackup(card, cardBundlePath);
+
+        if (!createBackup)
+            return;
+
+        // Never seed the "original" card backup from an already over-framed live bundle.
+        if (!string.IsNullOrWhiteSpace(cardBundlePath)
+            && (!card.IsOverframe || _backupService.HasBundleBackup(card.Bundle)))
+        {
+            if (_backupService.TryCreateBundleBackupIfMissing(cardBundlePath, card.Bundle, out var newBackup))
+                cardBackup = newBackup;
+            else
+                cardBackup = _backupService.GetBundleBackupPath(card.Bundle);
+        }
+
+        // Keep a one-time vanilla gate file for disaster recovery, but never roll back
+        // a failed apply to that stale snapshot (it would wipe every other OF entry).
+        if (gateLocate.BundlePath is not null && gateLocate.BundleId is not null)
+            _backupService.BackupGateBundleFile(gateLocate.BundlePath, gateLocate.BundleId);
+
+        database?.SetHasBackup(card.Id, true);
     }
 
     /// <summary>

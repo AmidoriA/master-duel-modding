@@ -230,6 +230,10 @@ public sealed class OverFrameBundleService : IDisposable
 
     /// <summary>
     /// Imports selected cards from a <c>.overframes</c> pack into the live game + user.db.
+    /// Texture+gate writes always go through <see cref="OverFrameModService.ApplyOverFrame"/>
+    /// (same path as create-new overframe), which performs the standard backup mechanic.
+    /// Layer-only entries use <see cref="OverFrameModService.EnableGateOnly"/> with the same
+    /// pre-write backups. <paramref name="createBackup"/> is always treated as true.
     /// </summary>
     public OverFrameBundleImportResult Import(
         string playerDataPath,
@@ -243,6 +247,9 @@ public sealed class OverFrameBundleService : IDisposable
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(cardIds);
+
+        // Match create-new OF / Custom Apply: never skip backups on Import.
+        createBackup = true;
 
         if (!GamePathLocator.IsValidGamePath(playerDataPath, out var pathError))
             return OverFrameBundleImportResult.Fail(pathError ?? "Invalid game path.");
@@ -294,7 +301,7 @@ public sealed class OverFrameBundleService : IDisposable
 
                 try
                 {
-                    ImportOne(playerDataPath, database, card, entry, extractRoot, createBackup, packer, progress);
+                    ImportOne(playerDataPath, database, card, entry, extractRoot, packer, progress);
                     imported++;
                 }
                 catch (Exception ex)
@@ -404,18 +411,25 @@ public sealed class OverFrameBundleService : IDisposable
         };
     }
 
+    /// <summary>
+    /// Unpacks one manifest entry, then applies it with the same Core APIs as create-new OF:
+    /// <see cref="OverFrameModService.ApplyOverFrame"/> when an applied canvas is present,
+    /// otherwise <see cref="OverFrameModService.EnableGateOnly"/>. Both perform shared backups.
+    /// </summary>
     private void ImportOne(
         string playerDataPath,
         CardDatabase database,
         CardRecord card,
         OverFrameBundleCardEntry entry,
         string extractRoot,
-        bool createBackup,
         string packer,
         IProgress<string>? progress)
     {
         if (entry.ArtId is int artId && artId > 0)
+        {
             database.SetArtId(card.Id, artId);
+            card = database.GetById(card.Id) ?? card;
+        }
 
         if (!string.IsNullOrWhiteSpace(entry.AppliedPng))
         {
@@ -423,11 +437,12 @@ public sealed class OverFrameBundleService : IDisposable
             if (!File.Exists(appliedPath))
                 throw new FileNotFoundException("Missing applied.png in pack.", appliedPath);
 
+            // Same function + backup mechanic as Auto-create / Custom overframe Apply.
             var apply = _modService.ApplyOverFrame(
                 playerDataPath,
                 card,
                 appliedPath,
-                createBackup,
+                createBackup: true,
                 database,
                 packer);
             if (!apply.Success)
@@ -437,7 +452,12 @@ public sealed class OverFrameBundleService : IDisposable
         {
             // Layer-only pack: register gate so the card is treated as OF; texture unchanged.
             progress?.Report($"{card.DisplayName}: no applied canvas — enabling gate only.");
-            var gate = _modService.EnableGateOnly(playerDataPath, card, createBackup, database, packer);
+            var gate = _modService.EnableGateOnly(
+                playerDataPath,
+                card,
+                createBackup: true,
+                database,
+                packer);
             if (!gate.Success)
                 throw new InvalidOperationException(gate.Message);
         }
