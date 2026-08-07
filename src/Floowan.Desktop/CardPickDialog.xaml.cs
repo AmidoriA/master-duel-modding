@@ -60,6 +60,7 @@ public partial class CardPickDialog : Window
     }
 
     private readonly ObservableCollection<PickItem> _items;
+    private readonly ObservableCollection<PickItem> _selectedSidebar = new();
     private readonly ICollectionView _view;
     private readonly string? _gamePath;
     private readonly CardThumbnailCache _thumbnailCache;
@@ -80,18 +81,26 @@ public partial class CardPickDialog : Window
         _thumbnailCache = new CardThumbnailCache();
 
         _items = new ObservableCollection<PickItem>(items);
+        foreach (var item in _items)
+        {
+            // Always open with an empty selection; callers may pass IsSelected=true.
+            item.IsSelected = false;
+            item.PropertyChanged += OnPickItemPropertyChanged;
+        }
+
         _view = CollectionViewSource.GetDefaultView(_items);
         _view.Filter = FilterItem;
         CardList.ItemsSource = _view;
-        foreach (var item in _items)
-            item.PropertyChanged += (_, _) => RefreshCount();
+        SelectedSidebarList.ItemsSource = _selectedSidebar;
 
         OkButton.Content = Loc.T("common.confirm");
         CancelButton.Content = Loc.T("common.cancel");
         SelectAllButton.Content = Loc.T("import_export.select_all");
         SelectNoneButton.Content = Loc.T("import_export.select_none");
         SearchLabel.Text = Loc.T("common.search");
-        RefreshCount();
+        SelectedSidebarHeader.Text = Loc.T("import_export.selected_sidebar");
+        SelectedSidebarEmpty.Text = Loc.T("import_export.selected_sidebar_empty");
+        RefreshSelectionUi();
     }
 
     public IReadOnlyList<int> SelectedIds =>
@@ -113,13 +122,28 @@ public partial class CardPickDialog : Window
     {
         _view.Refresh();
         Interlocked.Increment(ref _thumbnailLoadGeneration);
-        RefreshCount();
     }
 
-    private void RefreshCount()
+    private void OnPickItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        var selected = _items.Count(i => i.IsSelected);
-        CountText.Text = Loc.T("import_export.selected_count", selected, _items.Count);
+        if (e.PropertyName is null or nameof(PickItem.IsSelected))
+            RefreshSelectionUi();
+    }
+
+    private void RefreshSelectionUi()
+    {
+        var selected = _items
+            .Where(i => i.IsSelected)
+            .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        _selectedSidebar.Clear();
+        foreach (var item in selected)
+            _selectedSidebar.Add(item);
+
+        var count = selected.Count;
+        CountText.Text = Loc.T("import_export.selected_count", count, _items.Count);
+        SelectedSidebarEmpty.Visibility = count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private IEnumerable<PickItem> VisibleItems()

@@ -405,6 +405,8 @@ import_export:
   select_all: "เลือกทั้งหมด"
   select_none: "ไม่เลือก"
   selected_count: "เลือก {0} จาก {1}"
+  selected_sidebar: "ที่เลือก"
+  selected_sidebar_empty: "ยังไม่ได้เลือกการ์ด"
   select_at_least_one: "เลือกอย่างน้อยหนึ่งการ์ด"
   export_pick_title: "ส่งออกโอเวอร์เฟรม"
   export_pick_intro: "เลือกการ์ดที่ลงทะเบียนใน of_card_asset (Floowan หรือมอดอื่น) จะแพ็กอาร์ตที่ใช้แล้วและเลเยอร์แก้ไขเมื่อมี"

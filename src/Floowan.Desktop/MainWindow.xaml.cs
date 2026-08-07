@@ -1014,7 +1014,7 @@ public partial class MainWindow : Window
                 Label = label,
                 Bundle = card?.Bundle ?? "",
                 IsOverframe = card?.IsOverframe ?? true,
-                IsSelected = c.HasAppliedCanvas || c.HasEditLayer
+                IsSelected = false
             };
         }).ToList();
 
@@ -1149,7 +1149,7 @@ public partial class MainWindow : Window
                 Label = label,
                 Bundle = bundle,
                 IsOverframe = card?.IsOverframe ?? !string.IsNullOrWhiteSpace(c.AppliedPng),
-                IsSelected = true
+                IsSelected = false
             };
         }).ToList();
 
