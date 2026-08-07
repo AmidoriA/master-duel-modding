@@ -352,6 +352,91 @@ DELETE FROM schema_meta WHERE key = 'floowan_overframe_backfilled';";
         }
     }
 
+    [Fact]
+    public void StripAltArtSuffix_And_ListNameFamily_IncludeAleisterAltWithoutMadness()
+    {
+        Assert.Equal("Aleister the Invoker", CardDataFilesParser.StripAltArtSuffix("Aleister the Invoker (alt 1)"));
+        Assert.Equal("Aleister the Invoker", CardDataFilesParser.StripAltArtSuffix("Aleister the Invoker"));
+        Assert.Equal(
+            "Aleister the Invoker of Madness",
+            CardDataFilesParser.StripAltArtSuffix("Aleister the Invoker of Madness"));
+
+        var path = Path.Combine(Path.GetTempPath(), "floowan-of-family-" + Guid.NewGuid().ToString("N") + ".db");
+        var user = Path.Combine(Path.GetTempPath(), "floowan-of-family-user-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            CreateAleisterFamilyDatabase(path);
+            using var db = new CardDatabase(path, user);
+
+            var family = db.ListNameFamily("Aleister the Invoker (alt 1)");
+            Assert.Equal(2, family.Count);
+            Assert.Contains(family, c => c.Id == 3409 && c.Name.Contains("(alt 1)", StringComparison.Ordinal));
+            Assert.Contains(family, c => c.Id == 12843 && c.Name == "Aleister the Invoker");
+            Assert.DoesNotContain(family, c => c.Id == 13509);
+
+            Assert.Equal(3409, db.ResolveGateTrigger(3409)!.Id);
+            Assert.Equal(12843, db.ResolveGateTrigger(12843)!.Id);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* ignore */ }
+            try { File.Delete(user); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
+    public void ShouldIncludeUngatedNameFamilySibling_RequiresOfEvidence()
+    {
+        Assert.False(OverFrameBundleService.ShouldIncludeUngatedNameFamilySibling(
+            hasEditLayer: false, hasBackupCanvas: false, hasLiveOfCanvas: false));
+        Assert.True(OverFrameBundleService.ShouldIncludeUngatedNameFamilySibling(
+            hasEditLayer: false, hasBackupCanvas: false, hasLiveOfCanvas: true));
+        Assert.True(OverFrameBundleService.ShouldIncludeUngatedNameFamilySibling(
+            hasEditLayer: true, hasBackupCanvas: false, hasLiveOfCanvas: false));
+        Assert.True(OverFrameBundleService.ShouldIncludeUngatedNameFamilySibling(
+            hasEditLayer: false, hasBackupCanvas: true, hasLiveOfCanvas: false));
+    }
+
+    private static void CreateAleisterFamilyDatabase(string path)
+    {
+        using var conn = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Mode = SqliteOpenMode.ReadWriteCreate
+        }.ToString());
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+CREATE TABLE app_config (
+  id INTEGER PRIMARY KEY,
+  mipmap_count INTEGER NOT NULL,
+  game_path VARCHAR(610) NOT NULL,
+  packer VARCHAR(5) NOT NULL,
+  create_backup BOOLEAN NOT NULL
+);
+INSERT INTO app_config (id, mipmap_count, game_path, packer, create_backup)
+VALUES (1, 1, 'C:\game', 'lz4', 1);
+
+CREATE TABLE card (
+  name VARCHAR(255) NOT NULL,
+  description VARCHAR(255) NOT NULL,
+  bundle VARCHAR(8) NOT NULL,
+  modded_name VARCHAR(255),
+  modded_description VARCHAR(255),
+  data_index INTEGER NOT NULL,
+  id INTEGER NOT NULL PRIMARY KEY,
+  favorite BOOLEAN NOT NULL,
+  has_backup BOOLEAN NOT NULL,
+  UNIQUE (bundle)
+);
+INSERT INTO card (name, description, bundle, data_index, id, favorite, has_backup)
+VALUES ('Aleister the Invoker (alt 1)', 'desc', 'bab21048', 52, 3409, 0, 0),
+       ('Aleister the Invoker', 'desc', 'f179d660', 8319, 12843, 0, 0),
+       ('Aleister the Invoker of Madness', 'desc', 'madness1', 9000, 13509, 0, 0);
+";
+        cmd.ExecuteNonQuery();
+    }
+
     private static void CreateMinimalDatabaseWithAltArt(string path)
     {
         using var conn = new SqliteConnection(new SqliteConnectionStringBuilder

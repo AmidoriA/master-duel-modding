@@ -409,7 +409,7 @@ import_export:
   selected_sidebar_empty: "ยังไม่ได้เลือกการ์ด"
   select_at_least_one: "เลือกอย่างน้อยหนึ่งการ์ด"
   export_pick_title: "ส่งออกโอเวอร์เฟรม"
-  export_pick_intro: "เลือกการ์ดที่ลงทะเบียนใน of_card_asset (Floowan หรือมอดอื่น) จะแพ็กอาร์ตที่ใช้แล้วและเลเยอร์แก้ไขเมื่อมี"
+  export_pick_intro: "เลือกการ์ดโอเวอร์เฟรมที่จะแพ็ก รวมรายการใน of_card_asset การ์ดที่ Floowan ติดตาม และอาร์ตทางเลือกที่มีแคนวาสโอเวอร์เฟรมสดอยู่แล้ว"
   export_none: "ไม่พบการ์ดโอเวอร์เฟรมใน of_card_asset ตรวจว่าเกตถูกค้นหาแล้ว (เครื่องมือ → สแกน of_card_asset) และตั้ง LocalData แล้ว"
   export_save_title: "บันทึกชุดโอเวอร์เฟรม"
   export_filter: "ชุดโอเวอร์เฟรม (*.overframes)|*.overframes"

@@ -410,7 +410,7 @@ import_export:
   selected_sidebar_empty: "No cards selected."
   select_at_least_one: "Select at least one card."
   export_pick_title: "Export over-frames"
-  export_pick_intro: "Select cards currently registered in of_card_asset (Floowan or other mods). Applied art and optional edit layers are packed when available."
+  export_pick_intro: "Select over-frame cards to pack. Includes of_card_asset entries plus Floowan-tracked cards and alternate arts that already have a live over-frame canvas."
   export_none: "No over-frame cards found in of_card_asset. Confirm the gate is located (Tools → Scan / locate of_card_asset) and LocalData is set."
   export_save_title: "Save over-frame bundle"
   export_filter: "Over-frame bundles (*.overframes)|*.overframes"
