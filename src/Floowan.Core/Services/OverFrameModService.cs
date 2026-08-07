@@ -1006,9 +1006,9 @@ public sealed class OverFrameModService : IDisposable
         var triggers = entries.Select(e => (int)e.TriggerId).Distinct().ToList();
         progress?.Report($"Indexing {triggers.Count} gate id(s) against database.db…");
 
-        // Master catalog id == Texture2D art id for illustration rows. Prefer that + cached art_id.
-        var byCatalogId = database.GetByIds(triggers);
-        var byCachedArtId = database.GetByArtIds(triggers);
+        // Prefer catalog id (illustration / alt-art rows) over cached art_id so a stale
+        // art_id on another card cannot shadow the real alternate-art catalog row.
+        var resolved = database.ResolveGateTriggers(triggers);
 
         var results = new List<GatedOverFrameCard>(entries.Count);
         var seenCards = new HashSet<int>();
@@ -1016,13 +1016,7 @@ public sealed class OverFrameModService : IDisposable
         foreach (var (trigger, baseArt) in entries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            CardRecord? card = null;
-            if (byCachedArtId.TryGetValue(trigger, out var fromArt))
-                card = fromArt;
-            else if (byCatalogId.TryGetValue(trigger, out var fromId))
-                card = fromId;
-
-            if (card is null)
+            if (!resolved.TryGetValue(trigger, out var card))
             {
                 unresolved++;
                 continue;

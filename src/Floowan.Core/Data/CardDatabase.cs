@@ -1311,6 +1311,54 @@ ORDER BY IFNULL(u.overframe_applied_at, '') DESC, c.id DESC;";
     }
 
     /// <summary>
+    /// Resolves an <c>of_card_asset</c> gate trigger to a catalog row.
+    /// Prefers <c>card.id</c> (illustration art id, including alternate arts) when that row's
+    /// cached <c>art_id</c> is unset or matches the trigger; falls back to
+    /// <c>user.card_state.art_id</c>. Rejects bare catalog-id hits whose cached art_id is a
+    /// different value (legacy Floowandereeze-PK collisions).
+    /// </summary>
+    public CardRecord? ResolveGateTrigger(int trigger)
+    {
+        if (trigger <= 0)
+            return null;
+
+        var byId = GetById(trigger);
+        if (byId is not null && (byId.ArtId is null || byId.ArtId == trigger))
+            return byId;
+
+        return GetByArtId(trigger);
+    }
+
+    /// <summary>
+    /// Batch form of <see cref="ResolveGateTrigger"/> for gate listing / sync.
+    /// </summary>
+    public IReadOnlyDictionary<int, CardRecord> ResolveGateTriggers(IEnumerable<int> triggers)
+    {
+        ArgumentNullException.ThrowIfNull(triggers);
+        var idList = triggers.Where(id => id > 0).Distinct().ToList();
+        if (idList.Count == 0)
+            return new Dictionary<int, CardRecord>();
+
+        var byCatalogId = GetByIds(idList);
+        var byCachedArtId = GetByArtIds(idList);
+        var map = new Dictionary<int, CardRecord>(idList.Count);
+        foreach (var trigger in idList)
+        {
+            if (byCatalogId.TryGetValue(trigger, out var byId)
+                && (byId.ArtId is null || byId.ArtId == trigger))
+            {
+                map[trigger] = byId;
+                continue;
+            }
+
+            if (byCachedArtId.TryGetValue(trigger, out var byArt))
+                map[trigger] = byArt;
+        }
+
+        return map;
+    }
+
+    /// <summary>
     /// Updates live <c>is_overframe</c> from the gate without wiping Floowan apply memory
     /// (<c>floowan_overframe</c> / applied timestamps / stored base ids for Floowan cards).
     /// Returns how many card rows were marked from gate triggers.
@@ -1338,15 +1386,21 @@ WHERE floowan_overframe = 1;";
         }
 
         var marked = 0;
+        var seenCards = new HashSet<int>();
         foreach (var (triggerId, baseArtId) in entries)
         {
+            var card = ResolveGateTrigger(triggerId);
+            if (card is null || !seenCards.Add(card.Id))
+                continue;
+
+            EnsureCardStateRow(card.Id);
             using var cmd = _connection.CreateCommand();
             cmd.CommandText = @"
 UPDATE user.card_state
 SET is_overframe = 1, overframe_base_id = $base
-WHERE art_id = $trigger;";
-            cmd.Parameters.AddWithValue("$trigger", (int)triggerId);
+WHERE id = $id;";
             cmd.Parameters.AddWithValue("$base", (int)baseArtId);
+            cmd.Parameters.AddWithValue("$id", card.Id);
             marked += cmd.ExecuteNonQuery();
         }
 

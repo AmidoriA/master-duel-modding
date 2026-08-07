@@ -286,6 +286,111 @@ DELETE FROM schema_meta WHERE key = 'floowan_overframe_backfilled';";
         }
     }
 
+    [Fact]
+    public void ResolveGateTrigger_PrefersCatalogAltArt_OverStaleArtIdCache()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "floowan-of-alt-" + Guid.NewGuid().ToString("N") + ".db");
+        var user = Path.Combine(Path.GetTempPath(), "floowan-of-alt-user-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            CreateMinimalDatabaseWithAltArt(path);
+            using var db = new CardDatabase(path, user);
+
+            // Stale: base card cached another row's art id (would shadow alt art if art_id won).
+            db.SetArtId(4007, 3801);
+
+            var resolved = db.ResolveGateTrigger(3801);
+            Assert.NotNull(resolved);
+            Assert.Equal(3801, resolved!.Id);
+            Assert.Contains("(alt", resolved.Name, StringComparison.OrdinalIgnoreCase);
+
+            var batch = db.ResolveGateTriggers([3801, 4007]);
+            Assert.Equal(3801, batch[3801].Id);
+            // 4007 has art_id=3801 ≠ id → rejected as catalog hit; no art_id=4007 owner either.
+            Assert.False(batch.ContainsKey(4007));
+
+            // Sync marks the alt-art catalog row even with no art_id cached on it.
+            var synced = db.SyncOverframeFromGate([(3801, 3801)]);
+            Assert.Equal(1, synced);
+            Assert.True(db.GetById(3801)!.IsOverframe);
+
+            // After clearing the stale cache, base art resolves by catalog id as usual.
+            db.SetArtId(4007, 4007);
+            Assert.Equal(4007, db.ResolveGateTrigger(4007)!.Id);
+            synced = db.SyncOverframeFromGate([(3801, 3801), (4007, 4007)]);
+            Assert.Equal(2, synced);
+            Assert.True(db.GetById(4007)!.IsOverframe);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* ignore */ }
+            try { File.Delete(user); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
+    public void ResolveGateTrigger_RejectsCatalogIdWhenCachedArtIdDiffers()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "floowan-of-pk2-" + Guid.NewGuid().ToString("N") + ".db");
+        var user = Path.Combine(Path.GetTempPath(), "floowan-of-pk2-user-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            CreateMinimalDatabase(path);
+            using var db = new CardDatabase(path, user);
+            db.SetArtId(1, 1001);
+
+            // Trigger equals Floowandereeze PK whose real art id is different → no resolve.
+            Assert.Null(db.ResolveGateTrigger(1));
+
+            // Real art id still resolves via art_id cache.
+            Assert.Equal(1, db.ResolveGateTrigger(1001)!.Id);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* ignore */ }
+            try { File.Delete(user); } catch { /* ignore */ }
+        }
+    }
+
+    private static void CreateMinimalDatabaseWithAltArt(string path)
+    {
+        using var conn = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Mode = SqliteOpenMode.ReadWriteCreate
+        }.ToString());
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+CREATE TABLE app_config (
+  id INTEGER PRIMARY KEY,
+  mipmap_count INTEGER NOT NULL,
+  game_path VARCHAR(610) NOT NULL,
+  packer VARCHAR(5) NOT NULL,
+  create_backup BOOLEAN NOT NULL
+);
+INSERT INTO app_config (id, mipmap_count, game_path, packer, create_backup)
+VALUES (1, 1, 'C:\game', 'lz4', 1);
+
+CREATE TABLE card (
+  name VARCHAR(255) NOT NULL,
+  description VARCHAR(255) NOT NULL,
+  bundle VARCHAR(8) NOT NULL,
+  modded_name VARCHAR(255),
+  modded_description VARCHAR(255),
+  data_index INTEGER NOT NULL,
+  id INTEGER NOT NULL PRIMARY KEY,
+  favorite BOOLEAN NOT NULL,
+  has_backup BOOLEAN NOT NULL,
+  UNIQUE (bundle)
+);
+INSERT INTO card (name, description, bundle, data_index, id, favorite, has_backup)
+VALUES ('Blue-Eyes White Dragon (alt 1)', 'desc', 'alt3801a', 0, 3801, 0, 0),
+       ('Blue-Eyes White Dragon', 'desc', 'base4007', 1, 4007, 0, 0);
+";
+        cmd.ExecuteNonQuery();
+    }
+
     private static void CreateMinimalDatabase(string path)
     {
         using var conn = new SqliteConnection(new SqliteConnectionStringBuilder
