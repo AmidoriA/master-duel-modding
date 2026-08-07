@@ -42,7 +42,8 @@ public sealed class OverFrameBundleService : IDisposable
 
     /// <summary>
     /// Lists cards currently in the live <c>of_card_asset</c> gate (Floowan or other mods),
-    /// with optional layer / applied-canvas hints from this PC's backups and user.db.
+    /// plus Floowan-tracked / edit-layer cards and catalog <c>(alt N)</c> siblings that already
+    /// have a live OF canvas (orphan alts such as Aleister 3409 when only the base is gated).
     /// </summary>
     public IReadOnlyList<OverFrameBundleExportItem> ListExportCandidates(
         string playerDataPath,
@@ -58,30 +59,124 @@ public sealed class OverFrameBundleService : IDisposable
         var gated = _modService.ListGatedOverFrameCards(
             playerDataPath, database, progress, cancellationToken, allowFullScan);
 
-        var items = new List<OverFrameBundleExportItem>(gated.Count);
+        var byId = new Dictionary<int, OverFrameBundleExportItem>();
         foreach (var entry in gated)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var card = entry.Card;
-            var hasLayer = database.HasOfEditLayer(card.Id);
-            // Do not open every AssetBundle while listing — gated cards have live OF art;
-            // applied PNG backup is optional (Floowan-only). Packing extracts live art on export.
-            var hasBackupCanvas = _modService.Backups.HasAppliedOverFrameBackup(card.Name);
-
-            items.Add(new OverFrameBundleExportItem
-            {
-                CardId = card.Id,
-                Name = card.Name,
-                DisplayName = card.DisplayName,
-                ArtId = entry.ArtId,
-                BaseArtId = entry.BaseArtId,
-                HasEditLayer = hasLayer,
-                HasAppliedCanvas = true,
-                IsFloowanTracked = database.IsFloowanOverframe(card.Id) || hasBackupCanvas
-            });
+            AddExportCandidate(
+                byId,
+                entry.Card,
+                artId: entry.ArtId,
+                baseArtId: entry.BaseArtId,
+                hasAppliedCanvas: true,
+                database);
         }
 
+        // Floowan apply memory / layers survive gate wipes — still exportable.
+        foreach (var card in database.ListFloowanOverframeCards())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (byId.ContainsKey(card.Id))
+                continue;
+
+            var artId = card.ArtId is int cached && cached > 0 ? cached : card.Id;
+            var baseArtId = card.OverframeBaseId is int stored && stored > 0 ? stored : artId;
+            var hasBackup = _modService.Backups.HasAppliedOverFrameBackup(card.Name);
+            AddExportCandidate(
+                byId,
+                card,
+                artId,
+                baseArtId,
+                hasAppliedCanvas: hasBackup || HasLiveOverFrameCanvas(playerDataPath, card),
+                database);
+        }
+
+        progress?.Report("Checking alternate-art siblings for exportable over-frames…");
+        foreach (var seedId in byId.Keys.ToList())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!byId.TryGetValue(seedId, out var seed))
+                continue;
+
+            foreach (var sibling in database.ListNameFamily(seed.Name))
+            {
+                if (byId.ContainsKey(sibling.Id))
+                    continue;
+
+                var hasLayer = database.HasOfEditLayer(sibling.Id);
+                var hasBackup = _modService.Backups.HasAppliedOverFrameBackup(sibling.Name);
+                var hasLiveOf = HasLiveOverFrameCanvas(playerDataPath, sibling);
+                if (!ShouldIncludeUngatedNameFamilySibling(hasLayer, hasBackup, hasLiveOf))
+                    continue;
+
+                var artId = sibling.ArtId is int cached && cached > 0 ? cached : sibling.Id;
+                var baseArtId = sibling.OverframeBaseId is int stored && stored > 0 ? stored : artId;
+                AddExportCandidate(
+                    byId,
+                    sibling,
+                    artId,
+                    baseArtId,
+                    hasAppliedCanvas: hasLiveOf || hasBackup,
+                    database);
+            }
+        }
+
+        var items = byId.Values
+            .OrderBy(i => i.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(i => i.CardId)
+            .ToList();
+        progress?.Report($"Export candidates: {items.Count} card(s).");
         return items;
+    }
+
+    /// <summary>
+    /// Ungated catalog alt arts are export candidates when they already carry OF evidence
+    /// (live 704×1024, Floowan backup, or edit layers) — e.g. Aleister alt 1 (3409) when only
+    /// the base art id is registered in <c>of_card_asset</c>.
+    /// </summary>
+    public static bool ShouldIncludeUngatedNameFamilySibling(
+        bool hasEditLayer,
+        bool hasBackupCanvas,
+        bool hasLiveOfCanvas) =>
+        hasEditLayer || hasBackupCanvas || hasLiveOfCanvas;
+
+    private void AddExportCandidate(
+        Dictionary<int, OverFrameBundleExportItem> byId,
+        CardRecord card,
+        int artId,
+        int baseArtId,
+        bool hasAppliedCanvas,
+        CardDatabase database)
+    {
+        if (byId.ContainsKey(card.Id))
+            return;
+
+        var hasLayer = database.HasOfEditLayer(card.Id);
+        var hasBackupCanvas = _modService.Backups.HasAppliedOverFrameBackup(card.Name);
+        byId[card.Id] = new OverFrameBundleExportItem
+        {
+            CardId = card.Id,
+            Name = card.Name,
+            DisplayName = card.DisplayName,
+            ArtId = artId,
+            BaseArtId = baseArtId,
+            HasEditLayer = hasLayer,
+            HasAppliedCanvas = hasAppliedCanvas,
+            IsFloowanTracked = database.IsFloowanOverframe(card.Id) || hasBackupCanvas
+        };
+    }
+
+    private bool HasLiveOverFrameCanvas(string playerDataPath, CardRecord card)
+    {
+        try
+        {
+            var info = _modService.GetTextureInfo(playerDataPath, card);
+            return OverFrameOrphanDetector.IsRenderedAsOverframe(info.Width, info.Height);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>

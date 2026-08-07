@@ -118,6 +118,28 @@ public static class CardDataFilesParser
         return updated;
     }
 
+    /// <summary>
+    /// Strips a trailing <c> (alt N)</c> suffix from a catalog name, if present.
+    /// Does not alter distinct titles that merely contain the same words
+    /// (e.g. <c>Aleister the Invoker of Madness</c>).
+    /// </summary>
+    public static string StripAltArtSuffix(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "";
+
+        var trimmed = name.Trim();
+        var open = trimmed.LastIndexOf(" (alt ", StringComparison.OrdinalIgnoreCase);
+        if (open < 0 || !trimmed.EndsWith(')'))
+            return trimmed;
+
+        var inner = trimmed[(open + " (alt ".Length)..^1].Trim();
+        if (inner.Length == 0 || !inner.All(char.IsDigit))
+            return trimmed;
+
+        return trimmed[..open].Trim();
+    }
+
     private static string TrimNulls(string s)
     {
         var end = s.Length;

@@ -1311,6 +1311,36 @@ ORDER BY IFNULL(u.overframe_applied_at, '') DESC, c.id DESC;";
     }
 
     /// <summary>
+    /// Catalog rows that share an illustration name family: the bare name and any
+    /// <c>(alt N)</c> variants. Distinct titles that only share a prefix
+    /// (e.g. <c>Aleister the Invoker of Madness</c> vs <c>Aleister the Invoker</c>) are excluded.
+    /// </summary>
+    public IReadOnlyList<CardRecord> ListNameFamily(string? name)
+    {
+        var baseName = CardDataFilesParser.StripAltArtSuffix(name);
+        if (baseName.Length == 0)
+            return Array.Empty<CardRecord>();
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = $@"
+SELECT {_cardSelectList}
+{CardFromJoin}
+WHERE c.name = $base
+   OR c.name LIKE $alt_prefix ESCAPE '\'
+ORDER BY c.id;";
+        cmd.Parameters.AddWithValue("$base", baseName);
+        // Escape LIKE wildcards in the base title so names with %/_ still match literally.
+        var escaped = baseName.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+        cmd.Parameters.AddWithValue("$alt_prefix", escaped + " (alt %");
+
+        var results = new List<CardRecord>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            results.Add(ReadCard(reader));
+        return results;
+    }
+
+    /// <summary>
     /// Resolves an <c>of_card_asset</c> gate trigger to a catalog row.
     /// Prefers <c>card.id</c> (illustration art id, including alternate arts) when that row's
     /// cached <c>art_id</c> is unset or matches the trigger; falls back to
