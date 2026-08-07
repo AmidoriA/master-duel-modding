@@ -851,6 +851,86 @@ LIMIT 1;";
         return reader.Read() ? ReadCard(reader) : null;
     }
 
+    /// <summary>
+    /// Batch lookup by catalog id. In Floowan's master DB, illustration <c>card.id</c> is the
+    /// Master Duel art id (Texture2D m_Name), so gate triggers resolve here without scanning bundles.
+    /// </summary>
+    public IReadOnlyDictionary<int, CardRecord> GetByIds(IEnumerable<int> ids)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        var idList = ids.Where(id => id > 0).Distinct().ToList();
+        if (idList.Count == 0)
+            return new Dictionary<int, CardRecord>();
+
+        var map = new Dictionary<int, CardRecord>(idList.Count);
+        const int chunkSize = 400;
+        for (var offset = 0; offset < idList.Count; offset += chunkSize)
+        {
+            var chunk = idList.Skip(offset).Take(chunkSize).ToList();
+            using var cmd = _connection.CreateCommand();
+            var names = new string[chunk.Count];
+            for (var i = 0; i < chunk.Count; i++)
+            {
+                names[i] = "$id" + i;
+                cmd.Parameters.AddWithValue(names[i], chunk[i]);
+            }
+
+            cmd.CommandText = $@"
+SELECT {_cardSelectList}
+{CardFromJoin}
+WHERE c.id IN ({string.Join(",", names)});";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var card = ReadCard(reader);
+                map[card.Id] = card;
+            }
+        }
+
+        return map;
+    }
+
+    /// <summary>
+    /// Batch lookup by cached <c>user.card_state.art_id</c> (when it differs from catalog id).
+    /// </summary>
+    public IReadOnlyDictionary<int, CardRecord> GetByArtIds(IEnumerable<int> artIds)
+    {
+        ArgumentNullException.ThrowIfNull(artIds);
+        var idList = artIds.Where(id => id > 0).Distinct().ToList();
+        if (idList.Count == 0)
+            return new Dictionary<int, CardRecord>();
+
+        // Keyed by art_id (not card id).
+        var map = new Dictionary<int, CardRecord>(idList.Count);
+        const int chunkSize = 400;
+        for (var offset = 0; offset < idList.Count; offset += chunkSize)
+        {
+            var chunk = idList.Skip(offset).Take(chunkSize).ToList();
+            using var cmd = _connection.CreateCommand();
+            var names = new string[chunk.Count];
+            for (var i = 0; i < chunk.Count; i++)
+            {
+                names[i] = "$art" + i;
+                cmd.Parameters.AddWithValue(names[i], chunk[i]);
+            }
+
+            cmd.CommandText = $@"
+SELECT {_cardSelectList}
+{CardFromJoin}
+WHERE u.art_id IN ({string.Join(",", names)})
+ORDER BY c.id;";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var card = ReadCard(reader);
+                if (card.ArtId is int art && !map.ContainsKey(art))
+                    map[art] = card;
+            }
+        }
+
+        return map;
+    }
+
     public void SetArtId(int cardId, int artId)
     {
         EnsureCardStateRow(cardId);
@@ -1231,6 +1311,84 @@ ORDER BY IFNULL(u.overframe_applied_at, '') DESC, c.id DESC;";
     }
 
     /// <summary>
+    /// Catalog rows that share an illustration name family: the bare name and any
+    /// <c>(alt N)</c> variants. Distinct titles that only share a prefix
+    /// (e.g. <c>Aleister the Invoker of Madness</c> vs <c>Aleister the Invoker</c>) are excluded.
+    /// </summary>
+    public IReadOnlyList<CardRecord> ListNameFamily(string? name)
+    {
+        var baseName = CardDataFilesParser.StripAltArtSuffix(name);
+        if (baseName.Length == 0)
+            return Array.Empty<CardRecord>();
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = $@"
+SELECT {_cardSelectList}
+{CardFromJoin}
+WHERE c.name = $base
+   OR c.name LIKE $alt_prefix ESCAPE '\'
+ORDER BY c.id;";
+        cmd.Parameters.AddWithValue("$base", baseName);
+        // Escape LIKE wildcards in the base title so names with %/_ still match literally.
+        var escaped = baseName.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+        cmd.Parameters.AddWithValue("$alt_prefix", escaped + " (alt %");
+
+        var results = new List<CardRecord>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            results.Add(ReadCard(reader));
+        return results;
+    }
+
+    /// <summary>
+    /// Resolves an <c>of_card_asset</c> gate trigger to a catalog row.
+    /// Prefers <c>card.id</c> (illustration art id, including alternate arts) when that row's
+    /// cached <c>art_id</c> is unset or matches the trigger; falls back to
+    /// <c>user.card_state.art_id</c>. Rejects bare catalog-id hits whose cached art_id is a
+    /// different value (legacy Floowandereeze-PK collisions).
+    /// </summary>
+    public CardRecord? ResolveGateTrigger(int trigger)
+    {
+        if (trigger <= 0)
+            return null;
+
+        var byId = GetById(trigger);
+        if (byId is not null && (byId.ArtId is null || byId.ArtId == trigger))
+            return byId;
+
+        return GetByArtId(trigger);
+    }
+
+    /// <summary>
+    /// Batch form of <see cref="ResolveGateTrigger"/> for gate listing / sync.
+    /// </summary>
+    public IReadOnlyDictionary<int, CardRecord> ResolveGateTriggers(IEnumerable<int> triggers)
+    {
+        ArgumentNullException.ThrowIfNull(triggers);
+        var idList = triggers.Where(id => id > 0).Distinct().ToList();
+        if (idList.Count == 0)
+            return new Dictionary<int, CardRecord>();
+
+        var byCatalogId = GetByIds(idList);
+        var byCachedArtId = GetByArtIds(idList);
+        var map = new Dictionary<int, CardRecord>(idList.Count);
+        foreach (var trigger in idList)
+        {
+            if (byCatalogId.TryGetValue(trigger, out var byId)
+                && (byId.ArtId is null || byId.ArtId == trigger))
+            {
+                map[trigger] = byId;
+                continue;
+            }
+
+            if (byCachedArtId.TryGetValue(trigger, out var byArt))
+                map[trigger] = byArt;
+        }
+
+        return map;
+    }
+
+    /// <summary>
     /// Updates live <c>is_overframe</c> from the gate without wiping Floowan apply memory
     /// (<c>floowan_overframe</c> / applied timestamps / stored base ids for Floowan cards).
     /// Returns how many card rows were marked from gate triggers.
@@ -1258,15 +1416,21 @@ WHERE floowan_overframe = 1;";
         }
 
         var marked = 0;
+        var seenCards = new HashSet<int>();
         foreach (var (triggerId, baseArtId) in entries)
         {
+            var card = ResolveGateTrigger(triggerId);
+            if (card is null || !seenCards.Add(card.Id))
+                continue;
+
+            EnsureCardStateRow(card.Id);
             using var cmd = _connection.CreateCommand();
             cmd.CommandText = @"
 UPDATE user.card_state
 SET is_overframe = 1, overframe_base_id = $base
-WHERE art_id = $trigger;";
-            cmd.Parameters.AddWithValue("$trigger", (int)triggerId);
+WHERE id = $id;";
             cmd.Parameters.AddWithValue("$base", (int)baseArtId);
+            cmd.Parameters.AddWithValue("$id", card.Id);
             marked += cmd.ExecuteNonQuery();
         }
 

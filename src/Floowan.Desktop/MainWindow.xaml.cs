@@ -84,16 +84,19 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _dbFilterDebounceTimer;
     private readonly DispatcherTimer _ofActionStatusClearTimer;
     private readonly CardThumbnailCache _thumbnailCache = new();
+    private readonly ViewportThumbnailLoader<CardRecord> _cardArtThumbLoader;
+    private readonly ViewportThumbnailLoader<CardRecord> _ofCardThumbLoader;
 
     /// <summary>Session-scoped results view: list vs thumbnails (shared by Card Art and Over-frame).</summary>
     private bool _useThumbnailView;
     private bool _viewModeUpdating;
     private bool _dbFilterUiUpdating;
-    private int _thumbnailLoadGeneration;
     private int _uiBusyDepth;
     public MainWindow()
     {
         InitializeComponent();
+        _cardArtThumbLoader = CreateListThumbnailLoader(CardList);
+        _ofCardThumbLoader = CreateListThumbnailLoader(OfCardList);
         _cardSearchDebounceTimer = CreateSearchDebounceTimer(OnCardSearchDebounceTick);
         _ofSearchDebounceTimer = CreateSearchDebounceTimer(OnOfSearchDebounceTick);
         _dbFilterDebounceTimer = CreateSearchDebounceTimer(OnDbFilterDebounceTick);
@@ -105,6 +108,16 @@ public partial class MainWindow : Window
         Loaded += OnLoaded;
         Closed += (_, _) => Cleanup();
     }
+
+    private ViewportThumbnailLoader<CardRecord> CreateListThumbnailLoader(ListBox list) =>
+        new(
+            _thumbnailCache,
+            () => GamePathBox.Text,
+            card => card.Id,
+            card => card,
+            (card, src) => ApplyListThumbnail(list, card, src),
+            () => _useThumbnailView,
+            dispatcher: Dispatcher);
 
     /// <summary>
     /// Blocks interaction with a dim overlay. Avoids Window.IsEnabled=false, which
@@ -356,6 +369,7 @@ public partial class MainWindow : Window
             () =>
             {
                 CardList.ItemsSource = Array.Empty<CardRecord>();
+                _cardArtThumbLoader.CancelAndReloadVisible();
                 Status(Loc.T("status.search_min_chars"));
             });
     }
@@ -380,7 +394,8 @@ public partial class MainWindow : Window
             searchDescription: SearchDescBox.IsChecked == true,
             limit: 400);
         CardList.ItemsSource = results;
-        BumpThumbnailLoadGeneration();
+        EnsureListThumbnailLoaderAttached(CardList, _cardArtThumbLoader);
+        _cardArtThumbLoader.CancelAndReloadVisible();
         Status(Loc.T("status.showing_cards", results.Count));
     }
 
@@ -422,7 +437,10 @@ public partial class MainWindow : Window
                 thumbnails,
                 useDisplayMemberPath: false,
                 listItemTemplate: TryFindResource("OfCardListItemTemplate") as DataTemplate);
-            BumpThumbnailLoadGeneration();
+            EnsureListThumbnailLoaderAttached(CardList, _cardArtThumbLoader);
+            EnsureListThumbnailLoaderAttached(OfCardList, _ofCardThumbLoader);
+            _cardArtThumbLoader.CancelAndReloadVisible();
+            _ofCardThumbLoader.CancelAndReloadVisible();
         }
         finally
         {
@@ -450,42 +468,39 @@ public partial class MainWindow : Window
         }
     }
 
-    private void BumpThumbnailLoadGeneration() => Interlocked.Increment(ref _thumbnailLoadGeneration);
-
-    private async void CardThumbnailImage_Loaded(object sender, RoutedEventArgs e)
+    private void EnsureListThumbnailLoaderAttached(ListBox list, ViewportThumbnailLoader<CardRecord> loader)
     {
-        if (!_useThumbnailView)
-            return;
-        if (sender is not Image image || image.DataContext is not CardRecord card)
+        if (!list.IsLoaded)
             return;
 
-        var generation = _thumbnailLoadGeneration;
-        if (_thumbnailCache.TryGet(card, out var cached) && !ReferenceEquals(cached, _thumbnailCache.Placeholder))
-        {
-            image.Source = cached;
+        var scroll = ViewportThumbnailLoader<CardRecord>.FindScrollViewer(list);
+        if (scroll is null)
             return;
-        }
 
-        image.Source = _thumbnailCache.Placeholder;
+        loader.Attach(list, scroll, () => EnumerateListCards(list));
+    }
 
-        try
+    private static IEnumerable<CardRecord> EnumerateListCards(ListBox list)
+    {
+        foreach (var obj in list.Items)
         {
-            var loaded = await _thumbnailCache.GetOrLoadAsync(GamePathBox.Text, card);
-            if (generation != _thumbnailLoadGeneration)
-                return;
-            if (!image.IsLoaded || image.DataContext is not CardRecord current || current.Id != card.Id)
-                return;
-            image.Source = loaded;
+            if (obj is CardRecord card)
+                yield return card;
         }
-        catch (OperationCanceledException)
-        {
-            /* ignore */
-        }
-        catch
-        {
-            if (image.IsLoaded)
-                image.Source = _thumbnailCache.Placeholder;
-        }
+    }
+
+    private static void ApplyListThumbnail(ListBox list, CardRecord card, ImageSource source)
+    {
+        if (list.ItemContainerGenerator.ContainerFromItem(card) is not FrameworkElement container)
+            return;
+
+        var image = ViewportThumbnailLoader<CardRecord>.FindDescendantImage(container);
+        if (image is null)
+            return;
+        if (image.DataContext is CardRecord current && current.Id != card.Id)
+            return;
+
+        image.Source = source;
     }
 
     private void CardList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -683,6 +698,7 @@ public partial class MainWindow : Window
                 ReplacementImage.Opacity = 0.0;
                 ReplacementImage.IsHitTestVisible = false;
                 _thumbnailCache.Invalidate(card);
+                _cardArtThumbLoader.CancelAndReloadVisible();
                 LoadCurrentPreview();
             }
         }
@@ -733,6 +749,7 @@ public partial class MainWindow : Window
             if (ok)
             {
                 _thumbnailCache.Invalidate(_selected);
+                _cardArtThumbLoader.CancelAndReloadVisible();
                 LoadCurrentPreview();
             }
         }
@@ -929,6 +946,287 @@ public partial class MainWindow : Window
         finally
         {
             SetToolsLongRunningButtonsEnabled(true);
+            SetUiBusy(false);
+        }
+    }
+
+    private async void ImportExportExport_Click(object sender, RoutedEventArgs e)
+    {
+        if (_database is null)
+        {
+            MessageBox.Show(Loc.T("common.open_database_first"), AppCaption);
+            return;
+        }
+
+        if (_overFrameService is null)
+        {
+            MessageBox.Show(Loc.T("common.overframe_service_missing"), AppCaption);
+            return;
+        }
+
+        var gamePath = GamePathBox.Text?.Trim() ?? "";
+        string? pathError = null;
+        if (string.IsNullOrWhiteSpace(gamePath) || !GamePathLocator.IsValidGamePath(gamePath, out pathError))
+        {
+            MessageBox.Show(
+                pathError ?? Loc.T("common.set_localdata_home"),
+                AppCaption,
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        using var bundleService = new OverFrameBundleService(_overFrameService);
+        IReadOnlyList<OverFrameBundleExportItem> candidates;
+        try
+        {
+            SetUiBusy(true);
+            Status(Loc.T("app.working"));
+            var database = _database;
+            var progress = new Progress<string>(msg =>
+            {
+                ImportExportStatusText.Text = msg;
+                Status(msg);
+            });
+            candidates = await Task.Run(() =>
+                bundleService.ListExportCandidates(gamePath, database, progress));
+        }
+        catch (Exception ex)
+        {
+            ImportExportStatusText.Text = Loc.T("app.error_prefix", ex.Message);
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        finally
+        {
+            SetUiBusy(false);
+        }
+
+        if (candidates.Count == 0)
+        {
+            ImportExportStatusText.Text = Loc.T("import_export.export_none");
+            MessageBox.Show(Loc.T("import_export.export_none"), AppCaption, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var catalog = _database.GetByIds(candidates.Select(c => c.CardId));
+        var pickItems = candidates.Select(c =>
+        {
+            var badges = new List<string>();
+            var altBadge = CardPickDialog.PickItem.TryGetAltBadge(
+                string.IsNullOrWhiteSpace(c.DisplayName) ? c.Name : c.DisplayName);
+            if (altBadge is not null) badges.Add(altBadge);
+            if (c.HasAppliedCanvas) badges.Add(Loc.T("import_export.export_badge_canvas"));
+            if (c.HasEditLayer) badges.Add(Loc.T("import_export.export_badge_layer"));
+            if (c.IsFloowanTracked) badges.Add(Loc.T("import_export.export_badge_floowan"));
+            if (badges.Count == 0) badges.Add(Loc.T("import_export.export_badge_neither"));
+            var badgeText = string.Join(", ", badges);
+            var name = string.IsNullOrWhiteSpace(c.DisplayName) ? c.Name : c.DisplayName;
+            if (string.IsNullOrWhiteSpace(name))
+                name = $"#{c.CardId}";
+            var label = Loc.T("import_export.label_with_badges", name, badgeText);
+            catalog.TryGetValue(c.CardId, out var card);
+            return new CardPickDialog.PickItem
+            {
+                Id = c.CardId,
+                Name = name,
+                BadgeText = badgeText,
+                Label = label,
+                Bundle = card?.Bundle ?? "",
+                IsOverframe = card?.IsOverframe ?? true,
+                IsSelected = false
+            };
+        }).ToList();
+
+        var pick = new CardPickDialog(
+            this,
+            Loc.T("import_export.export_pick_title"),
+            Loc.T("import_export.export_pick_intro"),
+            pickItems,
+            gamePath);
+        if (pick.ShowDialog() != true)
+            return;
+
+        var save = new SaveFileDialog
+        {
+            Title = Loc.T("import_export.export_save_title"),
+            Filter = Loc.T("import_export.export_filter"),
+            FileName = "floowan-overframes.overframes",
+            AddExtension = true,
+            DefaultExt = ".overframes"
+        };
+        if (save.ShowDialog(this) != true)
+            return;
+
+        var selectedIds = pick.SelectedIds;
+        var version = typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+        SetUiBusy(true);
+        ImportExportStatusText.Text = Loc.T("app.starting");
+        Status(Loc.T("app.starting"));
+        try
+        {
+            var database = _database;
+            var progress = new Progress<string>(msg =>
+            {
+                ImportExportStatusText.Text = msg;
+                Status(msg);
+            });
+            var result = await Task.Run(() =>
+                bundleService.Export(gamePath, database, selectedIds, save.FileName, version, progress));
+            ImportExportStatusText.Text = result.Message;
+            Status(result.Message);
+            MessageBox.Show(
+                result.Message,
+                AppCaption,
+                MessageBoxButton.OK,
+                result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        }
+        catch (Exception ex)
+        {
+            ImportExportStatusText.Text = Loc.T("app.error_prefix", ex.Message);
+            Status(Loc.T("app.error_prefix", ex.Message));
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            SetUiBusy(false);
+        }
+    }
+
+    private async void ImportExportImport_Click(object sender, RoutedEventArgs e)
+    {
+        if (_database is null)
+        {
+            MessageBox.Show(Loc.T("common.open_database_first"), AppCaption);
+            return;
+        }
+
+        if (_overFrameService is null)
+        {
+            MessageBox.Show(Loc.T("common.overframe_service_missing"), AppCaption);
+            return;
+        }
+
+        var gamePath = GamePathBox.Text?.Trim() ?? "";
+        string? pathError = null;
+        if (string.IsNullOrWhiteSpace(gamePath) || !GamePathLocator.IsValidGamePath(gamePath, out pathError))
+        {
+            MessageBox.Show(
+                pathError ?? Loc.T("common.set_localdata_home"),
+                AppCaption,
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var open = new OpenFileDialog
+        {
+            Title = Loc.T("import_export.import_open_title"),
+            Filter = Loc.T("import_export.export_filter"),
+            CheckFileExists = true
+        };
+        if (open.ShowDialog(this) != true)
+            return;
+
+        using var bundleService = new OverFrameBundleService(_overFrameService);
+        OverFrameBundleManifest manifest;
+        try
+        {
+            manifest = bundleService.ReadManifest(open.FileName);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        if (manifest.Cards.Count == 0)
+        {
+            MessageBox.Show(Loc.T("import_export.import_empty"), AppCaption, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var catalog = _database.GetByIds(manifest.Cards.Select(c => c.CardId));
+        var pickItems = manifest.Cards.Select(c =>
+        {
+            var name = string.IsNullOrWhiteSpace(c.Name) ? $"#{c.CardId}" : c.Name;
+            catalog.TryGetValue(c.CardId, out var card);
+            // Prefer live catalog name so (alt N) suffixes match Card Art / Over-frame lists.
+            if (!string.IsNullOrWhiteSpace(card?.DisplayName))
+                name = card.DisplayName;
+
+            var badges = new List<string>();
+            var altBadge = CardPickDialog.PickItem.TryGetAltBadge(name);
+            if (altBadge is not null) badges.Add(altBadge);
+            if (!string.IsNullOrWhiteSpace(c.AppliedPng)) badges.Add(Loc.T("import_export.export_badge_canvas"));
+            if (c.HasEditLayer) badges.Add(Loc.T("import_export.export_badge_layer"));
+            var badgeText = string.Join(", ", badges);
+            var label = badges.Count == 0
+                ? name
+                : Loc.T("import_export.label_with_badges", name, badgeText);
+            var bundle = !string.IsNullOrWhiteSpace(c.Bundle)
+                ? c.Bundle!
+                : (card?.Bundle ?? "");
+            return new CardPickDialog.PickItem
+            {
+                Id = c.CardId,
+                Name = name,
+                BadgeText = badgeText,
+                Label = label,
+                Bundle = bundle,
+                IsOverframe = card?.IsOverframe ?? !string.IsNullOrWhiteSpace(c.AppliedPng),
+                IsSelected = false
+            };
+        }).ToList();
+
+        var pick = new CardPickDialog(
+            this,
+            Loc.T("import_export.import_pick_title"),
+            Loc.T("import_export.import_pick_intro"),
+            pickItems,
+            gamePath);
+        if (pick.ShowDialog() != true)
+            return;
+
+        var selectedIds = pick.SelectedIds;
+        var confirm = MessageBox.Show(
+            Loc.T("import_export.import_confirm", selectedIds.Count),
+            Loc.T("import_export.import_confirm_title"),
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes)
+            return;
+
+        SetUiBusy(true);
+        ImportExportStatusText.Text = Loc.T("app.starting");
+        Status(Loc.T("app.starting"));
+        try
+        {
+            var database = _database;
+            var progress = new Progress<string>(msg =>
+            {
+                ImportExportStatusText.Text = msg;
+                Status(msg);
+            });
+            var result = await Task.Run(() =>
+                bundleService.Import(gamePath, database, open.FileName, selectedIds, createBackup: true, progress: progress));
+            ImportExportStatusText.Text = result.Message;
+            Status(result.Message);
+            RunOfSearch();
+            MessageBox.Show(
+                result.Message + Environment.NewLine + Environment.NewLine + OfRestartHint,
+                AppCaption,
+                MessageBoxButton.OK,
+                result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        }
+        catch (Exception ex)
+        {
+            ImportExportStatusText.Text = Loc.T("app.error_prefix", ex.Message);
+            Status(Loc.T("app.error_prefix", ex.Message));
+            MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
             SetUiBusy(false);
         }
     }
@@ -1254,6 +1552,7 @@ public partial class MainWindow : Window
             () =>
             {
                 OfCardList.ItemsSource = Array.Empty<CardRecord>();
+                _ofCardThumbLoader.CancelAndReloadVisible();
                 Status(Loc.T("status.search_min_chars"));
             });
     }
@@ -1281,7 +1580,8 @@ public partial class MainWindow : Window
             overframeOnly: OfOverframeOnlyBox.IsChecked == true,
             limit: 400);
         OfCardList.ItemsSource = results;
-        BumpThumbnailLoadGeneration();
+        EnsureListThumbnailLoaderAttached(OfCardList, _ofCardThumbLoader);
+        _ofCardThumbLoader.CancelAndReloadVisible();
         Status(Loc.T("status.of_showing", results.Count));
     }
 
@@ -2441,7 +2741,8 @@ public partial class MainWindow : Window
 
     private void Cleanup()
     {
-        BumpThumbnailLoadGeneration();
+        _cardArtThumbLoader.Dispose();
+        _ofCardThumbLoader.Dispose();
         _cardSearchDebounceTimer.Stop();
         _ofSearchDebounceTimer.Stop();
         _dbFilterDebounceTimer.Stop();
