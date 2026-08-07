@@ -41,25 +41,37 @@ public sealed class OverFrameBundleService : IDisposable
     }
 
     /// <summary>
-    /// Lists Floowan-applied over-frame cards eligible for export (with layer / canvas hints).
+    /// Lists cards currently in the live <c>of_card_asset</c> gate (Floowan or other mods),
+    /// with optional layer / applied-canvas hints from this PC's backups and user.db.
     /// </summary>
     public IReadOnlyList<OverFrameBundleExportItem> ListExportCandidates(
+        string playerDataPath,
         CardDatabase database,
-        string? playerDataPath = null)
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default,
+        bool allowFullScan = false)
     {
         ArgumentNullException.ThrowIfNull(database);
-        var cards = database.ListFloowanOverframeCards();
-        var items = new List<OverFrameBundleExportItem>(cards.Count);
-        foreach (var card in cards)
+        if (string.IsNullOrWhiteSpace(playerDataPath))
+            throw new ArgumentException("Game path is required.", nameof(playerDataPath));
+
+        var gated = _modService.ListGatedOverFrameCards(
+            playerDataPath, database, progress, cancellationToken, allowFullScan);
+
+        var items = new List<OverFrameBundleExportItem>(gated.Count);
+        foreach (var entry in gated)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            var card = entry.Card;
             var hasLayer = database.HasOfEditLayer(card.Id);
             var hasCanvas = _modService.Backups.HasAppliedOverFrameBackup(card.Name);
-            if (!hasCanvas && !string.IsNullOrWhiteSpace(playerDataPath))
+            if (!hasCanvas)
             {
-                // Live OF texture counts as exportable canvas even without a local applied PNG.
                 try
                 {
-                    var temp = Path.Combine(Path.GetTempPath(), "floowan-of-export-probe-" + Guid.NewGuid().ToString("N") + ".png");
+                    var temp = Path.Combine(
+                        Path.GetTempPath(),
+                        "floowan-of-export-probe-" + Guid.NewGuid().ToString("N") + ".png");
                     try
                     {
                         hasCanvas = _modService.TryExportCurrentOverFrameCanvas(playerDataPath, card, temp);
@@ -80,8 +92,11 @@ public sealed class OverFrameBundleService : IDisposable
                 CardId = card.Id,
                 Name = card.Name,
                 DisplayName = card.DisplayName,
+                ArtId = entry.ArtId,
+                BaseArtId = entry.BaseArtId,
                 HasEditLayer = hasLayer,
-                HasAppliedCanvas = hasCanvas
+                HasAppliedCanvas = hasCanvas,
+                IsFloowanTracked = database.IsFloowanOverframe(card.Id)
             });
         }
 
@@ -89,8 +104,8 @@ public sealed class OverFrameBundleService : IDisposable
     }
 
     /// <summary>
-    /// Writes a <c>.overframes</c> pack for the selected Floowan card ids.
-    /// Cards without an applied/live canvas and without an edit layer are skipped.
+    /// Writes a <c>.overframes</c> pack for the selected catalog card ids (must be in the live gate
+    /// or otherwise resolvable). Cards without an applied/live canvas and without an edit layer are skipped.
     /// </summary>
     public OverFrameBundleExportResult Export(
         string playerDataPath,
@@ -99,7 +114,8 @@ public sealed class OverFrameBundleService : IDisposable
         string outputPath,
         string? exporterVersion = null,
         IProgress<string>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool allowFullScan = false)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(cardIds);
@@ -116,11 +132,29 @@ public sealed class OverFrameBundleService : IDisposable
         if (idSet.Count == 0)
             return OverFrameBundleExportResult.Fail("Select at least one over-frame card to export.");
 
-        var cards = database.ListFloowanOverframeCards()
-            .Where(c => idSet.Contains(c.Id))
-            .ToList();
+        Dictionary<int, (int ArtId, int BaseArtId)> gateMeta;
+        try
+        {
+            var gated = _modService.ListGatedOverFrameCards(
+                playerDataPath, database, progress, cancellationToken, allowFullScan);
+            gateMeta = gated.ToDictionary(g => g.Card.Id, g => (g.ArtId, g.BaseArtId));
+        }
+        catch (Exception ex)
+        {
+            return OverFrameBundleExportResult.Fail(ex.Message);
+        }
+
+        var cards = new List<CardRecord>();
+        foreach (var id in idSet)
+        {
+            var card = database.GetById(id);
+            if (card is null)
+                continue;
+            cards.Add(card);
+        }
+
         if (cards.Count == 0)
-            return OverFrameBundleExportResult.Fail("None of the selected cards are Floowan over-frames.");
+            return OverFrameBundleExportResult.Fail("None of the selected cards were found in the catalog.");
 
         var staging = Path.Combine(Path.GetTempPath(), "floowan-of-bundle-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(staging);
@@ -136,12 +170,20 @@ public sealed class OverFrameBundleService : IDisposable
                 ExporterVersion = exporterVersion
             };
 
-            foreach (var card in cards)
+            foreach (var card in cards.OrderBy(c => c.DisplayName, StringComparer.OrdinalIgnoreCase))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 progress?.Report($"Packing {card.DisplayName}…");
 
-                var entry = TryPackCard(playerDataPath, database, card, staging, progress);
+                int? artId = card.ArtId;
+                int? baseArtId = card.OverframeBaseId;
+                if (gateMeta.TryGetValue(card.Id, out var meta))
+                {
+                    artId = meta.ArtId;
+                    baseArtId = meta.BaseArtId;
+                }
+
+                var entry = TryPackCard(playerDataPath, database, card, staging, progress, artId, baseArtId);
                 if (entry is null)
                 {
                     skipped++;
@@ -305,7 +347,9 @@ public sealed class OverFrameBundleService : IDisposable
         CardDatabase database,
         CardRecord card,
         string stagingRoot,
-        IProgress<string>? progress)
+        IProgress<string>? progress,
+        int? gateArtId = null,
+        int? gateBaseArtId = null)
     {
         var cardDirRel = Path.Combine("cards", card.Id.ToString());
         var cardDir = Path.Combine(stagingRoot, cardDirRel);
@@ -370,8 +414,8 @@ public sealed class OverFrameBundleService : IDisposable
             CardId = card.Id,
             Name = card.Name,
             Bundle = card.Bundle,
-            ArtId = card.ArtId,
-            OverframeBaseId = card.OverframeBaseId,
+            ArtId = gateArtId ?? card.ArtId,
+            OverframeBaseId = gateBaseArtId ?? card.OverframeBaseId,
             AppliedAtUtc = null,
             AppliedPng = appliedRel,
             HasEditLayer = hasLayer,

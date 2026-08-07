@@ -615,13 +615,13 @@
                 <TextBlock x:Name="ImportExportHeader" DockPanel.Dock="Top" Text="Import / Export"
                            FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                 <TextBlock x:Name="ImportExportHelpText" DockPanel.Dock="Top"
-                           Text="Share Floowan over-frame mods between PCs as a single .overframes file. Export includes applied OF art when available and Custom/Auto edit layers from user.db when present. Import applies selected cards to this LocalData and restores layers."
+                           Text="Share over-frame mods between PCs as a single .overframes file. Export scans the live of_card_asset gate (any mod), packs applied OF art when available, and includes Custom/Auto edit layers from user.db when present. Import applies selected cards to this LocalData and restores layers."
                            Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                   <Button x:Name="ImportExportExportButton" Content="Export over-frames…"
                           Click="ImportExportExport_Click" Background="{StaticResource AccentBrush}"
                           Padding="12,4" Margin="0,0,8,0"
-                          ToolTip="Pick Floowan over-frame cards, then save a .overframes bundle."/>
+                          ToolTip="Pick cards from the live of_card_asset gate, then save a .overframes bundle."/>
                   <Button x:Name="ImportExportImportButton" Content="Import over-frames…"
                           Click="ImportExportImport_Click"
                           Padding="12,4" Margin="0,0,8,0"

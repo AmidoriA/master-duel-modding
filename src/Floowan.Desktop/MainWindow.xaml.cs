@@ -966,10 +966,17 @@ public partial class MainWindow : Window
             SetUiBusy(true);
             Status(Loc.T("app.working"));
             var database = _database;
-            candidates = await Task.Run(() => bundleService.ListExportCandidates(database, gamePath));
+            var progress = new Progress<string>(msg =>
+            {
+                ImportExportStatusText.Text = msg;
+                Status(msg);
+            });
+            candidates = await Task.Run(() =>
+                bundleService.ListExportCandidates(gamePath, database, progress));
         }
         catch (Exception ex)
         {
+            ImportExportStatusText.Text = Loc.T("app.error_prefix", ex.Message);
             MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
@@ -990,6 +997,7 @@ public partial class MainWindow : Window
             var badges = new List<string>();
             if (c.HasAppliedCanvas) badges.Add(Loc.T("import_export.export_badge_canvas"));
             if (c.HasEditLayer) badges.Add(Loc.T("import_export.export_badge_layer"));
+            if (c.IsFloowanTracked) badges.Add(Loc.T("import_export.export_badge_floowan"));
             if (badges.Count == 0) badges.Add(Loc.T("import_export.export_badge_neither"));
             var label = Loc.T("import_export.label_with_badges", c.DisplayName, string.Join(", ", badges));
             return new CardPickDialog.PickItem

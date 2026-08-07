@@ -960,13 +960,62 @@ public sealed class OverFrameModService : IDisposable
         }
     }
 
-    public OfCardAssetGate? ReadGate(string playerDataPath, CardDatabase? database = null)
+    public OfCardAssetGate? ReadGate(
+        string playerDataPath,
+        CardDatabase? database = null,
+        bool allowFullScan = false)
     {
-        var gateLocate = _locator.Locate(playerDataPath, database);
+        var gateLocate = _locator.Locate(playerDataPath, database, allowFullScan: allowFullScan);
         if (!gateLocate.Success || gateLocate.BundlePath is null)
             return null;
 
         return OfCardAssetGate.Parse(_textAssets.ReadTextAssetBytes(gateLocate.BundlePath));
+    }
+
+    /// <summary>
+    /// Cards currently registered in the live <c>of_card_asset</c> gate (any mod source).
+    /// Resolves trigger art ids to catalog rows (populates missing <c>art_id</c> when needed).
+    /// </summary>
+    public IReadOnlyList<GatedOverFrameCard> ListGatedOverFrameCards(
+        string playerDataPath,
+        CardDatabase database,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default,
+        bool allowFullScan = false)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        if (!GamePathLocator.IsValidGamePath(playerDataPath, out var pathError))
+            throw new InvalidOperationException(pathError ?? "Invalid game path.");
+
+        progress?.Report("Reading of_card_asset gate…");
+        var gateLocate = _locator.Locate(playerDataPath, database, progress, cancellationToken, allowFullScan);
+        if (!gateLocate.Success || gateLocate.BundlePath is null)
+            throw new InvalidOperationException(gateLocate.Message);
+
+        var gate = OfCardAssetGate.Parse(_textAssets.ReadTextAssetBytes(gateLocate.BundlePath));
+        var entries = gate.ListEntries();
+        if (entries.Count == 0)
+            return Array.Empty<GatedOverFrameCard>();
+
+        progress?.Report($"Resolving {entries.Count} gate art id(s) to catalog cards…");
+        PopulateArtIdsForGate(playerDataPath, database, entries, progress, cancellationToken);
+
+        var results = new List<GatedOverFrameCard>(entries.Count);
+        var seenCards = new HashSet<int>();
+        foreach (var (trigger, baseArt) in entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var card = database.GetByArtId(trigger) ?? database.GetById(trigger);
+            if (card is null)
+                continue;
+            if (!seenCards.Add(card.Id))
+                continue;
+
+            results.Add(new GatedOverFrameCard(card, trigger, baseArt));
+        }
+
+        results.Sort((a, b) => string.Compare(a.Card.DisplayName, b.Card.DisplayName, StringComparison.OrdinalIgnoreCase));
+        return results;
     }
 
     public int SyncDatabaseFromGate(
