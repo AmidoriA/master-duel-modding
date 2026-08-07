@@ -38,9 +38,7 @@
               BorderThickness="1" CornerRadius="3" Padding="6" Margin="0,0,8,0">
         <ScrollViewer x:Name="CardScrollViewer"
                       VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Disabled"
-                      ScrollChanged="CardScrollViewer_ScrollChanged"
-                      SizeChanged="CardScrollViewer_SizeChanged">
+                      HorizontalScrollBarVisibility="Disabled">
           <ItemsControl x:Name="CardList">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate>
