@@ -48,7 +48,7 @@ tabs:
   overframe: "Over-frame"
   database: "Database"
   tools: "Tools"
-  import_export: "Import/Export"
+  import_export: "Mod pack/unpack"
   options: "Options"
   about: "About"
 
@@ -397,7 +397,7 @@ sam:
   color_orange_tip: "Orange selection highlight"
 
 import_export:
-  header: "Import / Export"
+  header: "Mod pack/unpack"
   help: "Share over-frame mods between PCs as a single .overframes file. Export scans the live of_card_asset gate (any mod), packs applied OF art when available, and includes Custom/Auto edit layers from user.db when present. Import applies selected cards to this LocalData and restores layers."
   export: "Export over-frames…"
   export_tooltip: "Pick cards from the live of_card_asset gate, then save a .overframes bundle."
