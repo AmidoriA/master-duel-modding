@@ -31,9 +31,16 @@ from typing import Callable, Dict, List
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
-# Camera framing measured from the shipped cut-in prefabs (see docs/summon-animation-research.md):
-# ortho size 5 -> 10 world units tall; skeleton scale 0.01 * prefab scale 0.24.
-VIEW_H_UNITS = 10 / (0.01 * 0.24)   # ~4167 skeleton units visible vertically (~7400 wide at 16:9)
+# Framing. Scenes are DESIGNED in a space where the screen is VIEW_H_UNITS tall (the prefab's
+# ScreenEffect camera size 5, skeleton scale 0.01, prefab scale 0.24 of template P19172).
+# The game actually shows a tighter view: calibrated from an in-game 16:9 screenshot of the
+# Droll & Lock Bird cut-in (2026-11-08), the visible height is ~2420 units, i.e. an effective ortho
+# size of ~2.9. write_skeleton scales the root bone by GAME_VIEW_H / VIEW_H_UNITS so the game shows
+# exactly what the preview shows. Official cut-ins at this framing fill about the full screen height.
+VIEW_H_UNITS = 10 / (0.01 * 0.24)          # ~4167: design space height
+GAME_ORTHO_SIZE = 2.9                      # measured effective camera size in game
+GAME_VIEW_H = 2 * GAME_ORTHO_SIZE / (0.01 * 0.24)   # ~2417 skeleton units visible in game
+ROOT_SCALE = GAME_VIEW_H / VIEW_H_UNITS    # ~0.58
 HD_PAGE, SD_PAGE = 4096, 2048
 
 
@@ -53,11 +60,13 @@ def premultiply(im):
     return img(a)
 
 
-def key_flat_background(path, size, t0=0.10, t1=0.30, fade_right=None):
-    """Cut out an object painted on a flat colour (e.g. magenta). Returns (RGBA, meta).
+def key_flat_background(path, size, t0=0.10, t1=0.30, fade_right=None, fade_bottom=None, despill="magenta"):
+    """Cut out an object painted on a flat colour (magenta or green). Returns (RGBA, meta).
 
-    meta: crop box in the `size`x`size` square, `full` = size. fade_right=(start, end) fades alpha
-    towards the right edge (fractions of width), useful when the source crops the object there."""
+    The image is resized so its longest side is `size` (aspect kept). meta: crop box inside that
+    image, `full` = size, `full_w`/`full_h` = its dimensions. fade_right / fade_bottom = (start, end)
+    fractions fade alpha out towards that edge (for objects the source crops). despill: "magenta",
+    "green" or None, matching the background colour asked for in the Qwen prompt."""
     src = arr(Image.open(path).convert("RGB"))[..., :3]
     h, w, _ = src.shape
     border = np.concatenate([src[:8].reshape(-1, 3), src[-8:].reshape(-1, 3), src[:, :8].reshape(-1, 3), src[:, -8:].reshape(-1, 3)])
@@ -65,18 +74,31 @@ def key_flat_background(path, size, t0=0.10, t1=0.30, fade_right=None):
     d = np.sqrt(((src - bg) ** 2).sum(-1))
     a = np.clip((d - t0) / (t1 - t0), 0, 1)
     fg = np.clip((src - (1 - a[..., None]) * bg) / np.maximum(a[..., None], 1e-3), 0, 1)
-    spill = np.clip(np.minimum(fg[..., 0], fg[..., 2]) - fg[..., 1], 0, 1) * (1 - a)
-    fg[..., 0] -= spill
-    fg[..., 2] -= spill
+    if despill == "magenta":
+        spill = np.clip(np.minimum(fg[..., 0], fg[..., 2]) - fg[..., 1], 0, 1) * (1 - a)
+        fg[..., 0] -= spill
+        fg[..., 2] -= spill
+    elif despill == "green":
+        # Strict: only for subjects with no green in them. Clearly green pixels (gaps in wings, hair
+        # strands showing the screen) become transparent and any remaining green tint is clamped.
+        excess = src[..., 1] - np.maximum(src[..., 0], src[..., 2])
+        a *= np.clip(1 - (excess - 0.12) / 0.18, 0, 1)
+        fg[..., 1] = np.minimum(fg[..., 1], np.maximum(fg[..., 0], fg[..., 2]))
     if fade_right:
         xs = np.linspace(0, 1, w)[None, :]
         a *= np.clip((fade_right[1] - xs) / (fade_right[1] - fade_right[0]), 0, 1)
+    if fade_bottom:
+        ys = np.linspace(0, 1, h)[:, None]
+        a *= np.clip((fade_bottom[1] - ys) / (fade_bottom[1] - fade_bottom[0]), 0, 1)
     a = np.asarray(Image.fromarray((a * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(1.2))).astype(np.float32) / 255
-    full = img(np.dstack([fg, a])).resize((size, size), Image.LANCZOS)
+    k = size / max(w, h)
+    fw, fh = round(w * k), round(h * k)
+    full = img(np.dstack([fg, a])).resize((fw, fh), Image.LANCZOS)
     A = np.asarray(full)[..., 3]
-    ys, xs_ = np.nonzero(A > 6)
-    x0, y0, x1, y1 = xs_.min(), ys.min(), xs_.max() + 1, ys.max() + 1
-    return full.crop((x0, y0, x1, y1)), {"crop": [int(x0), int(y0), int(x1), int(y1)], "full": size, "_full": full}
+    ys_, xs_ = np.nonzero(A > 6)
+    x0, y0, x1, y1 = xs_.min(), ys_.min(), xs_.max() + 1, ys_.max() + 1
+    return full.crop((x0, y0, x1, y1)), {"crop": [int(x0), int(y0), int(x1), int(y1)], "full": size,
+                                          "full_w": fw, "full_h": fh, "_full": full}
 
 
 def additive_layer(path, size, vignette=True):
@@ -135,6 +157,63 @@ def wide_band(path, W=3072, H=1024, overlap=192, stars=900, rng=None, feather_y=
     return img(np.dstack([arr(sky)[..., :3], a]))
 
 
+def pad(layer, margin):
+    """Transparent margin around a layer so glows built from it are not clipped at its edges."""
+    out = Image.new("RGBA", (layer.width + 2 * margin, layer.height + 2 * margin), (0, 0, 0, 0))
+    out.paste(layer, (margin, margin))
+    return out
+
+
+def silhouette_glow(layer, size=640, radius=22, gain=1.5):
+    """White glow following a layer's alpha (tint it with the slot colour, draw additive behind it)."""
+    a = np.asarray(layer.resize((size, max(1, round(size * layer.height / layer.width))), Image.LANCZOS))[..., 3]
+    g = np.asarray(Image.fromarray(a).filter(ImageFilter.GaussianBlur(radius))).astype(np.float32) / 255
+    al = np.clip(g * gain, 0, 1)
+    return img(np.dstack([np.ones(al.shape + (3,)), al]))
+
+
+def fx_band(w=2048, h=512, feather_y=0.3, feather_x=0.08):
+    """Plain soft-edged band (white; tint and alpha via the slot colour) to darken the field behind a hero."""
+    yy = np.linspace(0, 1, h)[:, None]
+    xx = np.linspace(0, 1, w)[None, :]
+    a = (np.clip(yy / feather_y, 0, 1) * np.clip((1 - yy) / feather_y, 0, 1) *
+         np.clip(xx / feather_x, 0, 1) * np.clip((1 - xx) / feather_x, 0, 1)) ** 1.2
+    return img(np.dstack([np.ones((h, w, 3)), a]))
+
+
+def fx_lightning(w=384, h=2048, seed=1, branches=3):
+    """Jagged vertical lightning bolt with a soft glow (white; tint via the slot colour)."""
+    import random
+    rng = random.Random(seed)
+    core = Image.new("L", (w, h), 0)
+    d = ImageDraw.Draw(core)
+
+    def bolt(x, y, length, width, drift):
+        pts = [(x, y)]
+        while pts[-1][1] < y + length and pts[-1][1] < h:
+            px, py = pts[-1]
+            pts.append((min(w - 8, max(8, px + rng.uniform(-1, 1) * w * 0.12 + drift)), py + rng.uniform(h * 0.03, h * 0.07)))
+        d.line(pts, fill=255, width=width, joint="curve")
+        return pts
+    main = bolt(w / 2, 0, h, 7, 0)
+    for _ in range(branches):
+        sx, sy = main[rng.randrange(2, max(3, len(main) - 3))]
+        bolt(sx, sy, h * rng.uniform(0.15, 0.35), 3, rng.choice([-1, 1]) * w * 0.04)
+    glow = core.filter(ImageFilter.GaussianBlur(14))
+    a = np.clip(np.asarray(core).astype(np.float32) / 255 + np.asarray(glow).astype(np.float32) / 255 * 1.6, 0, 1)
+    return img(np.dstack([np.ones((h, w, 3)), a]))
+
+
+def circle_mask(layer, inner=0.82, outer=1.0):
+    """Fade a square image to a soft disc (for rune circles / moons painted on a square)."""
+    a = arr(layer)
+    hh, ww = a.shape[:2]
+    yy, xx = np.mgrid[0:hh, 0:ww]
+    r = np.sqrt(((xx - (ww - 1) / 2) / ((ww - 1) / 2)) ** 2 + ((yy - (hh - 1) / 2) / ((hh - 1) / 2)) ** 2)
+    a[..., 3] *= np.clip((outer - r) / (outer - inner), 0, 1)
+    return img(a)
+
+
 def fx_radial(size=256, power=2.2, core=0.6):
     yy, xx = np.mgrid[0:size, 0:size] / (size - 1)
     r = np.sqrt((xx - 0.5) ** 2 + (yy - 0.5) ** 2) / 0.5
@@ -178,6 +257,111 @@ def fx_magic_circle(size=1024):
     blur = im.filter(ImageFilter.GaussianBlur(6))
     a = np.clip(np.asarray(im).astype(np.float32) / 255 + np.asarray(blur).astype(np.float32) / 255 * 0.8, 0, 1)
     return img(np.dstack([np.ones((size, size, 3)), a]))
+
+
+# ================================================================== reuse parts of a shipped cut-in
+
+def atlas_regions(atlas_path, names=None):
+    """Read regions from a Spine atlas (4.x 'bounds:' or legacy 'xy:/size:' format) as straight-alpha
+    RGBA images. Pages are looked up next to the atlas; premultiplied pages are un-premultiplied and
+    rotated regions are turned back upright. names: optional iterable / predicate to filter."""
+    lines = open(atlas_path, encoding="utf-8").read().splitlines()
+    base = os.path.dirname(atlas_path)
+    out, page, pma, i = {}, None, False, 0
+    want = (lambda n: n in names) if names is not None and not callable(names) else (names or (lambda n: True))
+    while i < len(lines):
+        ln = lines[i].strip()
+        if not ln:
+            page, i = None, i + 1
+            continue
+        if page is None:      # page header
+            page = Image.open(os.path.join(base, ln)).convert("RGBA")
+            i += 1
+            while i < len(lines) and ":" in lines[i]:      # page properties (size, format, filter, pma...)
+                i += 1
+            # Master Duel's cut-in pages are premultiplied even when a legacy atlas does not say so
+            pma = True
+            continue
+        name, props = ln, {}
+        i += 1
+        while i < len(lines) and ":" in lines[i] and not lines[i].strip().endswith(".png"):
+            k, v = [x.strip() for x in lines[i].split(":", 1)]
+            props[k] = v
+            i += 1
+        if not want(name):
+            continue
+        rot = props.get("rotate", "false") in ("true", "90")
+        if "bounds" in props:
+            x, y, w, h = map(int, props["bounds"].split(","))
+            cw, ch = (h, w) if rot else (w, h)
+        else:
+            x, y = map(int, props["xy"].split(","))
+            w, h = map(int, props["size"].split(","))
+            cw, ch = (h, w) if rot else (w, h)
+        reg = page.crop((x, y, x + cw, y + ch))
+        if rot:
+            reg = reg.rotate(-90, expand=True)     # packer stores rotated regions 90 deg counter-clockwise
+        if pma:
+            a = arr(reg)
+            a[..., :3] = np.where(a[..., 3:4] > 1e-3, a[..., :3] / np.maximum(a[..., 3:4], 1e-3), 0)
+            reg = img(a)
+        out[name] = reg
+    return out
+
+
+def _bezier_at(t, t0, v0, t1, v1, c):
+    """Spine 4 curve segment (cx1, cy1, cx2, cy2 in absolute time/value) evaluated at time t."""
+    cx1, cy1, cx2, cy2 = c
+    best_v, best_d = v0, 1e9
+    for k in range(65):
+        s = k / 64
+        u = 1 - s
+        tt = u ** 3 * t0 + 3 * u * u * s * cx1 + 3 * u * s * s * cx2 + s ** 3 * t1
+        vv = u ** 3 * v0 + 3 * u * u * s * cy1 + 3 * u * s * s * cy2 + s ** 3 * v1
+        d = abs(tt - t)
+        if d < best_d:
+            best_d, best_v = d, vv
+    return best_v
+
+
+def _channel(keys, field, default, idx, nch):
+    """Value of one channel of a Spine timeline at time t, honouring linear / stepped / bezier."""
+    def f(t):
+        if not keys:
+            return default
+        times = [k.get("time", 0.0) for k in keys]
+        if t <= times[0]:
+            return keys[0].get(field, default)
+        for i in range(len(keys) - 1):
+            t0, t1 = times[i], times[i + 1]
+            if t0 <= t < t1:
+                v0, v1 = keys[i].get(field, default), keys[i + 1].get(field, default)
+                c = keys[i].get("curve")
+                if c == "stepped":
+                    return v0
+                if isinstance(c, list):
+                    return _bezier_at(t, t0, v0, t1, v1, c[idx * 4: idx * 4 + 4])
+                return v0 + (v1 - v0) * (t - t0) / (t1 - t0)
+        return keys[-1].get(field, default)
+    return f
+
+
+def spine_bone_motion(timeline, unit_scale=1.0):
+    """Turn a shipped skeleton's bone timeline ({rotate, translate, scale, ...}) into a Rig motion
+    function. unit_scale converts translate values into our skeleton units."""
+    parts = {}
+    if "rotate" in timeline:
+        parts["rotate"] = _channel(timeline["rotate"], "value", 0.0, 0, 1)
+    if "translate" in timeline:
+        fx, fy = _channel(timeline["translate"], "x", 0.0, 0, 2), _channel(timeline["translate"], "y", 0.0, 1, 2)
+        parts["translate"] = lambda t: (fx(t) * unit_scale, fy(t) * unit_scale)
+    if "scale" in timeline:
+        sx, sy = _channel(timeline["scale"], "x", 1.0, 0, 2), _channel(timeline["scale"], "y", 1.0, 1, 2)
+        parts["scale"] = lambda t: (sx(t), sy(t))
+
+    def f(t):
+        return {k: (v(t) if k == "rotate" else v(t)) for k, v in parts.items()}
+    return f
 
 
 # ================================================================== easing / keys
@@ -297,7 +481,7 @@ def write_skeleton(rig, out_dir, card_id):
 # ================================================================== preview (same bone math as Spine)
 
 def render_preview(rig, images, out_dir, W=960, H=540, fps=30, background=None):
-    ppu = H / VIEW_H_UNITS
+    ppu = H / GAME_VIEW_H      # game framing; the root bone carries ROOT_SCALE
     bones = {b["name"]: b for b in rig.bones}
     bg = Image.open(background).convert("RGBA").resize((W, H)) if background else Image.new("RGBA", (W, H), (40, 44, 52, 255))
     S = np.array([[ppu, 0, W / 2], [0, -ppu, H / 2], [0, 0, 1]])
@@ -444,6 +628,9 @@ def main():
         im.save(os.path.join(out, "layers", n + ".png"))
     pack_atlases(images, out, f"P{scene.TEMPLATE}.png")
     rig = scene.rig(images, meta, kit)
+    root = next(b for b in rig.bones if b["name"] == "root")        # fit design space to the game camera
+    root["scaleX"] = round(root.get("scaleX", 1) * ROOT_SCALE, 5)
+    root["scaleY"] = round(root.get("scaleY", 1) * ROOT_SCALE, 5)
     write_skeleton(rig, out, scene.CARD_ID)
     json.dump({"card_id": scene.CARD_ID, "name": scene.NAME, "template": scene.TEMPLATE, "duration": rig.duration,
                "scene": os.path.basename(a.scene), "built": time.strftime("%Y-%m-%dT%H:%M:%S")},

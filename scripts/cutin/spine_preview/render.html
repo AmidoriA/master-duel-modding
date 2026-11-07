@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cut-in runtime preview</title>
+<style>
+  body { margin: 0; background: #1d2026; color: #ddd; font: 13px system-ui, sans-serif; }
+  #c { display: block; }
+  #log { padding: 6px 10px; }
+</style>
+<!-- Official Esoteric Software Spine runtime (same 4.2 line as the game's spine-unity). -->
+<script src="https://unpkg.com/@esotericsoftware/spine-webgl@4.2.119/dist/iife/spine-webgl.js"></script>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<div id="log">loading...</div>
+<script>
+// Renders a cut-in skeleton frame by frame with the real Spine runtime and POSTs each frame
+// to serve.py, which writes PNGs. Framing matches the game: 2 * effective camera size (~2.9,
+// calibrated from an in-game screenshot) / (SkeletonDataAsset scale 0.01 * prefab scale) skeleton units.
+(async () => {
+  const log = (m) => (document.getElementById("log").textContent = m);
+  try {
+    const cfg = await (await fetch("/config.json")).json();
+    const canvas = document.getElementById("c");
+    const ctx = new spine.ManagedWebGLRenderingContext(canvas, { preserveDrawingBuffer: true, alpha: false });
+    const assets = new spine.AssetManager(ctx, "/c/");
+    assets.loadText(cfg.skeleton);
+    assets.loadTextureAtlas(cfg.atlas);
+    // poll with timers: loadAll() relies on requestAnimationFrame, which never fires in a hidden tab
+    while (!assets.isLoadingComplete()) await new Promise((r) => setTimeout(r, 100));
+    if (Object.keys(assets.getErrors()).length) throw new Error(JSON.stringify(assets.getErrors()));
+    const atlas = assets.require(cfg.atlas);
+    const json = new spine.SkeletonJson(new spine.AtlasAttachmentLoader(atlas));
+    const data = json.readSkeletonData(assets.require(cfg.skeleton));
+    const skel = new spine.Skeleton(data);
+    skel.setToSetupPose();
+    const state = new spine.AnimationState(new spine.AnimationStateData(data));
+    const anim = data.findAnimation("animation") || data.animations[0];
+    state.setAnimation(0, anim.name, false);
+    const renderer = new spine.SceneRenderer(canvas, ctx, true);
+    const gl = ctx.gl;
+    const viewH = cfg.viewHeightUnits, viewW = viewH * canvas.width / canvas.height;
+    const dur = cfg.duration || anim.duration;
+    const n = Math.round(dur * cfg.fps) + 1;
+    const bg = cfg.background || [0.157, 0.172, 0.204];
+    for (let i = 0; i < n; i++) {
+      state.update(i === 0 ? 0 : 1 / cfg.fps);
+      state.apply(skel);
+      skel.updateWorldTransform(spine.Physics.update);
+      renderer.camera.position.x = 0;
+      renderer.camera.position.y = 0;
+      renderer.camera.viewportWidth = viewW;
+      renderer.camera.viewportHeight = viewH;
+      renderer.camera.zoom = 1;
+      renderer.camera.update();
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.clearColor(bg[0], bg[1], bg[2], 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      renderer.begin();
+      renderer.drawSkeleton(skel, true);
+      renderer.end();
+      const png = canvas.toDataURL("image/png");
+      await fetch("/frame?i=" + i, { method: "POST", body: png });
+      log(`frame ${i + 1}/${n}`);
+    }
+    await fetch("/done", { method: "POST", body: String(n) });
+    log(`done: ${n} frames (${anim.name}, ${anim.duration.toFixed(2)}s)`);
+  } catch (e) {
+    log("ERROR " + e);
+    await fetch("/done", { method: "POST", body: "ERROR " + e });
+  }
+})();
+</script>
+</body>
+</html>
