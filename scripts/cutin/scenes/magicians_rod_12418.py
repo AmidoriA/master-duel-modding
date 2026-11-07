@@ -10,6 +10,7 @@ import random
 CARD_ID = 12418
 NAME = "Magician's Rod"
 TEMPLATE = 19172          # Odd-Eyes Arcray Dragon: one atlas page per quality tier
+SCALE = 0.9               # whole-scene size in game (user: "slightly smaller", 2026-11-08)
 
 # ComfyUI edit prompts (Qwen-Image-Edit 2509). Describe the card's actual subjects.
 PROMPTS = {
@@ -65,7 +66,7 @@ def rig(images, meta, kit):
     # Composition: spirit is the hero (big, near centre, first); rod is a smaller late accent.
     SPX, SPY = -400, 120
     ROD_X, ROD_Y, ROD_S = 1350, 120, 0.66      # orb clears the in-game card name bar (bottom ~23%)
-    bones = [{"name": "root"},
+    bones = [{"name": "root", "scaleX": SCALE, "scaleY": SCALE},
              {"name": "band", "parent": "root"},
              {"name": "aura", "parent": "root", "x": SPX, "y": SPY},
              {"name": "spirit", "parent": "root", "x": SPX, "y": SPY},

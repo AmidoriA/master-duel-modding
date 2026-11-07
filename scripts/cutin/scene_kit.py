@@ -202,6 +202,111 @@ def fx_magic_circle(size=1024):
     return img(np.dstack([np.ones((size, size, 3)), a]))
 
 
+# ================================================================== reuse parts of a shipped cut-in
+
+def atlas_regions(atlas_path, names=None):
+    """Read regions from a Spine atlas (4.x 'bounds:' or legacy 'xy:/size:' format) as straight-alpha
+    RGBA images. Pages are looked up next to the atlas; premultiplied pages are un-premultiplied and
+    rotated regions are turned back upright. names: optional iterable / predicate to filter."""
+    lines = open(atlas_path, encoding="utf-8").read().splitlines()
+    base = os.path.dirname(atlas_path)
+    out, page, pma, i = {}, None, False, 0
+    want = (lambda n: n in names) if names is not None and not callable(names) else (names or (lambda n: True))
+    while i < len(lines):
+        ln = lines[i].strip()
+        if not ln:
+            page, i = None, i + 1
+            continue
+        if page is None:      # page header
+            page = Image.open(os.path.join(base, ln)).convert("RGBA")
+            i += 1
+            while i < len(lines) and ":" in lines[i]:      # page properties (size, format, filter, pma...)
+                i += 1
+            # Master Duel's cut-in pages are premultiplied even when a legacy atlas does not say so
+            pma = True
+            continue
+        name, props = ln, {}
+        i += 1
+        while i < len(lines) and ":" in lines[i] and not lines[i].strip().endswith(".png"):
+            k, v = [x.strip() for x in lines[i].split(":", 1)]
+            props[k] = v
+            i += 1
+        if not want(name):
+            continue
+        rot = props.get("rotate", "false") in ("true", "90")
+        if "bounds" in props:
+            x, y, w, h = map(int, props["bounds"].split(","))
+            cw, ch = (h, w) if rot else (w, h)
+        else:
+            x, y = map(int, props["xy"].split(","))
+            w, h = map(int, props["size"].split(","))
+            cw, ch = (h, w) if rot else (w, h)
+        reg = page.crop((x, y, x + cw, y + ch))
+        if rot:
+            reg = reg.rotate(-90, expand=True)     # packer stores rotated regions 90 deg counter-clockwise
+        if pma:
+            a = arr(reg)
+            a[..., :3] = np.where(a[..., 3:4] > 1e-3, a[..., :3] / np.maximum(a[..., 3:4], 1e-3), 0)
+            reg = img(a)
+        out[name] = reg
+    return out
+
+
+def _bezier_at(t, t0, v0, t1, v1, c):
+    """Spine 4 curve segment (cx1, cy1, cx2, cy2 in absolute time/value) evaluated at time t."""
+    cx1, cy1, cx2, cy2 = c
+    best_v, best_d = v0, 1e9
+    for k in range(65):
+        s = k / 64
+        u = 1 - s
+        tt = u ** 3 * t0 + 3 * u * u * s * cx1 + 3 * u * s * s * cx2 + s ** 3 * t1
+        vv = u ** 3 * v0 + 3 * u * u * s * cy1 + 3 * u * s * s * cy2 + s ** 3 * v1
+        d = abs(tt - t)
+        if d < best_d:
+            best_d, best_v = d, vv
+    return best_v
+
+
+def _channel(keys, field, default, idx, nch):
+    """Value of one channel of a Spine timeline at time t, honouring linear / stepped / bezier."""
+    def f(t):
+        if not keys:
+            return default
+        times = [k.get("time", 0.0) for k in keys]
+        if t <= times[0]:
+            return keys[0].get(field, default)
+        for i in range(len(keys) - 1):
+            t0, t1 = times[i], times[i + 1]
+            if t0 <= t < t1:
+                v0, v1 = keys[i].get(field, default), keys[i + 1].get(field, default)
+                c = keys[i].get("curve")
+                if c == "stepped":
+                    return v0
+                if isinstance(c, list):
+                    return _bezier_at(t, t0, v0, t1, v1, c[idx * 4: idx * 4 + 4])
+                return v0 + (v1 - v0) * (t - t0) / (t1 - t0)
+        return keys[-1].get(field, default)
+    return f
+
+
+def spine_bone_motion(timeline, unit_scale=1.0):
+    """Turn a shipped skeleton's bone timeline ({rotate, translate, scale, ...}) into a Rig motion
+    function. unit_scale converts translate values into our skeleton units."""
+    parts = {}
+    if "rotate" in timeline:
+        parts["rotate"] = _channel(timeline["rotate"], "value", 0.0, 0, 1)
+    if "translate" in timeline:
+        fx, fy = _channel(timeline["translate"], "x", 0.0, 0, 2), _channel(timeline["translate"], "y", 0.0, 1, 2)
+        parts["translate"] = lambda t: (fx(t) * unit_scale, fy(t) * unit_scale)
+    if "scale" in timeline:
+        sx, sy = _channel(timeline["scale"], "x", 1.0, 0, 2), _channel(timeline["scale"], "y", 1.0, 1, 2)
+        parts["scale"] = lambda t: (sx(t), sy(t))
+
+    def f(t):
+        return {k: (v(t) if k == "rotate" else v(t)) for k, v in parts.items()}
+    return f
+
+
 # ================================================================== easing / keys
 
 def lerp(a, b, t): return a + (b - a) * t

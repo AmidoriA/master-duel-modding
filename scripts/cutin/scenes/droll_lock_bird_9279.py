@@ -15,6 +15,7 @@ import random
 CARD_ID = 9279
 NAME = "Droll & Lock Bird"
 TEMPLATE = 19172
+SCALE = 0.9               # whole-scene size in game (user: "slightly smaller", 2026-11-08)
 
 ART_CROP = (0, 0, 704, 770)    # card canvas down to the top of the text box
 
@@ -137,7 +138,7 @@ def rig(images, meta, kit):
     wl, wr = images["wing_l"], images["wing_r"]
 
     LOCK = 0.95       # the "lock" moment
-    bones = [{"name": "root"},
+    bones = [{"name": "root", "scaleX": SCALE, "scaleY": SCALE},
              {"name": "band", "parent": "root"},
              {"name": "seal", "parent": "root", "x": round(chest[0], 1), "y": round(chest[1], 1)},
              {"name": "girl", "parent": "root", "x": GX, "y": GY},

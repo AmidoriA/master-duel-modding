@@ -48,10 +48,16 @@ Cut-in Progress:
 ```
 
 **1. Card.** `python scripts/cutin/monster_cutin.py find-card "<part of name>"` prints ids and tags
-`official cut-in` / `custom cut-in`. A card with an official cut-in cannot get a custom one.
+`official cut-in` / `custom cut-in`. A card that already has an official cut-in can only be replaced with
+`--override-official` (step 7), and only when the user asked for that card.
 
 **2. Art.**
 `python scripts/cutin/monster_cutin.py extract-art --card <id> --out <work>\art.png`, then view the image.
+It returns whatever art the game currently shows, including the user's Floowan art or over-frame mods:
+- An over-frame canvas is 704x1024. RGB is the full card including the frame; alpha is a mask, not
+  transparency. Use the RGB and crop above the text box (about `(0, 0, 704, 760)`).
+- The of_card_asset gate maps a custom over-frame card to itself (`9279 -> 9279`), so the cut-in still
+  lives at `P<id>`. Official over-frame variants use other ids (for example 22768 -> 22690).
 
 **3. Plan.** Decide the hero (the monster or character the card is about) and the supporting
 elements (props, effects), and how the background extends into a wide band. Lessons from the
@@ -60,8 +66,24 @@ Magician's Rod cut-in, which the user corrected:
 - A glowing or translucent subject drawn only with additive blend **washes out**. Layer it as a soft
   blurred aura (additive), a solid "body" pass (normal blend, deeper tint) and a pulsing glow
   (additive, lower alpha). Dim the background band so the hero reads.
-- Visible area: about x ±3700, y ±2080 skeleton units. The band is about 2600 high. Keep the animation at
-  about 2.0 s with a fade-out from about 1.6 s.
+- **Framing (calibrated from an in-game screenshot):** scenes are designed in a space where the screen
+  is about x ±3700, y ±2080 units. `scene_kit` scales the root by 0.58 so the game shows exactly what the
+  preview shows. Official cut-ins fill about the full screen height. The user found our heroes too big at
+  full height and preferred `SCALE = 0.9` in the scene. A wide band is about 2600 high. Keep about 2.0 s
+  with a fade-out from about 1.6 s (or match the official length).
+- **The game draws the card name and ATK/DEF bar over the bottom ~23% of the screen.** Keep key
+  moments (flashes, charms, faces) above it; check `preview_sheet.png` with that in mind.
+- **When the card already has an official cut-in and the user wants something "similar to the
+  original"**, study the official one first:
+  `monster_cutin.py extract-cutin --card <id> --out <work>\official` (skeleton JSON, atlas, pages,
+  `prefab_scale`, duration), then render it with the real Spine runtime:
+  `python scripts/cutin/spine_preview/serve.py --content <work>\official --skeleton P<id>.json --atlas P<id>.atlas --prefab-scale <s>`
+  in the background and open `http://127.0.0.1:8765/` in the browser pane. It writes
+  `runtime_preview.gif`, `runtime_sheet.png` and frames. You can reuse the official keys directly:
+  `kit.spine_bone_motion(timeline, OFF_K)` (Bézier curves included) and sprites with
+  `kit.atlas_regions(atlas, predicate)`. Use
+  `OFF_K = kit.VIEW_H_UNITS / (2 * kit.GAME_ORTHO_SIZE / (0.01 * prefab_scale))` (about 1.22 for 0.17).
+  See `scenes/baronne_de_fleur_16386.py`.
 
 **4. Scene file.** Copy `scenes/magicians_rod_12418.py` to `scenes/<slug>_<id>.py` and set
 `CARD_ID`, `NAME`, `TEMPLATE` (keep 19172 unless it is gone; see Troubleshooting).
@@ -69,8 +91,12 @@ Magician's Rod cut-in, which the user corrected:
   real subjects precisely. Put props on flat **magenta** (`#FF00FF`) so `key_flat_background` can cut
   them out, glowing subjects on **black** for `additive_layer`, and ask for a background-only image for
   `wide_band`. Upscale each layer with `upscale`. Seeds are fixed so results are repeatable.
-- `make_layers()`: return `{region: RGBA}`. Available helpers: `key_flat_background`, `additive_layer`,
-  `blur_aura`, `wide_band`, `fx_radial`, `fx_sparkle`, `fx_streak`, `fx_magic_circle`.
+- `make_layers()`: return `{region: RGBA}`. Available helpers: `key_flat_background` (magenta or
+  `despill="green"` for subjects without green; `fade_bottom` / `fade_right`), `additive_layer`,
+  `blur_aura`, `wide_band`, `fx_radial`, `fx_sparkle`, `fx_streak`, `fx_magic_circle`, `atlas_regions`.
+  Qwen can also complete parts the card hides (full unicorn legs, a whole moon, a creature's wings):
+  ask for that part alone on green, then animate it as its own layer (see the wings in
+  `droll_lock_bird_9279.py`, flapping around their root at a speed the user likes; they preferred about 1.8 beats/s).
 - `rig()`: bones, slots (`"blend": "additive"` for light), attachments (sizes in skeleton units), and
   per-bone `motions` / per-slot `alpha` functions of time, built from `seg` / easing helpers.
   Motions are offsets on the setup pose (translate and rotate add, scale multiplies).
@@ -87,6 +113,8 @@ python scripts/cutin/scene_kit.py scripts/cutin/scenes/<scene>.py --work <work> 
 ```
 Drop `--comfy` to rebuild without re-running ComfyUI. Look at `<work>\layers_src\*.png`,
 `<work>\out\layers\*.png` (check the keying edges) and `<work>\out\preview_sheet.png` before showing anything.
+The preview uses the in-game framing. To check with the real Spine runtime, run `spine_preview/serve.py`
+on `<work>\out` with `--skeleton skeleton.json --atlas hd.atlas --page-alias P19172.png=hd.png --prefab-scale 0.24`.
 Optional: put a duel screenshot at `<work>\duelbg.png` to preview over a real field.
 
 **6. Preview gate.** Send `<work>\out\preview.gif` to the user, briefly describe the timing, and
@@ -99,6 +127,8 @@ python scripts/cutin/monster_cutin.py verify
 ```
 This copies the content into the registry, clones the template's 16 bundles as `P<id>` with new
 CAB names, swaps in the Spine data, and patches CardIndividualData and the manifest.
+For a card with an official cut-in, add `--override-official`. Konami's files that get replaced
+are backed up (and backed up again after an update changes them); `remove --card <id>` restores them.
 
 **8.** Ask the user to test it in game.
 
