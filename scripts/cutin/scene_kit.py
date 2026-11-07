@@ -53,11 +53,13 @@ def premultiply(im):
     return img(a)
 
 
-def key_flat_background(path, size, t0=0.10, t1=0.30, fade_right=None):
-    """Cut out an object painted on a flat colour (e.g. magenta). Returns (RGBA, meta).
+def key_flat_background(path, size, t0=0.10, t1=0.30, fade_right=None, fade_bottom=None, despill="magenta"):
+    """Cut out an object painted on a flat colour (magenta or green). Returns (RGBA, meta).
 
-    meta: crop box in the `size`x`size` square, `full` = size. fade_right=(start, end) fades alpha
-    towards the right edge (fractions of width), useful when the source crops the object there."""
+    The image is resized so its longest side is `size` (aspect kept). meta: crop box inside that
+    image, `full` = size, `full_w`/`full_h` = its dimensions. fade_right / fade_bottom = (start, end)
+    fractions fade alpha out towards that edge (for objects the source crops). despill: "magenta",
+    "green" or None, matching the background colour asked for in the Qwen prompt."""
     src = arr(Image.open(path).convert("RGB"))[..., :3]
     h, w, _ = src.shape
     border = np.concatenate([src[:8].reshape(-1, 3), src[-8:].reshape(-1, 3), src[:, :8].reshape(-1, 3), src[:, -8:].reshape(-1, 3)])
@@ -65,18 +67,31 @@ def key_flat_background(path, size, t0=0.10, t1=0.30, fade_right=None):
     d = np.sqrt(((src - bg) ** 2).sum(-1))
     a = np.clip((d - t0) / (t1 - t0), 0, 1)
     fg = np.clip((src - (1 - a[..., None]) * bg) / np.maximum(a[..., None], 1e-3), 0, 1)
-    spill = np.clip(np.minimum(fg[..., 0], fg[..., 2]) - fg[..., 1], 0, 1) * (1 - a)
-    fg[..., 0] -= spill
-    fg[..., 2] -= spill
+    if despill == "magenta":
+        spill = np.clip(np.minimum(fg[..., 0], fg[..., 2]) - fg[..., 1], 0, 1) * (1 - a)
+        fg[..., 0] -= spill
+        fg[..., 2] -= spill
+    elif despill == "green":
+        # Strict: only for subjects with no green in them. Clearly green pixels (gaps in wings, hair
+        # strands showing the screen) become transparent and any remaining green tint is clamped.
+        excess = src[..., 1] - np.maximum(src[..., 0], src[..., 2])
+        a *= np.clip(1 - (excess - 0.12) / 0.18, 0, 1)
+        fg[..., 1] = np.minimum(fg[..., 1], np.maximum(fg[..., 0], fg[..., 2]))
     if fade_right:
         xs = np.linspace(0, 1, w)[None, :]
         a *= np.clip((fade_right[1] - xs) / (fade_right[1] - fade_right[0]), 0, 1)
+    if fade_bottom:
+        ys = np.linspace(0, 1, h)[:, None]
+        a *= np.clip((fade_bottom[1] - ys) / (fade_bottom[1] - fade_bottom[0]), 0, 1)
     a = np.asarray(Image.fromarray((a * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(1.2))).astype(np.float32) / 255
-    full = img(np.dstack([fg, a])).resize((size, size), Image.LANCZOS)
+    k = size / max(w, h)
+    fw, fh = round(w * k), round(h * k)
+    full = img(np.dstack([fg, a])).resize((fw, fh), Image.LANCZOS)
     A = np.asarray(full)[..., 3]
-    ys, xs_ = np.nonzero(A > 6)
-    x0, y0, x1, y1 = xs_.min(), ys.min(), xs_.max() + 1, ys.max() + 1
-    return full.crop((x0, y0, x1, y1)), {"crop": [int(x0), int(y0), int(x1), int(y1)], "full": size, "_full": full}
+    ys_, xs_ = np.nonzero(A > 6)
+    x0, y0, x1, y1 = xs_.min(), ys_.min(), xs_.max() + 1, ys_.max() + 1
+    return full.crop((x0, y0, x1, y1)), {"crop": [int(x0), int(y0), int(x1), int(y1)], "full": size,
+                                          "full_w": fw, "full_h": fh, "_full": full}
 
 
 def additive_layer(path, size, vignette=True):
