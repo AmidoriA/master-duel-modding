@@ -157,6 +157,63 @@ def wide_band(path, W=3072, H=1024, overlap=192, stars=900, rng=None, feather_y=
     return img(np.dstack([arr(sky)[..., :3], a]))
 
 
+def pad(layer, margin):
+    """Transparent margin around a layer so glows built from it are not clipped at its edges."""
+    out = Image.new("RGBA", (layer.width + 2 * margin, layer.height + 2 * margin), (0, 0, 0, 0))
+    out.paste(layer, (margin, margin))
+    return out
+
+
+def silhouette_glow(layer, size=640, radius=22, gain=1.5):
+    """White glow following a layer's alpha (tint it with the slot colour, draw additive behind it)."""
+    a = np.asarray(layer.resize((size, max(1, round(size * layer.height / layer.width))), Image.LANCZOS))[..., 3]
+    g = np.asarray(Image.fromarray(a).filter(ImageFilter.GaussianBlur(radius))).astype(np.float32) / 255
+    al = np.clip(g * gain, 0, 1)
+    return img(np.dstack([np.ones(al.shape + (3,)), al]))
+
+
+def fx_band(w=2048, h=512, feather_y=0.3, feather_x=0.08):
+    """Plain soft-edged band (white; tint and alpha via the slot colour) to darken the field behind a hero."""
+    yy = np.linspace(0, 1, h)[:, None]
+    xx = np.linspace(0, 1, w)[None, :]
+    a = (np.clip(yy / feather_y, 0, 1) * np.clip((1 - yy) / feather_y, 0, 1) *
+         np.clip(xx / feather_x, 0, 1) * np.clip((1 - xx) / feather_x, 0, 1)) ** 1.2
+    return img(np.dstack([np.ones((h, w, 3)), a]))
+
+
+def fx_lightning(w=384, h=2048, seed=1, branches=3):
+    """Jagged vertical lightning bolt with a soft glow (white; tint via the slot colour)."""
+    import random
+    rng = random.Random(seed)
+    core = Image.new("L", (w, h), 0)
+    d = ImageDraw.Draw(core)
+
+    def bolt(x, y, length, width, drift):
+        pts = [(x, y)]
+        while pts[-1][1] < y + length and pts[-1][1] < h:
+            px, py = pts[-1]
+            pts.append((min(w - 8, max(8, px + rng.uniform(-1, 1) * w * 0.12 + drift)), py + rng.uniform(h * 0.03, h * 0.07)))
+        d.line(pts, fill=255, width=width, joint="curve")
+        return pts
+    main = bolt(w / 2, 0, h, 7, 0)
+    for _ in range(branches):
+        sx, sy = main[rng.randrange(2, max(3, len(main) - 3))]
+        bolt(sx, sy, h * rng.uniform(0.15, 0.35), 3, rng.choice([-1, 1]) * w * 0.04)
+    glow = core.filter(ImageFilter.GaussianBlur(14))
+    a = np.clip(np.asarray(core).astype(np.float32) / 255 + np.asarray(glow).astype(np.float32) / 255 * 1.6, 0, 1)
+    return img(np.dstack([np.ones((h, w, 3)), a]))
+
+
+def circle_mask(layer, inner=0.82, outer=1.0):
+    """Fade a square image to a soft disc (for rune circles / moons painted on a square)."""
+    a = arr(layer)
+    hh, ww = a.shape[:2]
+    yy, xx = np.mgrid[0:hh, 0:ww]
+    r = np.sqrt(((xx - (ww - 1) / 2) / ((ww - 1) / 2)) ** 2 + ((yy - (hh - 1) / 2) / ((hh - 1) / 2)) ** 2)
+    a[..., 3] *= np.clip((outer - r) / (outer - inner), 0, 1)
+    return img(a)
+
+
 def fx_radial(size=256, power=2.2, core=0.6):
     yy, xx = np.mgrid[0:size, 0:size] / (size - 1)
     r = np.sqrt((xx - 0.5) ** 2 + (yy - 0.5) ** 2) / 0.5
