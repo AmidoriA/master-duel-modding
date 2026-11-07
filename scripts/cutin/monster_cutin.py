@@ -10,9 +10,13 @@ Commands
   status                       what is registered and whether the game files still carry it
   find-card NAME               look up card ids in database.db (and whether they already have a cut-in)
   extract-art --card ID --out PNG
-  apply --card ID --content DIR --preview-approved
+  extract-cutin --card ID --out DIR
+                               a cut-in's skeleton JSON, atlas and textures (Konami's originals even
+                               after an override); render them with spine_preview/serve.py
+  apply --card ID --content DIR --preview-approved [--override-official]
                                install a custom cut-in built by scene_kit.py (only after the user
-                               approved <DIR>/preview.gif)
+                               approved <DIR>/preview.gif). --override-official replaces a card's
+                               official cut-in; Konami's files are backed up and return on `remove`
   apply --card ID --borrow SRC install an existing card's cut-in on another card
   restore                      re-apply every registered cut-in (run after each game update)
   verify                       deep offline checks of the installed bundles
@@ -117,7 +121,28 @@ def now():
     return time.strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def write_bytes(path, data, reg):
+def preserve_original(reg, path):
+    """Back up an existing game file before we overwrite it (cut-ins that replace an official one).
+    Re-backs it up when the game has replaced it since our last write (an update)."""
+    if not os.path.exists(path):
+        return
+    live_sha = sha256(path)
+    pr = reg["pristine"].get(path)
+    if reg["written"].get(path) == live_sha or (pr and pr["sha256"] == live_sha):
+        return
+    os.makedirs(os.path.join(DATA_DIR, "pristine"), exist_ok=True)
+    rel = os.path.join("pristine", f"{os.path.basename(path)}-{live_sha[:12]}")
+    shutil.copy2(path, os.path.join(DATA_DIR, rel))
+    reg["pristine"][path] = {"file": rel, "sha256": live_sha, "logical": "official cut-in bundle", "taken": now()}
+
+
+def write_bytes(path, data, reg, override=False):
+    """Write a game file. Existing game files we did not write are only replaced with override=True,
+    and are backed up first so `remove` can put them back."""
+    if os.path.exists(path) and reg["written"].get(path) != sha256(path):
+        if not override:
+            raise RuntimeError(f"refusing to overwrite a game file we did not create: {path}")
+        preserve_original(reg, path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as f:
         f.write(data)
@@ -224,7 +249,7 @@ def _rename_files(bf, old_cab, new_cab, drop_ress=False):
     bf.files.update(files)
 
 
-def build_borrow(player, src_id, dst_id, base_man, reg):
+def build_borrow(player, src_id, dst_id, base_man, reg, override=False):
     """Clone SRC's two root prefab bundles as P{DST}; dependencies stay on SRC's shared bundles."""
     by_name = {e["assetName"]: e for e in base_man["informations"]}
     entries, files = [], []
@@ -245,7 +270,7 @@ def build_borrow(player, src_id, dst_id, base_man, reg):
         old_cab = [k for k in env.file.files if not k.endswith(".resS")][0]
         _rename_files(env.file, old_cab, "CAB-" + hashlib.md5(new_name.encode()).hexdigest())
         out = bundle_file(player, dst_path)
-        write_bytes(out, env.file.save(packer=PACKER), reg)
+        write_bytes(out, env.file.save(packer=PACKER), reg, override)
         files.append(out)
         entries.append({"assetName": dst_path, "dependencies": list(by_name[src_path]["dependencies"])})
     return entries, files
@@ -261,7 +286,7 @@ def anim_duration(skel):
     return walk(skel["animations"]["animation"])
 
 
-def build_custom(player, tpl_id, dst_id, content, base_man, reg):
+def build_custom(player, tpl_id, dst_id, content, base_man, reg, override=False):
     """Clone every P{tpl} bundle as P{dst} (new CABs, rewired externals/dependencies) and swap in
     the Spine content (skeleton JSON, atlases, BC7 textures, timeline length)."""
     from PIL import Image
@@ -324,7 +349,7 @@ def build_custom(player, tpl_id, dst_id, content, base_man, reg):
                     o.save_typetree(t)
         _rename_files(bf, v["old_cab"], v["new_cab"], drop_ress)
         out = bundle_file(player, v["new"])
-        write_bytes(out, bf.save(packer=PACKER), reg)
+        write_bytes(out, bf.save(packer=PACKER), reg, override)
         files.append(out)
     entries = [{"assetName": ren(e["assetName"]), "dependencies": [ren(d) for d in e["dependencies"]]} for e in tpl_entries]
     return entries, files
@@ -347,23 +372,27 @@ def apply_all(reg, player):
     base_man = json.loads(base_text)
     base_names = {e["assetName"] for e in base_man["informations"]}
 
-    active = {}
+    active, replaced = {}, set()
     for cid, c in sorted(reg["cutins"].items(), key=lambda kv: int(kv[0])):
         dst = int(cid)
-        if dst in base_ids or CUTIN_ROOT.format(id=dst, rt="SD") in base_names:
+        official = dst in base_ids or CUTIN_ROOT.format(id=dst, rt="SD") in base_names
+        if official and not c.get("override_official"):
             print(f"  ! {c.get('name', cid)} ({cid}) now has an official cut-in in the game; skipping (yours stays registered)")
             c["skipped_official"] = True
             c["files"] = []
             continue
         c.pop("skipped_official", None)
+        if official:
+            replaced.add(dst)      # our cut-in replaces Konami's: drop its manifest entries, keep its table entry
         active[dst] = c
 
     new_entries, keep = [], set()
     for dst, c in active.items():
+        ov = dst in replaced
         if c["mode"] == "custom":
-            entries, files = build_custom(player, c["template"], dst, os.path.join(DATA_DIR, c["content"]), base_man, reg)
+            entries, files = build_custom(player, c["template"], dst, os.path.join(DATA_DIR, c["content"]), base_man, reg, ov)
         else:
-            entries, files = build_borrow(player, c["src"], dst, base_man, reg)
+            entries, files = build_borrow(player, c["src"], dst, base_man, reg, ov)
         new_entries += entries
         keep.update(files)
         c["files"] = sorted(files)
@@ -375,15 +404,15 @@ def apply_all(reg, player):
             if o.type.name == "MonoBehaviour":
                 t = o.read_typetree()
                 if t.get("m_Name") == "CardIndividualData":
-                    t["monsterCutinTable"] += [{"mrk": d} for d in active]
+                    t["monsterCutinTable"] += [{"mrk": d} for d in active if d not in base_ids]
                     o.save_typetree(t)
-        write_bytes(table_live, env.file.save(packer=PACKER), reg)
-        head = '{"informations":['
-        if not base_text.startswith(head):
-            raise RuntimeError("unexpected manifest layout")
-        text = head + ",".join(json.dumps(e, separators=(",", ":"), ensure_ascii=False) for e in new_entries) + "," + base_text[len(head):]
-        json.loads(text)
-        write_bytes(man_live, md_crypt(text.encode("utf-8")), reg)
+        write_bytes(table_live, env.file.save(packer=PACKER), reg, override=True)
+        # The manifest JSON round-trips byte for byte through json.dumps (checked), so rebuild it:
+        # our entries first, then the original ones minus the official sets we replace.
+        drop = tuple(CUTIN_DIR.format(id=d) for d in replaced)
+        kept = [e for e in base_man["informations"] if not (drop and e["assetName"].startswith(drop))]
+        text = json.dumps({"informations": new_entries + kept}, separators=(",", ":"), ensure_ascii=False)
+        write_bytes(man_live, md_crypt(text.encode("utf-8")), reg, override=True)
     else:   # nothing installed: put the original files back byte for byte
         for live, base in ((table_live, table_base), (man_live, man_base)):
             shutil.copy2(base, live)
@@ -392,9 +421,14 @@ def apply_all(reg, player):
 
     for f in list(reg["created"]):
         if f not in keep:
+            pr = reg["pristine"].get(f)
             if os.path.exists(f) and sha256(f) == reg["written"].get(f):
-                os.remove(f)
-                print(f"  removed {f}")
+                if pr:      # an official cut-in file we had replaced: put Konami's version back
+                    shutil.copy2(os.path.join(DATA_DIR, pr["file"]), f)
+                    print(f"  restored original {f}")
+                else:
+                    os.remove(f)
+                    print(f"  removed {f}")
             reg["created"].remove(f)
             reg["written"].pop(f, None)
     reg["created"] = sorted(set(reg["created"]) | keep)
@@ -422,6 +456,8 @@ def cmd_status(a, reg):
         files_ok = bool(files) and all(os.path.exists(f) and sha256(f) == reg["written"].get(f) for f in files)
         ok = dst in ids and CUTIN_ROOT.format(id=dst, rt="SD") in names and files_ok
         how = f"custom (template P{c['template']})" if c["mode"] == "custom" else f"borrowed from {c['src']}"
+        if c.get("override_official"):
+            how += ", replaces official"
         if c.get("skipped_official"):
             print(f"  {cid:>6}  {c.get('name', ''):<32} {how:<28} SKIPPED (the game has its own cut-in)")
             continue
@@ -469,6 +505,11 @@ def cmd_apply(a, reg):
     if game_running():
         sys.exit("Master Duel is running. Close it first.")
     cid = str(a.card)
+    pr = reg["pristine"].get(bundle_file(player, TABLE_PATH))
+    official = a.card in set(read_table_ids(os.path.join(DATA_DIR, pr["file"]) if pr else bundle_file(player, TABLE_PATH)))
+    if official and not a.override_official:
+        sys.exit(f"{card_name(a.card)} ({a.card}) has an official cut-in. To replace it with yours, pass --override-official "
+                 "(Konami's files are backed up and come back with `remove`).")
     if a.borrow:
         entry = {"mode": "borrow", "src": a.borrow, "name": card_name(a.card), "added": now()}
     else:
@@ -488,9 +529,56 @@ def cmd_apply(a, reg):
             shutil.copy2(os.path.join(a.content, f), os.path.join(dst_dir, f))
         entry = {"mode": "custom", "template": int(meta["template"]), "name": meta.get("name") or card_name(a.card),
                  "content": os.path.join("content", cid), "added": now()}
+    if official:
+        entry["override_official"] = True
     reg["cutins"][cid] = entry
     save_registry(reg)
     apply_all(reg, player)
+
+
+def cmd_extract_cutin(a, reg):
+    """Write a cut-in's HighEnd_HD skeleton JSON, atlas and page textures (Konami's originals when
+    the card's cut-in has been overridden) so it can be studied or rendered with spine_preview."""
+    if not (a.card and a.out):
+        sys.exit("extract-cutin needs --card ID --out DIR")
+    player = detect_player_dir(reg, a.player_dir)
+    man_live = bundle_file(player, MANIFEST_NAME)
+    pr = reg["pristine"].get(man_live)
+    man = json.loads(read_manifest_text(os.path.join(DATA_DIR, pr["file"]) if pr else man_live))
+    prefix = CUTIN_DIR.format(id=a.card)
+    ents = [e["assetName"] for e in man["informations"] if e["assetName"].startswith(prefix)]
+    if not ents:
+        sys.exit(f"no cut-in for {a.card} in the manifest")
+    os.makedirs(a.out, exist_ok=True)
+    info = {"card_id": a.card, "files": []}
+    for path in ents:
+        rel = path[len(prefix):]
+        if not (rel.startswith("HighEnd_HD/") or rel == f"P{a.card}Timeline"):
+            continue
+        live = bundle_file(player, path)
+        src = os.path.join(DATA_DIR, reg["pristine"][live]["file"]) if live in reg["pristine"] else live
+        for o in UnityPy.load(src).objects:
+            n = o.type.name
+            if n == "TextAsset":
+                t = o.read()
+                data = t.m_Script.encode("utf-8", "surrogateescape") if isinstance(t.m_Script, str) else bytes(t.m_Script)
+                name = t.m_Name[:-2] + ".json" if t.m_Name.endswith("JS") else t.m_Name
+                open(os.path.join(a.out, name), "wb").write(data)
+                info["files"].append(name)
+            elif n == "Texture2D":
+                t = o.read()
+                t.image.save(os.path.join(a.out, t.m_Name + ".png"))
+                info["files"].append(t.m_Name + ".png")
+            elif n == "Transform":
+                sc = o.read_typetree()["m_LocalScale"]["x"]
+                if abs(sc - 1) > 1e-6:
+                    info["prefab_scale"] = round(sc, 4)
+            elif n == "MonoBehaviour" and rel.endswith("Timeline"):
+                t = o.read_typetree()
+                if t.get("m_Clips"):
+                    info["duration"] = round(t["m_Clips"][0]["m_Duration"], 4)
+    json.dump(info, open(os.path.join(a.out, "cutin_info.json"), "w", encoding="utf-8"), indent=1)
+    print(json.dumps(info, indent=1))
 
 
 def cmd_restore(a, reg):
@@ -557,18 +645,19 @@ def cmd_verify(a, reg):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["status", "find-card", "extract-art", "apply", "restore", "verify", "remove"])
+    ap.add_argument("command", choices=["status", "find-card", "extract-art", "extract-cutin", "apply", "restore", "verify", "remove"])
     ap.add_argument("name", nargs="?", help="find-card: part of the card name")
     ap.add_argument("--card", type=int)
     ap.add_argument("--content", help="apply: folder produced by scene_kit.py (<work>/out)")
     ap.add_argument("--borrow", type=int, help="apply: reuse this card's existing cut-in")
     ap.add_argument("--preview-approved", action="store_true", help="apply: the user approved preview.gif")
-    ap.add_argument("--out", help="extract-art: output PNG")
+    ap.add_argument("--override-official", action="store_true", help="apply: replace the card's official cut-in (originals are backed up)")
+    ap.add_argument("--out", help="extract-art: output PNG; extract-cutin: output folder")
     ap.add_argument("--all", action="store_true", help="remove: every registered cut-in")
     ap.add_argument("--player-dir", help="LocalData/<playerId> folder (auto-detected and remembered)")
     a = ap.parse_args()
     reg = load_registry()
-    cmds = {"status": cmd_status, "find-card": cmd_find_card, "extract-art": cmd_extract_art, "apply": cmd_apply,
+    cmds = {"status": cmd_status, "find-card": cmd_find_card, "extract-art": cmd_extract_art, "extract-cutin": cmd_extract_cutin, "apply": cmd_apply,
             "restore": cmd_restore, "verify": cmd_verify, "remove": cmd_remove}
     if a.command == "remove" and not (a.all or a.card):
         sys.exit("remove needs --card ID or --all")
