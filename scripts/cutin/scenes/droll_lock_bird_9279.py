@@ -126,7 +126,7 @@ def rig(images, meta, kit):
     GH = 4300.0                            # girl height in skeleton units: taller than the band, she breaks out of it
     K = GH / girl.height
     GW = girl.width * K
-    GX, GY = -350.0, -120.0
+    GX, GY = -350.0, 330.0         # lifted so the charm clears the in-game card name bar (bottom ~23%)
 
     def anchor(f):   # fraction of the full girl image -> skeleton units
         px, py = f[0] * meta["full_w"], f[1] * meta["full_h"]

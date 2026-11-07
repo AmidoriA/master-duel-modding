@@ -31,9 +31,16 @@ from typing import Callable, Dict, List
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
-# Camera framing measured from the shipped cut-in prefabs (see docs/summon-animation-research.md):
-# ortho size 5 -> 10 world units tall; skeleton scale 0.01 * prefab scale 0.24.
-VIEW_H_UNITS = 10 / (0.01 * 0.24)   # ~4167 skeleton units visible vertically (~7400 wide at 16:9)
+# Framing. Scenes are DESIGNED in a space where the screen is VIEW_H_UNITS tall (the prefab's
+# ScreenEffect camera size 5, skeleton scale 0.01, prefab scale 0.24 of template P19172).
+# The game actually shows a tighter view: calibrated from an in-game 16:9 screenshot of the
+# Droll & Lock Bird cut-in (2026-11-08), the visible height is ~2420 units, i.e. an effective ortho
+# size of ~2.9. write_skeleton scales the root bone by GAME_VIEW_H / VIEW_H_UNITS so the game shows
+# exactly what the preview shows. Official cut-ins at this framing fill about the full screen height.
+VIEW_H_UNITS = 10 / (0.01 * 0.24)          # ~4167: design space height
+GAME_ORTHO_SIZE = 2.9                      # measured effective camera size in game
+GAME_VIEW_H = 2 * GAME_ORTHO_SIZE / (0.01 * 0.24)   # ~2417 skeleton units visible in game
+ROOT_SCALE = GAME_VIEW_H / VIEW_H_UNITS    # ~0.58
 HD_PAGE, SD_PAGE = 4096, 2048
 
 
@@ -312,7 +319,7 @@ def write_skeleton(rig, out_dir, card_id):
 # ================================================================== preview (same bone math as Spine)
 
 def render_preview(rig, images, out_dir, W=960, H=540, fps=30, background=None):
-    ppu = H / VIEW_H_UNITS
+    ppu = H / GAME_VIEW_H      # game framing; the root bone carries ROOT_SCALE
     bones = {b["name"]: b for b in rig.bones}
     bg = Image.open(background).convert("RGBA").resize((W, H)) if background else Image.new("RGBA", (W, H), (40, 44, 52, 255))
     S = np.array([[ppu, 0, W / 2], [0, -ppu, H / 2], [0, 0, 1]])
@@ -459,6 +466,9 @@ def main():
         im.save(os.path.join(out, "layers", n + ".png"))
     pack_atlases(images, out, f"P{scene.TEMPLATE}.png")
     rig = scene.rig(images, meta, kit)
+    root = next(b for b in rig.bones if b["name"] == "root")        # fit design space to the game camera
+    root["scaleX"] = round(root.get("scaleX", 1) * ROOT_SCALE, 5)
+    root["scaleY"] = round(root.get("scaleY", 1) * ROOT_SCALE, 5)
     write_skeleton(rig, out, scene.CARD_ID)
     json.dump({"card_id": scene.CARD_ID, "name": scene.NAME, "template": scene.TEMPLATE, "duration": rig.duration,
                "scene": os.path.basename(a.scene), "built": time.strftime("%Y-%m-%dT%H:%M:%S")},

@@ -64,7 +64,7 @@ def rig(images, meta, kit):
 
     # Composition: spirit is the hero (big, near centre, first); rod is a smaller late accent.
     SPX, SPY = -400, 120
-    ROD_X, ROD_Y, ROD_S = 1350, -330, 0.66
+    ROD_X, ROD_Y, ROD_S = 1350, 120, 0.66      # orb clears the in-game card name bar (bottom ~23%)
     bones = [{"name": "root"},
              {"name": "band", "parent": "root"},
              {"name": "aura", "parent": "root", "x": SPX, "y": SPY},
