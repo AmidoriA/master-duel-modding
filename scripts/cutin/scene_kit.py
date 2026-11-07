@@ -204,6 +204,54 @@ def fx_lightning(w=384, h=2048, seed=1, branches=3):
     return img(np.dstack([np.ones((h, w, 3)), a]))
 
 
+def split_wing_pair(path, size=2048, despill="green"):
+    """Key a symmetric wing pair painted on a flat colour and split it at the centre joint.
+    Returns {'left', 'right', 'left_joint_y', 'right_joint_y', 'span_px'}: each wing's root (the joint)
+    is at its inner edge, joint_y px from its top. Rig each wing on a bone at the joint and rotate it."""
+    _, m = key_flat_background(path, size, despill=despill)
+    full = m["_full"]
+    A = np.asarray(full)[..., 3]
+    cx = full.width // 2
+    col = np.nonzero(A[:, cx - 8:cx + 8].max(axis=1) > 128)[0]
+    jy = float(col.mean()) if len(col) else full.height / 2
+    out = {}
+    for side, box in (("left", (0, 0, cx, full.height)), ("right", (cx, 0, full.width, full.height))):
+        half = full.crop(box)
+        ys, xs = np.nonzero(np.asarray(half)[..., 3] > 6)
+        y0, y1 = ys.min(), ys.max() + 1
+        x0, x1 = (xs.min(), half.width) if side == "left" else (0, xs.max() + 1)
+        out[side] = half.crop((x0, y0, x1, y1))
+        out[side + "_joint_y"] = jy - y0
+    out["span_px"] = out["left"].width + out["right"].width
+    return out
+
+
+def wing_attachments(wings, span_units):
+    """Attachment entries placing each wing's root on its bone (see split_wing_pair)."""
+    k = span_units / wings["span_px"]
+    l, r = wings["left"], wings["right"]
+    return ({"x": round(-l.width * k / 2, 1), "y": round((l.height / 2 - wings["left_joint_y"]) * k, 1),
+             "width": round(l.width * k, 1), "height": round(l.height * k, 1)},
+            {"x": round(r.width * k / 2, 1), "y": round((r.height / 2 - wings["right_joint_y"]) * k, 1),
+             "width": round(r.width * k, 1), "height": round(r.height * k, 1)})
+
+
+def fx_bat(size=256):
+    """Bat silhouette (white; tint via the slot colour), wings spread."""
+    s = size / 256.0
+    im = Image.new("L", (size, size), 0)
+    d = ImageDraw.Draw(im)
+    wing = [(128, 118), (96, 96), (60, 84), (22, 92), (6, 120), (30, 116), (44, 134), (62, 126), (74, 146),
+            (90, 136), (106, 150), (120, 140)]
+    d.polygon([(x * s, y * s) for x, y in wing], fill=255)
+    d.polygon([((256 - x) * s, y * s) for x, y in wing], fill=255)
+    d.ellipse((112 * s, 104 * s, 144 * s, 156 * s), fill=255)                  # body
+    d.polygon([(114 * s, 110 * s), (118 * s, 92 * s), (124 * s, 106 * s)], fill=255)   # ears
+    d.polygon([(142 * s, 110 * s), (138 * s, 92 * s), (132 * s, 106 * s)], fill=255)
+    a = np.asarray(im.filter(ImageFilter.GaussianBlur(1.2))).astype(np.float32) / 255
+    return img(np.dstack([np.ones((size, size, 3)), a]))
+
+
 def circle_mask(layer, inner=0.82, outer=1.0):
     """Fade a square image to a soft disc (for rune circles / moons painted on a square)."""
     a = arr(layer)
@@ -391,6 +439,17 @@ class Rig:
     alpha: Dict[str, Callable] = field(default_factory=dict)
     duration: float = 2.0
     keys_per_sec: int = 30
+
+
+def stretch_time(rig, factor):
+    """Play the whole rig `factor` times slower (2.0 = half speed): every motion, fade and loop
+    is evaluated at t / factor and the duration grows by `factor`. The game's timeline clip takes
+    the new length (monster_cutin.py sets it from the animation)."""
+    wrap = lambda fn: (lambda t: fn(t / factor))
+    return Rig(bones=rig.bones, slots=rig.slots, attachments=rig.attachments,
+               motions={k: wrap(v) for k, v in rig.motions.items()},
+               alpha={k: wrap(v) for k, v in rig.alpha.items()},
+               duration=rig.duration * factor, keys_per_sec=rig.keys_per_sec)
 
 
 # ================================================================== atlas packing
