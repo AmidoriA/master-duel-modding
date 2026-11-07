@@ -19,6 +19,7 @@ The rules and skills are written once and shared by both tools:
 | Rule: UTF-8, never Windows-1252 | `.cursor/rules/utf8-no-windows-1252.mdc` | always applied | imported by `CLAUDE.md` |
 | Rule: CRLF working tree | `.cursor/rules/windows-line-endings.mdc` | always applied | imported by `CLAUDE.md` |
 | Skill: build and publish a release | `.cursor/skills/build-and-publish-release/SKILL.md` | skill | `.claude/skills/build-and-publish-release/SKILL.md` (stub that loads the Cursor copy) |
+| Skill: custom Monster Cut-in (summon animation) | `.cursor/skills/monster-cutin/SKILL.md` | skill | `.claude/skills/monster-cutin/SKILL.md` (stub that loads the Cursor copy) |
 
 When you add or change agent configuration, keep both tools working:
 

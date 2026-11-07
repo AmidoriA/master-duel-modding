@@ -112,17 +112,11 @@ final NOT, over `Encoding.UTF8.GetBytes(path)`, formatted `x8`. Asset-bundle pat
 
 ## Proof of concept: Blue-Eyes cut-in on Magician's Rod
 
-Script: [scripts/poc/monster_cutin_poc.py](../scripts/poc/monster_cutin_poc.py) (Python + UnityPy).
-It uses the lighter variant of the patch design: only the two root prefab bundles are cloned, and they share
-Blue-Eyes' other 18 bundles through new manifest entries.
+Now `monster_cutin.py apply --card 12418 --borrow 4007` (see "Tooling" below). It uses the lighter variant of
+the patch design: only the two root prefab bundles are cloned, and they share Blue-Eyes' other 18 bundles
+through new manifest entries.
 
-```
-python scripts/poc/monster_cutin_poc.py apply  --src 4007 --dst 12418
-python scripts/poc/monster_cutin_poc.py verify --src 4007 --dst 12418
-python scripts/poc/monster_cutin_poc.py revert
-```
-
-Files changed under `LocalData/2addcbb5/0000` (backups in `%LOCALAPPDATA%\Floowan\cutin-poc-backup`):
+Files changed under `LocalData/2addcbb5/0000`:
 
 | File | Change |
 |------|--------|
@@ -137,4 +131,82 @@ All dependency files exist on disk.
 
 **Confirmed in game (2026-11-07):** with Monster cut-in **On**, summoning Magician's Rod plays the
 Blue-Eyes cut-in. The game launched with the edited `manifest_tcg` and did not re-download or reject it
-(this answers open risk 1 for at least one launch). If anything misbehaves later, run `revert`.
+(this answers open risk 1 for at least one launch).
+
+## Custom animation: Magician's Rod from its own art
+
+This replaces the borrowed Blue-Eyes cut-in with a new Spine animation built from Magician's Rod's own illustration.
+
+Scene: [scripts/cutin/scenes/magicians_rod_12418.py](../scripts/cutin/scenes/magicians_rod_12418.py)
+(confirmed in game on 2026-11-08 after the user asked for more focus on the spirit).
+
+**Art layers** (the scene's `comfy()` jobs, run by `scene_kit.py --comfy` against a local ComfyUI):
+RealESRGAN 4× → Qwen-Image-Edit 2509 (Lightning 8-step) edits of the card art. The edits produce:
+the rod on magenta (chroma-keyed), the art with the rod removed, sky only, and the spirit on black. Each result
+is upscaled 4× again. FLUX Fill outpainting of the sky came out starless, so the wide sky is the Qwen sky
+mirrored left/right, with procedural stars added.
+
+**Animation** (the scene's `rig()`, written out by [scripts/cutin/scene_kit.py](../scripts/cutin/scene_kit.py)): a
+generated Spine 4.2.20 JSON, 2.0 s long, with linear keys at 30/s.
+
+The spirit is the focus and the rod is a supporting accent. The spirit is drawn in three passes: a blurred
+additive aura, a solid deep-blue "body" pass (normal blend, so it reads against the sky), and a pulsing additive glow.
+
+| Time (s) | What happens |
+|----------|--------------|
+| 0–0.22 | The dimmed star band opens (scaleY) |
+| 0.03–0.6 | The spirit materializes: the aura flares and settles, and the body and glow rise in from below, shrinking from 1.18× to 1.0× |
+| 0.2–0.7 | A faint magic circle appears behind the spirit and rotates |
+| 0.4–1.6 | Sparkles pop around the spirit's outline |
+| 0.62–1.0 | A diagonal light sweep passes across the spirit |
+| 0.75–1.07 | The rod (0.66×) swoops in at the bottom right |
+| 1.05 | The orb flashes and a light streak runs along the rod |
+| 1.62–2.0 | Everything fades out and the band closes |
+
+Framing: camera ortho size 5 → 10 world units tall. Skeleton scale 0.01 × prefab scale 0.24 makes the
+visible area about ±3700 × ±2080 skeleton units. Textures are premultiplied (`pma:true`), packed into 4096² (HD)
+and 2048² (SD) pages, and encoded BC7 inline (via `etcpak`), so there is no `.resS`.
+The script also renders `preview.gif` / `preview_sheet.png` with the same bone math, so the animation can be
+checked without starting the game.
+
+**Packaging** (`monster_cutin.py apply --card 12418 --content <work>/out --preview-approved`):
+1. Clone all 16 bundles of a single-page template cut-in (P19172, Odd-Eyes Arcray Dragon) as P12418.
+2. Give every bundle a new CAB name and rewrite every `archive:/CAB-…` external, `m_Dependencies` and
+   `m_Container` entry, so nothing is shared with the template.
+3. Replace both skeleton JSONs, both atlas texts and both textures (keeping the texture/page name `P19172`,
+   which the atlas uses to match materials), and set the timeline clip length to 2.0 s.
+4. Rebuild the manifest from the original backup with 16 `P12418` entries.
+
+Checked offline: each bundle's externals point only inside the new set, all dependency files exist, the
+text and textures match the generated content, the timeline is 2.0 s, and AssetsTools.NET reloads all of them.
+
+## Tooling: making, installing and restoring cut-ins
+
+The step-by-step workflow for agents is the `monster-cutin` skill (`.cursor/skills/monster-cutin/SKILL.md`,
+shared with Claude Code). It requires showing the user `preview.gif` and getting approval before any patch.
+
+| Tool | Purpose |
+|------|---------|
+| [scripts/cutin/monster_cutin.py](../scripts/cutin/monster_cutin.py) | `status`, `find-card`, `extract-art`, `apply` (custom with `--preview-approved`, or `--borrow SRC`), `restore`, `verify`, `remove` |
+| [scripts/cutin/scene_kit.py](../scripts/cutin/scene_kit.py) | Builds layers, atlases, Spine JSON and the preview from a scene file; includes the ComfyUI client |
+| [scripts/cutin/scenes/](../scripts/cutin/scenes/) | One scene file per card (art prompts and animation) |
+
+**Registry and game updates.** Installed cut-ins are recorded in `%LOCALAPPDATA%\Floowan\cutins\registry.json`,
+together with their content (`content/<id>/`) and pristine copies of the two shared game files
+(`pristine/`). Every `apply` / `restore` / `remove` rebuilds the game state from the pristine copies plus all
+registered cut-ins, so the result does not depend on what was patched before.
+
+A game update overwrites CardIndividualData and `manifest_tcg`. The tool notices because the files no longer
+match the SHA-256 it recorded when it wrote them. `status` then reports `NEEDS RESTORE`. A single
+
+```
+python scripts/cutin/monster_cutin.py restore
+```
+
+takes the updated files as the new pristine copies and re-applies every registered cut-in. If an update gives a
+card its own official cut-in, that card is reported as SKIPPED and the official one is left alone.
+`remove --all` restores the original files byte for byte.
+
+Tested on copies of the game files: install a custom and a borrowed cut-in, simulate an update (new manifest
+entry plus an official cut-in for the borrowed card), `status`, `restore`, `verify`, `remove`. The updated
+originals came back byte-identical after `remove --all`.
