@@ -4,6 +4,7 @@
 **/*.user
 **/*.suo
 .vs/
+artifacts/
 
 # App runtime
 **/backups/
