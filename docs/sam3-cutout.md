@@ -1,14 +1,17 @@
 # SAM 3 + ViTMatte subject cutout (Auto OF)
 
 **Over-frame → Subject cutout** picks the model that finds the card's character or monster
-for **Auto-create & apply**, **Preview**, and Custom OF **Auto detect**:
+for **Auto-create & apply**, **Preview**, and Custom OF **Auto detect**. Custom OF has the same
+picker under **Auto detect**; both edit one shared setting, and changing it there re-runs an
+existing Auto detect cutout:
 
 | Choice | How it works | Download | Time per card |
 |--------|--------------|----------|---------------|
 | isnet-anime (default) | rembg salient-object matting | ~170 MB | under 1 s (CPU) |
 | SAM 3 + ViTMatte | SAM 3 finds the subject from words, ViTMatte places the edge | ~1.1 GB | ~1.5 s on a DirectX 12 GPU, ~17 s on CPU |
 
-The setting is stored in `user.db` (`app_config.cutout_model`, `cutout_held_items`).
+The setting is stored in `user.db` (`app_config.cutout_model`). Older user.db files may still
+have an unused `cutout_held_items` column; held items are now always included.
 
 ## Pipeline (`Sam3CutoutService`)
 
@@ -16,10 +19,11 @@ The setting is stored in `user.db` (`app_config.cutout_model`, `cutout_held_item
 2. For each subject word (`character`, `monster`, `person`, `creature`) run `detector.onnx`;
    keep queries with `sigmoid(logit) × sigmoid(presence) > 0.35` and union their masks
    (288² logits, bilinearly upsampled to the art size).
-3. **Include held items** (on by default): the same for `weapon`, `sword`, `axe`, `staff`,
-   `wings`, `hat`, `cape`, `tail` at 0.40, kept only when the item touches the subject
-   (within 6 px) and adds new area. Turn it off when it picks up background effects
-   (for example swirls read as "wings").
+3. **Held items** (always on; the app has no switch for it): the same for `weapon`, `sword`,
+   `axe`, `staff`, `wings`, `hat`, `cape`, `tail` at 0.40, kept only when the item touches the
+   subject (within 6 px) and adds new area. It can pick up background effects (for example
+   swirls read as "wings"); `Sam3CutoutService.PredictMask(includeHeldItems: false)` still
+   turns it off for code and tests.
 4. Trimap: ±12 px around the SAM 3 outline is "unknown"; ViTMatte
    (`vitmatte-small-composition-1k`) decides it at full resolution.
 

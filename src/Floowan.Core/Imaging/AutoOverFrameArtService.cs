@@ -56,11 +56,6 @@ public sealed class AutoOverFrameArtService : IDisposable
     /// <summary>Which model finds the subject for Auto-create and Custom OF "Auto detect".</summary>
     public SubjectCutoutModel CutoutModel { get; set; } = SubjectCutoutModel.IsnetAnime;
 
-    /// <summary>
-    /// SAM 3 only: also keep weapons, wings, hats, capes and tails that touch the subject.
-    /// </summary>
-    public bool IncludeHeldItems { get; set; } = true;
-
     public string CutoutModelLabel => SubjectCutoutModels.DisplayName(CutoutModel);
 
     public async Task CreateAsync(
@@ -555,9 +550,9 @@ public sealed class AutoOverFrameArtService : IDisposable
     }
 
     /// <summary>Settings snapshot for one run, so a UI change mid-run cannot mix models.</summary>
-    private readonly record struct CutoutSettings(SubjectCutoutModel Model, bool IncludeHeldItems);
+    private readonly record struct CutoutSettings(SubjectCutoutModel Model);
 
-    private CutoutSettings CaptureCutoutSettings() => new(CutoutModel, IncludeHeldItems);
+    private CutoutSettings CaptureCutoutSettings() => new(CutoutModel);
 
     private Task EnsureCutoutModelAsync(
         SubjectCutoutModel model,
@@ -572,7 +567,8 @@ public sealed class AutoOverFrameArtService : IDisposable
         if (cutout.Model != SubjectCutoutModel.Sam3)
             return PredictMask(source);
 
-        var mask = _sam3.PredictMask(source, cutout.IncludeHeldItems, progress);
+        // Held items (weapons, wings, hats, capes, tails touching the subject) are always kept.
+        var mask = _sam3.PredictMask(source, includeHeldItems: true, progress);
         for (var y = 0; y < mask.Height; y++)
         {
             var row = mask.DangerousGetPixelRowMemory(y).Span;

@@ -88,6 +88,7 @@ public partial class CustomOverframeWindow : Window
         _database = database;
         _linkMarkers = linkMarkers;
         Title = $"{Loc.T("custom_of.title")} — {card.DisplayName}";
+        InitCutoutPicker();
         SelectFrameStyle(initialFrameStyle);
         AdvancedSamExpander.Visibility = Sam2PointCutoutService.IsFeatureEnabled
             ? Visibility.Visible
@@ -1877,6 +1878,7 @@ public partial class CustomOverframeWindow : Window
         UseCardArtBackgroundButton.IsEnabled = !busy;
         SubjectAutoRadio.IsEnabled = !busy;
         SubjectManualRadio.IsEnabled = !busy;
+        UpdateCutoutPickerEnabled();
         AddMoreSelectionButton.IsEnabled = !busy && Sam2PointCutoutService.IsFeatureEnabled;
         FrameStyleBox.IsEnabled = !busy;
         ArtScaleSlider.IsEnabled = !busy;
