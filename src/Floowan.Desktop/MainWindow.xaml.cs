@@ -2647,7 +2647,7 @@ public partial class MainWindow : Window
     /// </summary>
     private static BitmapImage LoadOfComposePreview(string path)
     {
-        using var image = SixLabors.ImageSharp.Image.Load<SixLabors.ImageSharp.PixelFormats.Rgba32>(path);
+        using var image = SafeImage.Load<SixLabors.ImageSharp.PixelFormats.Rgba32>(path);
         using var flat = OverFrameAutoArtComposer.FlattenFoilMaskForPreview(image);
         using var ms = new MemoryStream();
         flat.Save(ms, new SixLabors.ImageSharp.Formats.Png.PngEncoder());

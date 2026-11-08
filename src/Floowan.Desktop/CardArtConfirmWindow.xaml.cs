@@ -82,7 +82,7 @@ public partial class CardArtConfirmWindow : Window
     /// </summary>
     private static BitmapImage LoadFoilFlattenedBitmap(string path)
     {
-        using var image = Image.Load<Rgba32>(path);
+        using var image = SafeImage.Load<Rgba32>(path);
         using var flat = OverFrameAutoArtComposer.FlattenFoilMaskForPreview(image);
         using var ms = new MemoryStream();
         flat.Save(ms, new PngEncoder());

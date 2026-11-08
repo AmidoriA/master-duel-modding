@@ -896,7 +896,7 @@ public sealed class OverFrameModService : IDisposable
     {
         try
         {
-            using var image = Image.Load<Rgba32>(path);
+            using var image = SafeImage.Load<Rgba32>(path);
             return OverFrameAutoArtComposer.IsOverFrameTextureSize(image.Width, image.Height);
         }
         catch
@@ -1283,7 +1283,7 @@ public sealed class OverFrameModService : IDisposable
         try
         {
             ExtractCardArt(playerDataPath, card, liveTemp);
-            using var liveInfo = Image.Load<Rgba32>(liveTemp);
+            using var liveInfo = SafeImage.Load<Rgba32>(liveTemp);
             liveIsOverframed = CardArtModService.IsLiveOverFrameTexture(
                 card.IsOverframe, liveInfo.Width, liveInfo.Height);
             if (liveIsOverframed)
@@ -1316,7 +1316,7 @@ public sealed class OverFrameModService : IDisposable
     {
         try
         {
-            using var loaded = Image.Load<Rgba32>(sourcePath);
+            using var loaded = SafeImage.Load<Rgba32>(sourcePath);
             using var clean = OverFrameAutoArtComposer.RequireCleanIllustrationSource(loaded);
             clean.Save(outputPngPath, new PngEncoder());
             return true;
@@ -1418,7 +1418,7 @@ public sealed class OverFrameModService : IDisposable
     {
         try
         {
-            using var image = Image.Load<Rgba32>(path);
+            using var image = SafeImage.Load<Rgba32>(path);
             // Reject actual OF canvases; illustration-sized art (including cream-heavy
             // cards) is accepted — the old "looks framed" heuristic false-triggered.
             return !OverFrameAutoArtComposer.IsOverFrameTextureSize(image.Width, image.Height);

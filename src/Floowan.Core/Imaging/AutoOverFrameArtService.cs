@@ -215,7 +215,7 @@ public sealed class AutoOverFrameArtService : IDisposable
             throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
 
         progress?.Report("Reading subject alpha mask…");
-        var source = Image.Load<Rgba32>(sourceImagePath);
+        var source = SafeImage.Load<Rgba32>(sourceImagePath);
         var mask = new Image<L8>(source.Width, source.Height);
         var keep = 0;
         for (var y = 0; y < source.Height; y++)
@@ -401,7 +401,7 @@ public sealed class AutoOverFrameArtService : IDisposable
         string sourceImagePath,
         IProgress<string>? progress)
     {
-        var loaded = Image.Load<Rgba32>(sourceImagePath);
+        var loaded = SafeImage.Load<Rgba32>(sourceImagePath);
         var loadedW = loaded.Width;
         var loadedH = loaded.Height;
         // Crop OF / Pendulum canvases to illustration bounds before rembg.

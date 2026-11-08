@@ -6,6 +6,7 @@ using Floowan.Core.Game;
 using Floowan.Core.Models;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using Floowan.Core.Imaging;
 
 namespace Floowan.Core.Services;
 
@@ -574,12 +575,12 @@ public sealed class OverFrameBundleService : IDisposable
         {
             if (!string.IsNullOrWhiteSpace(layer.SubjectPng) && !string.IsNullOrWhiteSpace(layer.SubjectMaskPng))
             {
-                subject = Image.Load<Rgba32>(ResolvePackPath(extractRoot, layer.SubjectPng));
-                mask = Image.Load<L8>(ResolvePackPath(extractRoot, layer.SubjectMaskPng));
+                subject = SafeImage.Load<Rgba32>(ResolvePackPath(extractRoot, layer.SubjectPng));
+                mask = SafeImage.Load<L8>(ResolvePackPath(extractRoot, layer.SubjectMaskPng));
             }
 
             if (!string.IsNullOrWhiteSpace(layer.BackgroundPng))
-                background = Image.Load<Rgba32>(ResolvePackPath(extractRoot, layer.BackgroundPng));
+                background = SafeImage.Load<Rgba32>(ResolvePackPath(extractRoot, layer.BackgroundPng));
 
             if (subject is null && mask is null && background is null)
                 return;

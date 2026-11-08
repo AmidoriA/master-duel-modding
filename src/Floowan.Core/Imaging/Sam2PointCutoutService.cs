@@ -918,7 +918,7 @@ public sealed class Sam2PointCutoutService : IDisposable
         string sourceImagePath,
         IProgress<string>? progress)
     {
-        var loaded = Image.Load<Rgba32>(sourceImagePath);
+        var loaded = SafeImage.Load<Rgba32>(sourceImagePath);
         var loadedW = loaded.Width;
         var loadedH = loaded.Height;
         var source = OverFrameAutoArtComposer.RequireCleanIllustrationSource(loaded);

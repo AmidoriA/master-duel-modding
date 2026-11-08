@@ -1291,14 +1291,14 @@ LIMIT 1;";
 
             if (subjectBytes is { Length: > 0 } && maskBytes is { Length: > 0 })
             {
-                subjectSource = Image.Load<Rgba32>(subjectBytes);
-                subjectMask = Image.Load<L8>(maskBytes);
+                subjectSource = SafeImage.Load<Rgba32>(subjectBytes);
+                subjectMask = SafeImage.Load<L8>(maskBytes);
                 state.HasSubject = true;
             }
 
             if (backgroundBytes is { Length: > 0 })
             {
-                background = Image.Load<Rgba32>(backgroundBytes);
+                background = SafeImage.Load<Rgba32>(backgroundBytes);
                 state.HasBackground = true;
             }
 

@@ -21,7 +21,7 @@ public static class ImagePreparation
 
         try
         {
-            using var image = Image.Load(imagePath);
+            using var image = SafeImage.Load(imagePath);
             if (image.Width <= 0 || image.Height <= 0)
                 return ImageValidationResult.Fail("Image has invalid dimensions.");
 
@@ -86,7 +86,7 @@ public static class ImagePreparation
         int height,
         bool preserveAspect = false)
     {
-        using var image = Image.Load<Rgba32>(imagePath);
+        using var image = SafeImage.Load<Rgba32>(imagePath);
         if (image.Width != width || image.Height != height)
         {
             var reversePendulumExport = CardArtTextureSizes.IsPendulumArtOntoTallCanvas(

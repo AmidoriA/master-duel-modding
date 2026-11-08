@@ -215,7 +215,7 @@ public partial class Sam2MaskPaintWindow : Window
         Sam2PointCutoutService sam2,
         Image<L8>? existingSubjectMask = null)
     {
-        using var loaded = ImageSharpImage.Load<Rgba32>(imagePath);
+        using var loaded = SafeImage.Load<Rgba32>(imagePath);
         var clean = OverFrameAutoArtComposer.RequireCleanIllustrationSource(loaded);
         Image<L8>? alignedOwned = null;
         try
