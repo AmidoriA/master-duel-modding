@@ -10,13 +10,14 @@ public class CardArtBundleServiceIntegrationTests
     [Fact]
     public void ReplaceRoundTrip_OnTempCopy_WhenGameBundleAvailable()
     {
-        var sample = @"D:\Games\Steam\steamapps\common\Yu-Gi-Oh!  Master Duel\LocalData\2addcbb5\0000\00\000c16e8";
-        if (!File.Exists(sample))
+        if (GameSampleBundle.TryGetVanilla() is not { } sampleBundle)
             return; // skip when Master Duel is not installed
+        var sample = sampleBundle.Path;
+        var bundleName = sampleBundle.Name;
 
         var classData = ClassDataLocator.FindClassDataPath();
         var workDir = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "floowan-it-" + Guid.NewGuid().ToString("N")));
-        var bundleCopy = Path.Combine(workDir.FullName, "000c16e8");
+        var bundleCopy = Path.Combine(workDir.FullName, bundleName);
         var png = Path.Combine(workDir.FullName, "replacement.png");
         var extracted = Path.Combine(workDir.FullName, "out.png");
 
@@ -42,9 +43,9 @@ public class CardArtBundleServiceIntegrationTests
             // Backup service round-trip
             var backups = new BackupService(Path.Combine(workDir.FullName, "backups"));
             File.Copy(sample, bundleCopy, true);
-            var backupPath = backups.BackupBundleFile(bundleCopy, "000c16e8");
+            var backupPath = backups.BackupBundleFile(bundleCopy, bundleName);
             File.Delete(bundleCopy);
-            Assert.True(backups.TryRestoreBundleFile(bundleCopy, "000c16e8"));
+            Assert.True(backups.TryRestoreBundleFile(bundleCopy, bundleName));
             Assert.True(File.Exists(bundleCopy));
             Assert.True(File.Exists(backupPath));
         }

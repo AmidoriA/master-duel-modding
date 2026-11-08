@@ -1902,7 +1902,9 @@ public class OverFrameAutoArtComposerTests
         var creamR = OverFrameAutoArtComposer.EffectLoreCream;
         var midX = creamR.Left + creamR.Width / 2;
         var leftX = creamR.Left + 30;
-        var coveredY = creamR.Top + 20;
+        // Subject bottom lands ~24 px below lore top (art bottom ≈ y790); sample above the
+        // 40 px LoreCreamRampHeight's near-opaque end so the soft underlay is measurable.
+        var coveredY = creamR.Top + 4;
         var uncoveredY = creamR.Bottom - 10;
 
         Assert.Equal(cream, result[leftX, coveredY]);
@@ -1952,7 +1954,9 @@ public class OverFrameAutoArtComposerTests
 
         var creamR = OverFrameAutoArtComposer.EffectLoreCream;
         var midX = creamR.Left + creamR.Width / 2;
-        var coveredY = creamR.Top + 20;
+        // Subject bottom lands ~24 px below lore top (art bottom ≈ y790); sample above the
+        // 40 px LoreCreamRampHeight's near-opaque end so the soft underlay is measurable.
+        var coveredY = creamR.Top + 4;
         Assert.True(baseline[midX, coveredY].B > cream.B);
         // CustomArtOnly lore soft footprint follows Card Art offset (unlike Auto foil).
         Assert.NotEqual(baseline[midX, coveredY], shifted[midX, coveredY]);
