@@ -81,6 +81,8 @@ Assert-Required (Join-Path $publishDir "classdata.tpk")
 Assert-Required (Join-Path $publishDir "THIRD_PARTY_NOTICES.txt")
 Assert-Required (Join-Path $publishDir "frames")
 Assert-Required (Join-Path $publishDir "locales")
+Assert-Required (Join-Path $publishDir "licenses/SAM_LICENSE.txt")
+Assert-Required (Join-Path $publishDir "DirectML.dll")
 
 $localeYamls = @(Get-ChildItem (Join-Path $publishDir "locales") -Filter "*.yaml" -File -ErrorAction SilentlyContinue)
 if ($localeYamls.Count -lt 1) {
@@ -100,8 +102,11 @@ Copy-Item (Join-Path $publishDir "THIRD_PARTY_NOTICES.txt") $stageDir
 Copy-Item (Join-Path $publishDir "classdata.tpk") $stageDir
 Copy-Item (Join-Path $publishDir "frames") (Join-Path $stageDir "frames") -Recurse
 Copy-Item (Join-Path $publishDir "locales") (Join-Path $stageDir "locales") -Recurse
+Copy-Item (Join-Path $publishDir "licenses") (Join-Path $stageDir "licenses") -Recurse
+# DirectML redistributable for the SAM 3 cutout GPU path; must stay beside the exe.
+Copy-Item (Join-Path $publishDir "DirectML.dll") $stageDir
 
-$dlls = @(Get-ChildItem $stageDir -Filter "*.dll" -File -ErrorAction SilentlyContinue)
+$dlls = @(Get-ChildItem $stageDir -Filter "*.dll" -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne "DirectML.dll" })
 if ($dlls.Count -gt 0) {
     Write-Warning ("Staged loose DLLs (native fallback?): " + ($dlls.Name -join ", "))
 }
@@ -172,7 +177,7 @@ Release $tag.
 ### Download
 - **$zipName** - self-contained Windows x64 (includes .NET runtime). Unzip and run ``$exeName``.
 
-Ships with ``database.db``, ``classdata.tpk``, ``THIRD_PARTY_NOTICES.txt``, ``frames/``, and ``locales/``.
+Ships with ``database.db``, ``classdata.tpk``, ``THIRD_PARTY_NOTICES.txt``, ``frames/``, ``locales/``, ``licenses/``, and ``DirectML.dll``.
 
 ### Tutorial
 https://youtu.be/jXaKaVDhXdg

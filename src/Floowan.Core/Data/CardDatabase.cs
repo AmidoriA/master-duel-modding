@@ -198,6 +198,8 @@ CREATE TABLE IF NOT EXISTS user.of_edit_layer (
         BackfillFloowanOverframeFromLegacyFlags();
         EnsureUserAppConfigColumn("of_card_asset_bundle", "VARCHAR(8)");
         EnsureUserAppConfigColumn("locale", "VARCHAR(32)");
+        EnsureUserAppConfigColumn("cutout_model", "VARCHAR(32)");
+        EnsureUserAppConfigColumn("cutout_held_items", "INTEGER");
         EnsureUserAppConfigRow();
         MigrateStaleOfCardAssetBundleId();
     }
@@ -677,6 +679,47 @@ ON CONFLICT(id) DO UPDATE SET
         cmd.CommandText =
             "UPDATE user.app_config SET locale = $locale WHERE id = (SELECT id FROM user.app_config ORDER BY id LIMIT 1);";
         cmd.Parameters.AddWithValue("$locale", string.IsNullOrWhiteSpace(locale) ? DBNull.Value : locale.Trim());
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Subject cutout model id for Auto OF (<see cref="Imaging.SubjectCutoutModels"/>); null when never set.
+    /// </summary>
+    public string? GetStoredCutoutModel()
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT cutout_model FROM user.app_config ORDER BY id LIMIT 1;";
+        var value = cmd.ExecuteScalar();
+        if (value is null || value is DBNull) return null;
+        var s = Convert.ToString(value);
+        return string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+    }
+
+    public void SetStoredCutoutModel(string? modelId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText =
+            "UPDATE user.app_config SET cutout_model = $model WHERE id = (SELECT id FROM user.app_config ORDER BY id LIMIT 1);";
+        cmd.Parameters.AddWithValue("$model", string.IsNullOrWhiteSpace(modelId) ? DBNull.Value : modelId.Trim());
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>SAM 3 cutout "include held items"; null when never set (callers default to true).</summary>
+    public bool? GetStoredCutoutHeldItems()
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT cutout_held_items FROM user.app_config ORDER BY id LIMIT 1;";
+        var value = cmd.ExecuteScalar();
+        if (value is null || value is DBNull) return null;
+        return Convert.ToInt64(value) != 0;
+    }
+
+    public void SetStoredCutoutHeldItems(bool include)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText =
+            "UPDATE user.app_config SET cutout_held_items = $v WHERE id = (SELECT id FROM user.app_config ORDER BY id LIMIT 1);";
+        cmd.Parameters.AddWithValue("$v", include ? 1 : 0);
         cmd.ExecuteNonQuery();
     }
 

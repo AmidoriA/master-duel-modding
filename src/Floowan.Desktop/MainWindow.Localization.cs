@@ -67,6 +67,7 @@ public partial class MainWindow
         OfViewThumbRadio.Content = Loc.T("common.thumbnails");
         OfEditorHeader.Text = Loc.T("overframe.editor");
         OfAutoCreateButton.Content = Loc.T("overframe.auto_create_apply");
+        ApplyCutoutLocalizedUi();
         OfPreviewButton.Content = Loc.T("overframe.preview");
         OfRestoreButton.Content = Loc.T("overframe.restore_backups");
         OfOpenCardArtButton.Content = Loc.T("common.open_in_card_art");

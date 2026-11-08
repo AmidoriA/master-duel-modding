@@ -84,6 +84,37 @@ VALUES ('Alpha', 'Summons a unique token', 'aaa11111', 'Mod Alpha', NULL, 0, 1, 
     }
 
     [Fact]
+    public void CutoutSettings_DefaultToUnset_AndRoundTripAcrossReopen()
+    {
+        var master = TempPath("floowan-cutout-master-");
+        var user = TempPath("floowan-cutout-user-");
+        try
+        {
+            CreateLegacyMonolithicDatabase(master);
+            using (var db = new CardDatabase(master, user))
+            {
+                Assert.Null(db.GetStoredCutoutModel());
+                Assert.Null(db.GetStoredCutoutHeldItems());
+                db.SetStoredCutoutModel("sam3-vitmatte");
+                db.SetStoredCutoutHeldItems(false);
+            }
+
+            using (var db = new CardDatabase(master, user))
+            {
+                Assert.Equal("sam3-vitmatte", db.GetStoredCutoutModel());
+                Assert.False(db.GetStoredCutoutHeldItems());
+                db.SetStoredCutoutModel(null);
+                Assert.Null(db.GetStoredCutoutModel());
+            }
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            TryDelete(master, user);
+        }
+    }
+
+    [Fact]
     public void Open_SeedsUserDb_WhenMissing()
     {
         var master = TempPath("floowan-seed-master-");

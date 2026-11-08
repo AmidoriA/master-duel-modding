@@ -13,7 +13,7 @@ Product: **Masterduel modding tool by AmidoriA**
 Repo: `AmidoriA/master-duel-modding`  
 Desktop: `src/Floowan.Desktop/Floowan.Desktop.csproj` (Windows-only WPF, `net8.0-windows`)
 
-Proven pattern: **v0.0.1** (PublishSingleFile + sidecars; no loose DLLs required).
+Proven pattern: **v0.0.1** (PublishSingleFile + sidecars; the only loose DLL is the `DirectML.dll` sidecar).
 
 ## Checklist
 
@@ -75,9 +75,11 @@ Beside the single exe (names may change later; currently `Floowan.Desktop.exe`):
 | `THIRD_PARTY_NOTICES.txt` | Sidecar |
 | `frames/` | PNG templates (from Core) |
 | `locales/` | UI translation YAML (`en-US.yaml`, `th-TH.yaml`, …) |
+| `licenses/` | `SAM_LICENSE.txt` (must ship with the SAM 3 prompt features embedded in Core) |
+| `DirectML.dll` | DirectML redistributable for the SAM 3 cutout GPU path. Intentionally loose beside the exe (`ExcludeFromSingleFile`); older Windows builds have a System32 copy too old for ONNX Runtime 1.20 |
 
 - `user.db` is **runtime-created** — do not require in zip
-- No loose `.dll` beside exe if `IncludeNativeLibrariesForSelfExtract` works (ONNX natives extract at runtime)
+- No loose `.dll` beside exe except `DirectML.dll` if `IncludeNativeLibrariesForSelfExtract` works (ONNX natives extract at runtime)
 - Publish dir may also contain `.pdb` / `.lib` — **do not** put those in the release zip
 
 If single-file breaks native/ONNX, fall back to single-file managed + leave required native DLLs beside the exe (document what was left loose).
@@ -102,6 +104,8 @@ Copy-Item "$src/THIRD_PARTY_NOTICES.txt" $stage
 Copy-Item "$src/classdata.tpk" $stage
 Copy-Item "$src/frames" "$stage/frames" -Recurse
 Copy-Item "$src/locales" "$stage/locales" -Recurse
+Copy-Item "$src/licenses" "$stage/licenses" -Recurse
+Copy-Item "$src/DirectML.dll" $stage
 
 Remove-Item $zip -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path "$stage/*" -DestinationPath $zip
@@ -117,7 +121,9 @@ Confirm the zip contains exactly:
 - `database.db`, `classdata.tpk`, `THIRD_PARTY_NOTICES.txt`
 - `frames/*.png` (dozens of frame PNGs)
 - `locales/*.yaml` (at least `en-US.yaml`; typically also `th-TH.yaml`)
-- No `user.db`, no `.pdb`, no `.lib`, no required loose `.dll` (unless native fallback)
+- `licenses/SAM_LICENSE.txt`
+- `DirectML.dll` (the only loose DLL expected)
+- No `user.db`, no `.pdb`, no `.lib`, no other loose `.dll` (unless native fallback)
 
 ## 5. Git tag (release only)
 
