@@ -10,13 +10,10 @@ namespace Floowan.Core.Tests;
 
 public sealed class OverFrameAutoCreateSourceTests
 {
-    private static readonly string SampleBundle =
-        @"D:\Games\Steam\steamapps\common\Yu-Gi-Oh!  Master Duel\LocalData\2addcbb5\0000\00\000c16e8";
-
     [Fact]
     public void ResolveAutoCreateSourceArt_PrefersLiveOverStaleBackups_WhenGameBundleAvailable()
     {
-        if (!File.Exists(SampleBundle))
+        if (GameSampleBundle.TryGetVanilla() is not { } sample)
             return;
 
         var classData = ClassDataLocator.FindClassDataPath();
@@ -24,14 +21,14 @@ public sealed class OverFrameAutoCreateSourceTests
         var install = Path.Combine(workRoot, "Yu-Gi-Oh!  Master Duel");
         var playerData = Path.Combine(install, "LocalData", "player");
         var backupRoot = Path.Combine(workRoot, "backups");
-        var liveBundle = BundlePathResolver.GetLocalDataBundlePath(playerData, "000c16e8");
+        var liveBundle = BundlePathResolver.GetLocalDataBundlePath(playerData, sample.Name);
         var livePng = Path.Combine(workRoot, "live-magenta.png");
         var outPng = Path.Combine(workRoot, "resolved.png");
 
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(liveBundle)!);
-            File.Copy(SampleBundle, liveBundle);
+            File.Copy(sample.Path, liveBundle);
 
             using (var img = new Image<Rgba32>(512, 512, Color.Magenta))
                 img.SaveAsPng(livePng);
@@ -44,7 +41,7 @@ public sealed class OverFrameAutoCreateSourceTests
             {
                 Id = 1,
                 Name = "Test Dragon",
-                Bundle = "000c16e8",
+                Bundle = sample.Name,
                 IsOverframe = false
             };
 
@@ -54,7 +51,7 @@ public sealed class OverFrameAutoCreateSourceTests
             using (var stale = new Image<Rgba32>(512, 512, Color.Lime))
                 stale.SaveAsPng(ofBackup);
 
-            ofService.Backups.TryCreateBundleBackupIfMissing(SampleBundle, card.Bundle, out _);
+            ofService.Backups.TryCreateBundleBackupIfMissing(sample.Path, card.Bundle, out _);
 
             var label = ofService.ResolveAutoCreateSourceArt(playerData, card, outPng);
             Assert.Equal("live texture", label);
@@ -76,7 +73,7 @@ public sealed class OverFrameAutoCreateSourceTests
     [Fact]
     public void ReplaceCardArt_InvalidatesOverFrameTextureBackup_WhenGameBundleAvailable()
     {
-        if (!File.Exists(SampleBundle))
+        if (GameSampleBundle.TryGetVanilla() is not { } sample)
             return;
 
         var classData = ClassDataLocator.FindClassDataPath();
@@ -84,7 +81,7 @@ public sealed class OverFrameAutoCreateSourceTests
         var install = Path.Combine(workRoot, "Yu-Gi-Oh!  Master Duel");
         var playerData = Path.Combine(install, "LocalData", "player");
         var backupRoot = Path.Combine(workRoot, "backups");
-        var liveBundle = BundlePathResolver.GetLocalDataBundlePath(playerData, "000c16e8");
+        var liveBundle = BundlePathResolver.GetLocalDataBundlePath(playerData, sample.Name);
         var replacement = Path.Combine(workRoot, "replacement.png");
         var unity = Path.Combine(install, "masterduel_Data", "data.unity3d");
 
@@ -93,7 +90,7 @@ public sealed class OverFrameAutoCreateSourceTests
             Directory.CreateDirectory(Path.GetDirectoryName(unity)!);
             File.WriteAllBytes(unity, [0]);
             Directory.CreateDirectory(Path.GetDirectoryName(liveBundle)!);
-            File.Copy(SampleBundle, liveBundle);
+            File.Copy(sample.Path, liveBundle);
 
             using (var img = new Image<Rgba32>(512, 512, Color.Orange))
                 img.SaveAsPng(replacement);
@@ -105,7 +102,7 @@ public sealed class OverFrameAutoCreateSourceTests
             {
                 Id = 1,
                 Name = "Invalidate Me",
-                Bundle = "000c16e8",
+                Bundle = sample.Name,
                 IsOverframe = false
             };
 

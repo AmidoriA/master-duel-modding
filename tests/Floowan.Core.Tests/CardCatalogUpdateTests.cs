@@ -450,7 +450,7 @@ CREATE TABLE card (
         try
         {
             var notes = new List<string>();
-            var progress = new Progress<string>(s => { lock (notes) notes.Add(s); });
+            var progress = new SyncProgress(notes);
             var result = new CardCatalogExtractor().Extract(player, progress);
 
             Assert.False(result.Success);
@@ -487,7 +487,7 @@ CREATE TABLE card (
         try
         {
             var notes = new List<string>();
-            var progress = new Progress<string>(s => { lock (notes) notes.Add(s); });
+            var progress = new SyncProgress(notes);
             var result = new CardCatalogExtractor().Extract(
                 player, progress, illustCreatedAfterUtc: cutoff);
 
@@ -530,7 +530,7 @@ CREATE TABLE card (
         try
         {
             var notes = new List<string>();
-            var progress = new Progress<string>(s => { lock (notes) notes.Add(s); });
+            var progress = new SyncProgress(notes);
             var result = new CardCatalogExtractor().Extract(
                 player, progress, illustCreatedAfterUtc: cutoff);
 
@@ -567,5 +567,18 @@ CREATE TABLE card (
         Assert.Equal(4, CardCatalogExtractor.DefaultCardDataBundleIds.Length);
         foreach (var id in CardCatalogExtractor.DefaultCardDataBundleIds)
             Assert.True(OfCardAssetLocator.IsLiveBundleFileName(id), id);
+    }
+
+    /// <summary>
+    /// Records progress on the reporting thread. <see cref="Progress{T}"/> posts to the thread
+    /// pool without a sync context, so notes could still be in flight when a test asserts.
+    /// </summary>
+    private sealed class SyncProgress(List<string> notes) : IProgress<string>
+    {
+        public void Report(string value)
+        {
+            lock (notes)
+                notes.Add(value);
+        }
     }
 }

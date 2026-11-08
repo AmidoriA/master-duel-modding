@@ -12,10 +12,40 @@
     <PackageReference Include="AssetsTools.NET" Version="3.0.4" />
     <PackageReference Include="AssetsTools.NET.Texture" Version="3.0.2" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
     <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
     <PackageReference Include="YamlDotNet" Version="16.3.0" />
+  </ItemGroup>
+
+  <!-- Windows builds use the DirectML package (same API, adds the GPU provider for the SAM 3
+       cutout; CPU stays the default for every other model). Linux test builds keep the plain
+       package, which has no DirectML native library. -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.20.1" />
+    <PackageReference Include="Microsoft.AI.DirectML" Version="1.15.2" GeneratePathProperty="true" />
+  </ItemGroup>
+  <!-- The DirectML package only copies DirectML.dll for x64 PlatformTarget builds. Ship the
+       redistributable beside the exe (outside the single-file bundle) so older Windows builds,
+       whose System32 DirectML.dll is too old for ONNX Runtime 1.20, still get the GPU path. -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And '$(PkgMicrosoft_AI_DirectML)' != ''">
+    <None Include="$(PkgMicrosoft_AI_DirectML)\bin\x64-win\DirectML.dll">
+      <Link>DirectML.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      <Visible>false</Visible>
+    </None>
+  </ItemGroup>
+  <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\sam3\prompt_features.bin" LogicalName="Floowan.Core.Resources.sam3.prompt_features.bin" />
+    <None Include="Resources\sam3\SAM_LICENSE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>licenses\SAM_LICENSE.txt</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup>

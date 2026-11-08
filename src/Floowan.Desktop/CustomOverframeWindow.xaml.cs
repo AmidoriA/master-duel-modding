@@ -1380,9 +1380,10 @@ public partial class CustomOverframeWindow : Window
 
             var matched = TryApplyAutoMatchBackgroundTransforms();
             await RecomposePreviewAsync();
+            var model = _autoArt.CutoutModelLabel;
             StatusText.Text = matched
-                ? $"Subject from live art (rembg); background matched ×{_backgroundScale:0.00}. Drag or Apply."
-                : "Subject from live art (rembg). Drag or scale the art, then Apply.";
+                ? $"Subject from live art ({model}); background matched ×{_backgroundScale:0.00}. Drag or Apply."
+                : $"Subject from live art ({model}). Drag or scale the art, then Apply.";
             PreviewHintText.Visibility = Visibility.Collapsed;
             ApplyButton.IsEnabled = true;
         }

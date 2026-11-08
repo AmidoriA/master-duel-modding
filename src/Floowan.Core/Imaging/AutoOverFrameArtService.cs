@@ -12,9 +12,11 @@ using SixLabors.ImageSharp.Processing;
 namespace Floowan.Core.Imaging;
 
 /// <summary>
-/// One-click over-frame art generation using rembg's <c>isnet-anime</c> session.
-/// Runs the ONNX model natively in .NET, so Python/rembg does not need to be
-/// installed. The model is downloaded and verified on first use.
+/// One-click over-frame art generation. The subject mask comes from
+/// <see cref="CutoutModel"/>: rembg's <c>isnet-anime</c> session (default) or
+/// <see cref="Sam3CutoutService"/> (SAM 3 text prompts + ViTMatte). Both run as ONNX
+/// natively in .NET, so Python does not need to be installed. Models are downloaded
+/// and verified on first use.
 /// </summary>
 public sealed class AutoOverFrameArtService : IDisposable
 {
@@ -33,6 +35,7 @@ public sealed class AutoOverFrameArtService : IDisposable
     private readonly HttpClient _httpClient;
     private readonly string _modelPath;
     private readonly ArtUpscaleService _artUpscale;
+    private readonly Sam3CutoutService _sam3;
     private InferenceSession? _session;
 
     public AutoOverFrameArtService(string? modelDirectory = null, HttpClient? httpClient = null)
@@ -43,11 +46,22 @@ public sealed class AutoOverFrameArtService : IDisposable
             "models");
         _modelPath = Path.Combine(modelDirectory, ModelName);
         _httpClient = httpClient ?? new HttpClient();
-        // RemBG weights live in models/; Real-ESRGAN lives in models/realesrgan/.
+        // RemBG weights live in models/; Real-ESRGAN in models/realesrgan/; SAM 3 cutout in models/sam3cutout/.
         _artUpscale = new ArtUpscaleService(Path.Combine(modelDirectory, "realesrgan"));
+        _sam3 = new Sam3CutoutService(Path.Combine(modelDirectory, "sam3cutout"), _httpClient);
     }
 
     public string ModelPath => _modelPath;
+
+    /// <summary>Which model finds the subject for Auto-create and Custom OF "Auto detect".</summary>
+    public SubjectCutoutModel CutoutModel { get; set; } = SubjectCutoutModel.IsnetAnime;
+
+    /// <summary>
+    /// SAM 3 only: also keep weapons, wings, hats, capes and tails that touch the subject.
+    /// </summary>
+    public bool IncludeHeldItems { get; set; } = true;
+
+    public string CutoutModelLabel => SubjectCutoutModels.DisplayName(CutoutModel);
 
     public async Task CreateAsync(
         string sourceImagePath,
@@ -65,15 +79,16 @@ public sealed class AutoOverFrameArtService : IDisposable
         // OF always uses gradient chrome; solid dropdown / inference styles are mapped here.
         frameStyle = CardFrameTemplates.ToOfGradientStyle(frameStyle);
 
-        await EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
+        var cutout = CaptureCutoutSettings();
+        await EnsureCutoutModelAsync(cutout.Model, progress, cancellationToken).ConfigureAwait(false);
         await EnsureArtUpscaleModelAsync(progress, cancellationToken).ConfigureAwait(false);
-        progress?.Report("Removing background with isnet-anime…");
+        progress?.Report($"Finding the subject with {SubjectCutoutModels.DisplayName(cutout.Model)}…");
 
         await Task.Run(() =>
         {
             using var prepared = PrepareCleanSource(sourceImagePath, progress);
             var source = prepared.Source;
-            using var predictedMask = PredictMask(source);
+            using var predictedMask = PredictCutoutMask(source, cutout, progress);
             var mask = predictedMask;
             Image<Rgba32>? ownedSource = null;
             Image<L8>? ownedMask = null;
@@ -111,7 +126,7 @@ public sealed class AutoOverFrameArtService : IDisposable
 
     /// <summary>
     /// Same as <see cref="CreateAsync"/>, but also returns editable Custom OF layers
-    /// (rembg subject + mask + clean illustration as Cover background). Caller disposes
+    /// (cutout subject + mask + clean illustration as Cover background). Caller disposes
     /// the three images. Subject scale for CustomArtOnly edit ≈ <see cref="OverFrameAutoArtComposer.OverflowScale"/>
     /// so reopening Edit matches Auto overflow.
     /// </summary>
@@ -130,9 +145,10 @@ public sealed class AutoOverFrameArtService : IDisposable
 
         frameStyle = CardFrameTemplates.ToOfGradientStyle(frameStyle);
 
-        await EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
+        var cutout = CaptureCutoutSettings();
+        await EnsureCutoutModelAsync(cutout.Model, progress, cancellationToken).ConfigureAwait(false);
         await EnsureArtUpscaleModelAsync(progress, cancellationToken).ConfigureAwait(false);
-        progress?.Report("Removing background with isnet-anime…");
+        progress?.Report($"Finding the subject with {SubjectCutoutModels.DisplayName(cutout.Model)}…");
 
         return await Task.Run(() =>
         {
@@ -142,7 +158,7 @@ public sealed class AutoOverFrameArtService : IDisposable
             Image<L8>? mask = null;
             try
             {
-                mask = PredictMask(subject);
+                mask = PredictCutoutMask(subject, cutout, progress);
                 var keep = 0;
                 for (var y = 0; y < mask.Height; y++)
                 {
@@ -157,7 +173,7 @@ public sealed class AutoOverFrameArtService : IDisposable
                 if (keep == 0)
                 {
                     throw new InvalidOperationException(
-                        "rembg found no opaque subject in the card art for Auto OF.");
+                        $"{SubjectCutoutModels.DisplayName(cutout.Model)} found no opaque subject in the card art for Auto OF.");
                 }
 
                 Image<Rgba32>? bg = background;
@@ -259,7 +275,7 @@ public sealed class AutoOverFrameArtService : IDisposable
     }
 
     /// <summary>
-    /// Runs rembg (isnet-anime) on card art and returns the cleaned illustration +
+    /// Runs the selected <see cref="CutoutModel"/> on card art and returns the cleaned illustration +
     /// subject mask for Custom OF Card Art layering. Caller must dispose both images.
     /// Does not compose a frame (unlike <see cref="CreateAsync"/>).
     /// </summary>
@@ -271,9 +287,10 @@ public sealed class AutoOverFrameArtService : IDisposable
         if (!File.Exists(sourceImagePath))
             throw new FileNotFoundException("Source card art was not found.", sourceImagePath);
 
-        await EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
+        var cutout = CaptureCutoutSettings();
+        await EnsureCutoutModelAsync(cutout.Model, progress, cancellationToken).ConfigureAwait(false);
         await EnsureArtUpscaleModelAsync(progress, cancellationToken).ConfigureAwait(false);
-        progress?.Report("Removing background with isnet-anime…");
+        progress?.Report($"Finding the subject with {SubjectCutoutModels.DisplayName(cutout.Model)}…");
 
         return await Task.Run(() =>
         {
@@ -282,7 +299,7 @@ public sealed class AutoOverFrameArtService : IDisposable
             Image<L8>? mask = null;
             try
             {
-                mask = PredictMask(source);
+                mask = PredictCutoutMask(source, cutout, progress);
                 var keep = 0;
                 for (var y = 0; y < mask.Height; y++)
                 {
@@ -297,14 +314,14 @@ public sealed class AutoOverFrameArtService : IDisposable
                 if (keep == 0)
                 {
                     throw new InvalidOperationException(
-                        "rembg found no opaque subject in the live card art. " +
+                        $"{SubjectCutoutModels.DisplayName(cutout.Model)} found no opaque subject in the live card art. " +
                         "Try Select subject… with a PNG that already has alpha.");
                 }
 
                 Image<Rgba32>? bg = null;
                 _artUpscale.UpscalePreparedLayersInPlace(ref source, ref mask, ref bg, progress);
 
-                progress?.Report("Subject rembg mask ready.");
+                progress?.Report("Subject mask ready.");
                 return (source, mask);
             }
             catch
@@ -394,14 +411,14 @@ public sealed class AutoOverFrameArtService : IDisposable
 
         if (OverFrameAutoArtComposer.IsOverFrameTextureSize(loadedW, loadedH))
         {
-            progress?.Report("Source was 704×1024 — cropped art window before rembg…");
+            progress?.Report("Source was 704×1024 — cropped art window before cutout…");
         }
         else if (CardArtTextureSizes.IsPendulumNativeCanvas(loadedW, loadedH) ||
                  CardArtTextureSizes.IsPendulum(loadedW, loadedH) ||
                  CardArtTextureSizes.HasPendulumAspect(loadedW, loadedH))
         {
             progress?.Report(
-                $"Source was Pendulum {loadedW}×{loadedH} — using 3:4 art for rembg…");
+                $"Source was Pendulum {loadedW}×{loadedH} — using 3:4 art for cutout…");
         }
 
         return new PreparedSource(source);
@@ -537,6 +554,41 @@ public sealed class AutoOverFrameArtService : IDisposable
         }
     }
 
+    /// <summary>Settings snapshot for one run, so a UI change mid-run cannot mix models.</summary>
+    private readonly record struct CutoutSettings(SubjectCutoutModel Model, bool IncludeHeldItems);
+
+    private CutoutSettings CaptureCutoutSettings() => new(CutoutModel, IncludeHeldItems);
+
+    private Task EnsureCutoutModelAsync(
+        SubjectCutoutModel model,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken) =>
+        model == SubjectCutoutModel.Sam3
+            ? _sam3.EnsureModelsAsync(progress, cancellationToken)
+            : EnsureModelAsync(progress, cancellationToken);
+
+    private Image<L8> PredictCutoutMask(Image<Rgba32> source, CutoutSettings cutout, IProgress<string>? progress)
+    {
+        if (cutout.Model != SubjectCutoutModel.Sam3)
+            return PredictMask(source);
+
+        var mask = _sam3.PredictMask(source, cutout.IncludeHeldItems, progress);
+        for (var y = 0; y < mask.Height; y++)
+        {
+            var row = mask.DangerousGetPixelRowMemory(y).Span;
+            for (var x = 0; x < row.Length; x++)
+            {
+                if (row[x].PackedValue >= OverFrameAutoArtComposer.MaskKeepThreshold)
+                    return mask;
+            }
+        }
+
+        mask.Dispose();
+        throw new InvalidOperationException(
+            "SAM 3 did not find a character or monster in this art. " +
+            "Try the isnet-anime cutout model instead.");
+    }
+
     private Image<L8> PredictMask(Image<Rgba32> source)
     {
         _session ??= new InferenceSession(_modelPath);
@@ -619,6 +671,7 @@ public sealed class AutoOverFrameArtService : IDisposable
     public void Dispose()
     {
         _session?.Dispose();
+        _sam3.Dispose();
         _artUpscale.Dispose();
         _httpClient.Dispose();
     }

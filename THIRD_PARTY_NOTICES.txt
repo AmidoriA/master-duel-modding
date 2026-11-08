@@ -66,13 +66,39 @@ rembg / IS-Net anime (isnet-anime)
   repository.
 
 
-Microsoft.ML.OnnxRuntime
-------------------------
+Microsoft.ML.OnnxRuntime / Microsoft.ML.OnnxRuntime.DirectML
+------------------------------------------------------------
 - https://github.com/microsoft/onnxruntime
-- License: MIT
-- Runs the isnet-anime background-removal model, Meta SAM 2
+- License: MIT (DirectML redistributable: Microsoft.AI.DirectML, MIT)
+- Runs the isnet-anime background-removal model, the SAM 3 + ViTMatte subject
+  cutout (DirectML GPU provider when available, otherwise CPU), Meta SAM 2
   paint-region subject cutout encoder/decoder, and Real-ESRGAN anime
   OF art upscale ONNX sessions locally.
+
+
+Meta Segment Anything 3 (SAM 3) — Auto OF subject cutout
+--------------------------------------------------------
+- https://github.com/facebookresearch/sam3
+- License: SAM License (Meta, November 19, 2025). A copy ships with Floowan as
+  licenses\SAM_LICENSE.txt (source: src/Floowan.Core/Resources/sam3/SAM_LICENSE.txt).
+- ONNX export used: https://huggingface.co/wW-Ww/sam3-ONNX (vision_fp16.onnx and
+  detector.onnx with their .data files), downloaded on first use (SHA-256 verified)
+  into %LOCALAPPDATA%\Floowan\models\sam3cutout. Weights are not stored in this
+  repository.
+- src/Floowan.Core/Resources/sam3/prompt_features.bin holds SAM 3 text-encoder
+  outputs for Floowan's fixed prompt words ("character", "monster", "weapon", ...),
+  computed with scripts/sam3/make_prompt_features.py. It is a derivative of the
+  SAM Materials and is distributed under the SAM License.
+
+
+ViTMatte (hustvl/vitmatte-small-composition-1k)
+-----------------------------------------------
+- https://github.com/hustvl/ViTMatte
+- License: MIT
+- ONNX export from https://huggingface.co/Xenova/vitmatte-small-composition-1k
+  (onnx/model.onnx), downloaded on first use (SHA-256 verified) into
+  %LOCALAPPDATA%\Floowan\models\sam3cutout. Places the subject edge around the
+  SAM 3 mask.
 
 
 Meta Segment Anything 2 (SAM 2)

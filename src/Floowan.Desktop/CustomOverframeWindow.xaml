@@ -81,13 +81,13 @@
                                  BorderThickness="0"
                                  Padding="8,8"
                                  Cursor="Hand"
-                                 ToolTip="Cut out the subject from this card's live art (rembg)."
+                                 ToolTip="Cut out the subject from this card's live art with the Subject cutout model chosen on the Over-frame tab."
                                  Click="SubjectAutoRadio_Click">
                       <StackPanel>
                         <TextBlock Text="Auto detect"
                                    Margin="0,0,0,4"
                                    Foreground="{StaticResource TextBrush}"/>
-                        <TextBlock Text="Cut out from this card's current art (rembg)."
+                        <TextBlock Text="Cut out from this card's current art (model from Over-frame → Subject cutout)."
                                    Foreground="{StaticResource MutedBrush}"
                                    TextWrapping="Wrap"
                                    FontSize="11"/>

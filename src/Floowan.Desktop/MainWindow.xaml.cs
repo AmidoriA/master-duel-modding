@@ -181,6 +181,7 @@ public partial class MainWindow : Window
                 _database.SetStoredLocale(Loc.Culture);
             }
             ApplyLocalizedUi();
+            LoadCutoutSettings();
 
             var discovered = GamePathLocator.FindSteamMasterDuelPaths();
             if (discovered.Count == 1)
@@ -2365,12 +2366,19 @@ public partial class MainWindow : Window
             return;
         }
 
+        var card = _ofSelected;
         if (!_ofGateReady)
             await EnsureOfGateAsync(showErrors: true);
         if (!_ofGateReady)
             return;
 
-        var card = _ofSelected;
+        // A first-time gate scan refreshes the card list, which can clear _ofSelected.
+        if (_ofSelected is null || _ofSelected.Id != card.Id)
+        {
+            MessageBox.Show(Loc.T("common.select_card_first"), AppCaption);
+            return;
+        }
+
         var initialFrame = GetSelectedOfComposeFrameStyle()
             ?? CardFrameTemplates.ToOfGradientStyle(CardFrameStyle.Effect);
         var linkMarkers = await TryResolveLinkMarkersAsync(card, initialFrame);
