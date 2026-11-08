@@ -122,7 +122,7 @@ internal sealed class CardThumbnailCache : IDisposable
     /// </summary>
     private static ImageSource LoadThumbnail(string path, bool preferOverframe)
     {
-        var identity = ImageSharpImage.Identify(path);
+        var identity = SafeImage.Identify(path);
         var isOverframeCanvas = preferOverframe
             || (identity is not null
                 && OverFrameAutoArtComposer.IsOverFrameTextureSize(identity.Width, identity.Height));
@@ -151,7 +151,7 @@ internal sealed class CardThumbnailCache : IDisposable
     /// </summary>
     private static ImageSource LoadOverframeThumbnail(string path)
     {
-        using var image = ImageSharpImage.Load<Rgba32>(path);
+        using var image = SafeImage.Load<Rgba32>(path);
         using var flat = OverFrameAutoArtComposer.FlattenFoilMaskForPreview(image);
         using var ms = new MemoryStream();
         flat.Save(ms, new PngEncoder());

@@ -180,7 +180,7 @@ public static class CardFrameTemplates
             }
 
             if (found is not null)
-                return Image.Load<Rgba32>(found);
+                return SafeImage.Load<Rgba32>(found);
 
             // Derive from solid base when the preset PNG has not been generated yet.
             using var solid = Load(GetSolidBaseStyle(style), overrideDirectory);
@@ -188,7 +188,7 @@ public static class CardFrameTemplates
         }
 
         var path = ResolveTemplatePath(style, overrideDirectory);
-        return Image.Load<Rgba32>(path);
+        return SafeImage.Load<Rgba32>(path);
     }
 
     /// <summary>

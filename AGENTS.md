@@ -76,6 +76,7 @@ The WPF GUI can't run here. To exercise core logic end-to-end, reference `src/Fl
 - `CardDatabase` opens master and `ATTACH`es `user.db`. On first open it migrates legacy user columns from a monolithic `database.db` into `user.db` (does not strip the shipped master file).
 - `src/Floowan.Core/Resources/classdata.tpk` is required by AssetsTools.NET and is copied next to build output.
 - Auto OF subject cutout is isnet-anime or SAM 3 + ViTMatte (`Sam3CutoutService`, see `docs/sam3-cutout.md`). Core references `Microsoft.ML.OnnxRuntime.DirectML` on Windows and the plain `Microsoft.ML.OnnxRuntime` elsewhere. `Resources/sam3/prompt_features.bin` (embedded) is SAM 3-derived, so `licenses/SAM_LICENSE.txt` must ship with releases. Model weights download to `%LOCALAPPDATA%\Floowan\models\` and are never committed.
+- **ImageSharp stays on 3.1.x.** 3.2.0+ fails to build without a Six Labors license key. 3.1.12 has known TIFF and ICC advisories, so decode image files only through `Floowan.Core.Imaging.SafeImage`. It registers only PNG, JPEG, BMP and WebP, skips metadata and drops ICC profiles. Never call `Image.Load` / `Image.Identify` directly in app code; tests may.
 - The integration test (`CardArtBundleServiceIntegrationTests`) self-skips unless a real Master Duel install is present at a hardcoded Steam path, so it is a no-op on cloud VMs.
 
 ## Lint/format

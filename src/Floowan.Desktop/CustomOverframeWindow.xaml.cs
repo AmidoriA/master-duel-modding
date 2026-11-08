@@ -854,7 +854,7 @@ public partial class CustomOverframeWindow : Window
         {
             DisposeBackground();
             _backgroundIsCardArt = false;
-            _backgroundSource = await Task.Run(() => ImageSharpImage.Load<Rgba32>(dlg.FileName));
+            _backgroundSource = await Task.Run(() => SafeImage.Load<Rgba32>(dlg.FileName));
             ResetBackgroundPlacement();
             await RefreshPreviewAfterBackgroundChangeAsync(
                 subjectReadyStatus:
@@ -907,7 +907,7 @@ public partial class CustomOverframeWindow : Window
 
             DisposeBackground();
             _backgroundIsCardArt = true;
-            _backgroundSource = await Task.Run(() => ImageSharpImage.Load<Rgba32>(liveTemp));
+            _backgroundSource = await Task.Run(() => SafeImage.Load<Rgba32>(liveTemp));
             ResetBackgroundPlacement();
 
             var matched = TryApplyAutoMatchBackgroundTransforms();
@@ -2027,7 +2027,7 @@ public partial class CustomOverframeWindow : Window
 
     private static BitmapImage LoadOfComposePreview(string path)
     {
-        using var image = ImageSharpImage.Load<Rgba32>(path);
+        using var image = SafeImage.Load<Rgba32>(path);
         return ToPreviewBitmap(image);
     }
 

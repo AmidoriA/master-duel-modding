@@ -166,8 +166,8 @@ public sealed class BackupService
                     return false;
                 }
 
-                subjectSource = Image.Load<Rgba32>(subjectPath);
-                subjectMask = Image.Load<L8>(maskPath);
+                subjectSource = SafeImage.Load<Rgba32>(subjectPath);
+                subjectMask = SafeImage.Load<L8>(maskPath);
             }
 
             if (state.HasBackground)
@@ -179,7 +179,7 @@ public sealed class BackupService
                     return false;
                 }
 
-                background = Image.Load<Rgba32>(bgPath);
+                background = SafeImage.Load<Rgba32>(bgPath);
             }
 
             return state.HasSubject || state.HasBackground;
