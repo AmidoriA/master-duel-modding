@@ -216,7 +216,7 @@ def split_wing_pair(path, size=2048, despill="green"):
     jy = float(col.mean()) if len(col) else full.height / 2
     out = {}
     for side, box in (("left", (0, 0, cx, full.height)), ("right", (cx, 0, full.width, full.height))):
-        half = full.crop(box)
+        half = largest_blob(full.crop(box))
         ys, xs = np.nonzero(np.asarray(half)[..., 3] > 6)
         y0, y1 = ys.min(), ys.max() + 1
         x0, x1 = (xs.min(), half.width) if side == "left" else (0, xs.max() + 1)
@@ -224,6 +224,23 @@ def split_wing_pair(path, size=2048, despill="green"):
         out[side + "_joint_y"] = jy - y0
     out["span_px"] = out["left"].width + out["right"].width
     return out
+
+
+def largest_blob(layer, min_share=0.02):
+    """Clear stray specks: keep connected shapes holding at least `min_share` of the largest one's
+    pixels. A single leftover pixel far from the subject would otherwise stretch its crop box and
+    move the joint."""
+    from scipy import ndimage
+    a = np.asarray(layer).copy()
+    lab, n = ndimage.label(a[..., 3] > 32)
+    if n == 0:
+        return layer
+    sizes = ndimage.sum(np.ones_like(lab), lab, index=np.arange(1, n + 1))
+    keep = np.zeros(n + 1, bool)
+    keep[1:] = sizes >= sizes.max() * min_share
+    near = ndimage.binary_dilation(keep[lab], iterations=4)          # keep soft edges around kept shapes
+    a[..., 3] = np.where(near, a[..., 3], 0)
+    return Image.fromarray(a, "RGBA")
 
 
 def wing_attachments(wings, span_units):
