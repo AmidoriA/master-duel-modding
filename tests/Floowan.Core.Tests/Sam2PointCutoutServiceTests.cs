@@ -188,4 +188,24 @@ public class Sam2PointCutoutServiceTests
         Assert.Contains("sam2_hiera_tiny.zip", Sam2PointCutoutService.BundleZipUrl);
         Assert.Equal(64, Sam2PointCutoutService.BundleZipSha256.Length);
     }
+
+    [Fact]
+    public void EdgeRefinement_IsOnByDefault_AndEnvCanTurnItOff()
+    {
+        const string name = "FLOOWAN_SAM2_MATTE";
+        var before = Environment.GetEnvironmentVariable(name);
+        try
+        {
+            Environment.SetEnvironmentVariable(name, null);
+            Assert.True(Sam2PointCutoutService.IsEdgeRefinementEnabled);
+            Environment.SetEnvironmentVariable(name, "0");
+            Assert.False(Sam2PointCutoutService.IsEdgeRefinementEnabled);
+            Environment.SetEnvironmentVariable(name, "1");
+            Assert.True(Sam2PointCutoutService.IsEdgeRefinementEnabled);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(name, before);
+        }
+    }
 }

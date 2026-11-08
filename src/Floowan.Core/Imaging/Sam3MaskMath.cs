@@ -143,6 +143,17 @@ public static class Sam3MaskMath
     }
 
     /// <summary>
+    /// Final mask value for one pixel: trimap foreground → 255, background → 0, unknown band →
+    /// ViTMatte's alpha (clamped to 0–1) as 0–255.
+    /// </summary>
+    public static byte ComposeTrimapAlpha(byte trimap, float alpha) => trimap switch
+    {
+        TrimapForeground => 255,
+        0 => 0,
+        _ => (byte)(Math.Clamp(alpha, 0f, 1f) * 255f)
+    };
+
+    /// <summary>
     /// Whether a held-item detection (weapon, wings, …) belongs to the subject: it must touch
     /// <paramref name="nearSubject"/> (the subject grown a few px) with at least 2 % of its own area,
     /// and add at least 0.2 % of the image that the subject mask does not already cover.

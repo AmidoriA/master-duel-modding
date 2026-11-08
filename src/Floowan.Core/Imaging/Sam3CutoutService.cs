@@ -90,11 +90,32 @@ public sealed class Sam3CutoutService : IDisposable
     /// <summary>"GPU (DirectML)" or "CPU" once sessions exist; null before first use.</summary>
     public string? ExecutionDevice { get; private set; }
 
+    /// <summary>Device of the ViTMatte session ("GPU (DirectML)" / "CPU"); null before first use.</summary>
+    public string? MatteDevice { get; private set; }
+
     public bool AreModelsPresent() => ModelFiles.All(IsFileReady);
 
-    public async Task EnsureModelsAsync(IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+    /// <summary>The ViTMatte file alone, for <see cref="RefineMaskEdge"/>.</summary>
+    public static ModelFile MatteModelFile { get; } = ModelFiles.Single(f => f.RelativePath == MatteModel);
+
+    public bool IsMatteModelPresent() => IsFileReady(MatteModelFile);
+
+    public Task EnsureModelsAsync(IProgress<string>? progress = null, CancellationToken cancellationToken = default) =>
+        EnsureFilesAsync(ModelFiles, "SAM 3 + ViTMatte models", progress, cancellationToken);
+
+    /// <summary>
+    /// Downloads only ViTMatte (~100 MB) for <see cref="RefineMaskEdge"/>; SAM 3 itself is not needed.
+    /// </summary>
+    public Task EnsureMatteModelAsync(IProgress<string>? progress = null, CancellationToken cancellationToken = default) =>
+        EnsureFilesAsync([MatteModelFile], "ViTMatte edge model", progress, cancellationToken);
+
+    private async Task EnsureFilesAsync(
+        IReadOnlyList<ModelFile> files,
+        string label,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
     {
-        var missing = await Task.Run(() => ModelFiles.Where(f => !IsFileReady(f)).ToList(), cancellationToken)
+        var missing = await Task.Run(() => files.Where(f => !IsFileReady(f)).ToList(), cancellationToken)
             .ConfigureAwait(false);
         if (missing.Count == 0)
             return;
@@ -103,7 +124,7 @@ public sealed class Sam3CutoutService : IDisposable
         var total = missing.Sum(f => f.Size);
         long done = 0;
         var lastPercent = -1;
-        progress?.Report($"Downloading SAM 3 + ViTMatte models (~{total / (1024 * 1024)} MB, first use only)…");
+        progress?.Report($"Downloading {label} (~{total / (1024 * 1024)} MB, first use only)…");
         foreach (var file in missing)
         {
             var path = PathOf(file);
@@ -129,7 +150,7 @@ public sealed class Sam3CutoutService : IDisposable
                         if (percent != lastPercent)
                         {
                             lastPercent = percent;
-                            progress?.Report($"Downloading SAM 3 + ViTMatte models… {percent}%");
+                            progress?.Report($"Downloading {label}… {percent}%");
                         }
                     }
                 }
@@ -166,6 +187,59 @@ public sealed class Sam3CutoutService : IDisposable
             ResetSessions(forceCpu: true);
             return RunPipeline(source, includeHeldItems, progress);
         }
+    }
+
+    /// <summary>
+    /// Re-places the edge of any coarse subject mask with ViTMatte, the same edge step SAM 3 uses.
+    /// The mask is cut at <paramref name="keepThreshold"/> (the over-frame composer's keep
+    /// threshold), then ViTMatte decides <paramref name="band"/> px either side of that outline:
+    /// inside is 255, outside 0, the band is ViTMatte's alpha. Removes speckles and stair-stepped
+    /// edges from low-resolution masks (SAM 2); does not change what was selected beyond the band.
+    /// Returns a new mask at <paramref name="source"/> size, or a copy of <paramref name="mask"/>
+    /// when it is empty. Needs only the ViTMatte file (<see cref="EnsureMatteModelAsync"/>).
+    /// Not thread-safe.
+    /// </summary>
+    public Image<L8> RefineMaskEdge(
+        Image<Rgba32> source,
+        Image<L8> mask,
+        byte keepThreshold,
+        int band = TrimapBand,
+        IProgress<string>? progress = null)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(mask);
+        if (mask.Width != source.Width || mask.Height != source.Height)
+            throw new ArgumentException("Mask size must match the source image.", nameof(mask));
+
+        var width = source.Width;
+        var height = source.Height;
+        var coarse = new bool[width * height];
+        for (var y = 0; y < height; y++)
+        {
+            var row = mask.DangerousGetPixelRowMemory(y).Span;
+            for (var x = 0; x < width; x++)
+                coarse[y * width + x] = row[x].PackedValue >= keepThreshold;
+        }
+
+        if (!Sam3MaskMath.Any(coarse))
+            return mask.Clone();
+
+        EnsureMatteSession();
+        progress?.Report($"Refining the edge with ViTMatte ({MatteDevice})…");
+        var trimap = Sam3MaskMath.BuildTrimap(coarse, width, height, band);
+        float[] alpha;
+        try
+        {
+            alpha = RunMatte(source, trimap);
+        }
+        catch (OnnxRuntimeException) when (MatteDevice != "CPU")
+        {
+            progress?.Report("GPU run failed — retrying ViTMatte on CPU (slower)…");
+            ResetMatteSession(forceCpu: true);
+            alpha = RunMatte(source, trimap);
+        }
+
+        return ComposeMatteMask(trimap, alpha, width, height);
     }
 
     private Image<L8> RunPipeline(Image<Rgba32> source, bool includeHeldItems, IProgress<string>? progress)
@@ -206,6 +280,12 @@ public sealed class Sam3CutoutService : IDisposable
         progress?.Report("Placing the subject edge with ViTMatte…");
         var trimap = Sam3MaskMath.BuildTrimap(subject, width, height, TrimapBand);
         var alpha = RunMatte(source, trimap);
+        return ComposeMatteMask(trimap, alpha, width, height);
+    }
+
+    /// <summary>Trimap foreground → 255, background → 0, unknown band → ViTMatte alpha.</summary>
+    private static Image<L8> ComposeMatteMask(byte[] trimap, float[] alpha, int width, int height)
+    {
         var mask = new Image<L8>(width, height);
         for (var y = 0; y < height; y++)
         {
@@ -213,12 +293,7 @@ public sealed class Sam3CutoutService : IDisposable
             for (var x = 0; x < width; x++)
             {
                 var i = y * width + x;
-                row[x] = new L8(trimap[i] switch
-                {
-                    Sam3MaskMath.TrimapForeground => (byte)255,
-                    0 => (byte)0,
-                    _ => (byte)(Math.Clamp(alpha[i], 0f, 1f) * 255f)
-                });
+                row[x] = new L8(Sam3MaskMath.ComposeTrimapAlpha(trimap[i], alpha[i]));
             }
         }
 
@@ -373,8 +448,55 @@ public sealed class Sam3CutoutService : IDisposable
                 return;
             if (!AreModelsPresent())
                 throw new InvalidOperationException("SAM 3 cutout models are missing. Call EnsureModelsAsync first.");
+            // A matte-only session from RefineMaskEdge is replaced so all three share one device.
+            DisposeSessions();
             CreateSessions(useGpu: !_forceCpu);
         }
+    }
+
+    /// <summary>ViTMatte alone (for <see cref="RefineMaskEdge"/>); reuses the full set when loaded.</summary>
+    private void EnsureMatteSession()
+    {
+        lock (_sessionLock)
+        {
+            if (_matte is not null)
+                return;
+            if (!IsMatteModelPresent())
+                throw new InvalidOperationException("The ViTMatte model is missing. Call EnsureMatteModelAsync first.");
+            CreateMatteSession(useGpu: !_forceCpu);
+        }
+    }
+
+    private void ResetMatteSession(bool forceCpu)
+    {
+        lock (_sessionLock)
+        {
+            _matte?.Dispose();
+            _matte = null;
+            MatteDevice = null;
+            CreateMatteSession(useGpu: !forceCpu && !_forceCpu);
+        }
+    }
+
+    private void CreateMatteSession(bool useGpu)
+    {
+        if (useGpu)
+        {
+            try
+            {
+                _matte = CreateSession(MatteModel, gpu: true);
+                MatteDevice = "GPU (DirectML)";
+                return;
+            }
+            catch (Exception ex) when (ex is OnnxRuntimeException or EntryPointNotFoundException or DllNotFoundException)
+            {
+                _matte?.Dispose();
+                _matte = null;
+            }
+        }
+
+        _matte = CreateSession(MatteModel, gpu: false);
+        MatteDevice = "CPU";
     }
 
     private void ResetSessions(bool forceCpu)
@@ -396,6 +518,7 @@ public sealed class Sam3CutoutService : IDisposable
                 _detector = CreateSession(DetectorModel, gpu: true);
                 _matte = CreateSession(MatteModel, gpu: true);
                 ExecutionDevice = "GPU (DirectML)";
+                MatteDevice = ExecutionDevice;
                 return;
             }
             catch (Exception ex) when (ex is OnnxRuntimeException or EntryPointNotFoundException or DllNotFoundException)
@@ -408,6 +531,7 @@ public sealed class Sam3CutoutService : IDisposable
         _detector = CreateSession(DetectorModel, gpu: false);
         _matte = CreateSession(MatteModel, gpu: false);
         ExecutionDevice = "CPU";
+        MatteDevice = ExecutionDevice;
     }
 
     private InferenceSession CreateSession(string relativePath, bool gpu)
@@ -438,6 +562,7 @@ public sealed class Sam3CutoutService : IDisposable
         _detector = null;
         _matte = null;
         ExecutionDevice = null;
+        MatteDevice = null;
     }
 
     private string PathOf(ModelFile file) => Path.Combine(_modelDirectory, file.RelativePath);

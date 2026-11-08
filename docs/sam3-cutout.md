@@ -44,6 +44,20 @@ with `scripts/sam3/make_prompt_features.py` if the word list changes.
 - Other models (isnet-anime, SAM 2, Real-ESRGAN) still use the CPU provider.
 - Linux test builds reference the plain `Microsoft.ML.OnnxRuntime` package.
 
+## ViTMatte on SAM 2 selections (Custom OF "Add more selection…")
+
+The paint editor still uses SAM 2, because SAM 3 here only takes words, not a painted region.
+Each SAM 2 result (painted region, or a click add/remove in the editor) then goes through
+`Sam3CutoutService.RefineMaskEdge`: the mask is cut at the composer's keep threshold (140),
+and ViTMatte re-decides 12 px either side of that outline. This removes SAM 2's background
+speckles and stair-stepped edges; it does not change what SAM 2 selected beyond the band.
+
+- Runs before the selection is merged into the subject and before the Real-ESRGAN upscale.
+- Needs only `vitmatte-small-composition-1k.onnx` (~100 MB, same folder as SAM 3), downloaded on
+  first use via `EnsureMatteModelAsync`; SAM 3's vision/detector models are not loaded.
+- If the download or the run fails, the selection still works with the raw SAM 2 edge and the
+  status line says so. `FLOOWAN_SAM2_MATTE=0` turns refinement off.
+
 ## Models
 
 Downloaded on first use into `%LOCALAPPDATA%\Floowan\models\sam3cutout\`, each SHA-256
