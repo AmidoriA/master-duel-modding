@@ -2447,6 +2447,8 @@ public partial class MainWindow : Window
         };
 
         var applied = dialog.ShowDialog() == true;
+        if (dialog.CutoutSettingsChanged)
+            ReloadCutoutSettingsAfterCustomOf();
         if (!applied)
         {
             Status(hasEditableLayers ? "Edit overframe cancelled." : "Custom overframe art cancelled.");

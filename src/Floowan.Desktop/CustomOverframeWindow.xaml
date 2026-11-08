@@ -7,6 +7,58 @@
         Background="{StaticResource BgBrush}"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
+  <Window.Resources>
+    <!-- Subject source choice: the whole tile is the radio. A visible dot, a hover border and
+         an accent border/background when checked make the active source obvious. -->
+    <Style x:Key="SubjectSourceTile" TargetType="RadioButton" BasedOn="{StaticResource {x:Type RadioButton}}">
+      <Setter Property="Margin" Value="0"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="VerticalAlignment" Value="Top"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <Border x:Name="Tile"
+                    Background="{StaticResource ControlBgBrush}"
+                    BorderBrush="{StaticResource ControlBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="3"
+                    Padding="10,8">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid Width="14" Height="14" Margin="0,2,10,0" VerticalAlignment="Top">
+                  <Ellipse x:Name="Ring" Stroke="{StaticResource MutedBrush}" StrokeThickness="1.5"/>
+                  <Ellipse x:Name="Dot" Width="6" Height="6" Fill="{StaticResource AccentBrush}" Visibility="Collapsed"/>
+                </Grid>
+                <ContentPresenter Grid.Column="1"/>
+              </Grid>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Tile" Property="BorderBrush" Value="#6B7C8C"/>
+              </Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="Tile" Property="BorderBrush" Value="#6B7C8C"/>
+              </Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="Tile" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                <Setter TargetName="Tile" Property="Background" Value="{StaticResource SelectedBrush}"/>
+                <Setter TargetName="Ring" Property="Stroke" Value="{StaticResource AccentBrush}"/>
+                <Setter TargetName="Dot" Property="Visibility" Value="Visible"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.55"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
   <DockPanel Margin="14">
     <TextBlock DockPanel.Dock="Top"
                Text="Choose one subject source (auto detect or pick manually) — not both. Background Cover-fills the art hole (defaults to this card's illustration; when already over-framed, prefers the pre-OF backup). Re-opening after a Custom Apply restores the saved editable stage. Art scale and Bg scale share ×0.5–×4 where ×1 = Cover fit. Pan background with H/V sliders. When subject is rembg from card art and background is card art, background scale/pan stay matched as you drag or scale the subject. Drag/scale Card Art only, then Apply. Layers: Background → Frame → Card Art → Lore."
@@ -66,60 +118,57 @@
                            Foreground="{StaticResource MutedBrush}"
                            Margin="0,0,0,6"/>
                 <StackPanel Orientation="Vertical" Margin="0,0,0,10">
-                  <!-- Full card is the radio hit-target: RadioButton fills Border; Transparent bg enables hit-test. -->
-                  <Border Background="{StaticResource ControlBgBrush}"
-                          BorderBrush="{StaticResource ControlBorderBrush}"
-                          BorderThickness="1"
-                          CornerRadius="3"
-                          Margin="0,0,0,6"
-                          Cursor="Hand">
-                    <RadioButton x:Name="SubjectAutoRadio"
-                                 GroupName="CustomOfSubjectSource"
-                                 HorizontalAlignment="Stretch"
-                                 VerticalContentAlignment="Top"
-                                 Background="Transparent"
-                                 BorderThickness="0"
-                                 Padding="8,8"
-                                 Cursor="Hand"
-                                 ToolTip="Cut out the subject from this card's live art with the Subject cutout model chosen on the Over-frame tab."
-                                 Click="SubjectAutoRadio_Click">
-                      <StackPanel>
-                        <TextBlock Text="Auto detect"
-                                   Margin="0,0,0,4"
-                                   Foreground="{StaticResource TextBrush}"/>
-                        <TextBlock Text="Cut out from this card's current art (model from Over-frame → Subject cutout)."
-                                   Foreground="{StaticResource MutedBrush}"
-                                   TextWrapping="Wrap"
-                                   FontSize="11"/>
-                      </StackPanel>
-                    </RadioButton>
-                  </Border>
-                  <Border Background="{StaticResource ControlBgBrush}"
-                          BorderBrush="{StaticResource ControlBorderBrush}"
-                          BorderThickness="1"
-                          CornerRadius="3"
-                          Cursor="Hand">
-                    <RadioButton x:Name="SubjectManualRadio"
-                                 GroupName="CustomOfSubjectSource"
-                                 HorizontalAlignment="Stretch"
-                                 VerticalContentAlignment="Top"
-                                 Background="Transparent"
-                                 BorderThickness="0"
-                                 Padding="8,8"
-                                 Cursor="Hand"
-                                 ToolTip="Pick a PNG with existing alpha (no rembg)."
-                                 Click="SubjectManualRadio_Click">
-                      <StackPanel>
-                        <TextBlock Text="Pick manually…"
-                                   Margin="0,0,0,4"
-                                   Foreground="{StaticResource TextBrush}"/>
-                        <TextBlock Text="Use a PNG that already has transparency."
-                                   Foreground="{StaticResource MutedBrush}"
-                                   TextWrapping="Wrap"
-                                   FontSize="11"/>
-                      </StackPanel>
-                    </RadioButton>
-                  </Border>
+                  <RadioButton x:Name="SubjectAutoRadio"
+                               Style="{StaticResource SubjectSourceTile}"
+                               GroupName="CustomOfSubjectSource"
+                               ToolTip="Cut out the character from this card's live art with the model below."
+                               Click="SubjectAutoRadio_Click">
+                    <StackPanel>
+                      <TextBlock Text="Auto detect"
+                                 Margin="0,0,0,4"
+                                 Foreground="{StaticResource TextBrush}"/>
+                      <TextBlock Text="Cut out the character from this card's current art."
+                                 Foreground="{StaticResource MutedBrush}"
+                                 TextWrapping="Wrap"
+                                 FontSize="11"/>
+                    </StackPanel>
+                  </RadioButton>
+                  <!-- Auto detect's setting, outside the tile so the tile stays one click target and
+                       picking a model never fires Auto detect's Click. Indented under the tile text. -->
+                  <Grid Margin="34,6,0,8">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="Auto"/>
+                      <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="CutoutModelLabel"
+                               Text="Model"
+                               VerticalAlignment="Center"
+                               Foreground="{StaticResource MutedBrush}"
+                               Margin="0,0,8,0"/>
+                    <ComboBox x:Name="CutoutModelBox"
+                              Grid.Column="1"
+                              Margin="0"
+                              HorizontalAlignment="Stretch"
+                              SelectionChanged="CutoutModelBox_SelectionChanged">
+                      <ComboBoxItem x:Name="CutoutIsnetItem" Tag="isnet-anime" Content="isnet-anime (fast)"/>
+                      <ComboBoxItem x:Name="CutoutSam3Item" Tag="sam3-vitmatte" Content="SAM 3 + ViTMatte (best)"/>
+                    </ComboBox>
+                  </Grid>
+                  <RadioButton x:Name="SubjectManualRadio"
+                               Style="{StaticResource SubjectSourceTile}"
+                               GroupName="CustomOfSubjectSource"
+                               ToolTip="Pick a PNG with existing alpha (no rembg)."
+                               Click="SubjectManualRadio_Click">
+                    <StackPanel>
+                      <TextBlock Text="Pick manually…"
+                                 Margin="0,0,0,4"
+                                 Foreground="{StaticResource TextBrush}"/>
+                      <TextBlock Text="Use a PNG that already has transparency."
+                                 Foreground="{StaticResource MutedBrush}"
+                                 TextWrapping="Wrap"
+                                 FontSize="11"/>
+                    </StackPanel>
+                  </RadioButton>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                   <TextBlock Text="Frame"
