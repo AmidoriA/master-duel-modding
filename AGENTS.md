@@ -20,6 +20,7 @@ The rules and skills are written once and shared by both tools:
 | Rule: CRLF working tree | `.cursor/rules/windows-line-endings.mdc` | always applied | imported by `CLAUDE.md` |
 | Skill: build and publish a release | `.cursor/skills/build-and-publish-release/SKILL.md` | skill | `.claude/skills/build-and-publish-release/SKILL.md` (stub that loads the Cursor copy) |
 | Skill: custom Monster Cut-in (summon animation) | `.cursor/skills/monster-cutin/SKILL.md` | skill | `.claude/skills/monster-cutin/SKILL.md` (stub that loads the Cursor copy) |
+| Skill: run and test the desktop app (UI Automation, real-data safety, pinned build) | `.cursor/skills/desktop-ui-testing/SKILL.md` | skill | `.claude/skills/desktop-ui-testing/SKILL.md` (stub that loads the Cursor copy) |
 
 When you add or change agent configuration, keep both tools working:
 
@@ -43,6 +44,8 @@ dotnet build Floowan.sln -c Release
 dotnet test Floowan.sln -c Release
 dotnet run --project src/Floowan.Desktop -c Release
 ```
+
+To click through or verify UI changes, follow the `desktop-ui-testing` skill: drive one app instance by process id with `scripts/ui-test/floowan-ui.ps1` (UI Automation; finds elements by `x:Name`). Every copy of the app works on the real game install, so back up before anything that writes bundles.
 
 ## Linux (Cursor Cloud, Claude Code cloud sessions)
 

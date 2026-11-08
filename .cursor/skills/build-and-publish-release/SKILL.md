@@ -21,16 +21,39 @@ Copy and track:
 
 ```
 Release Progress:
+- [ ] 0. Work merged to master (version bump included)
 - [ ] 1. Confirm version (csproj + About UI)
 - [ ] 2. Publish single-file win-x64
 - [ ] 3. Stage zip sidecars (exclude pdb/lib)
-- [ ] 4. Verify zip contents
+- [ ] 4. Verify zip contents + smoke test
 - [ ] 5. Annotated tag vX.Y.Z (only if releasing)
 - [ ] 6. gh release create / upload --clobber
-- [ ] 7. Return release URL + artifact name
+- [ ] 7. Return release URL, zip path and Nexus changelog
 ```
 
 Do **not** force-push tags or history unless the user explicitly asks.
+
+## 0. Get the work onto master
+
+Releases are built from `origin/master`. The usual request is "commit, push, release" for work on
+a feature branch:
+
+1. Pick the version (policy below) and bump it **on the feature branch** before merging, so master
+   gets one merge: `<Version>`, `<AssemblyVersion>` (`X.Y.Z.0`), `<FileVersion>` (`X.Y.Z.0`),
+   `<InformationalVersion>` in `Floowan.Desktop.csproj`, and `AboutVersionText` in `MainWindow.xaml`
+   (UTF-8 with BOM, CRLF).
+2. Commit, push, `gh pr create`.
+3. The `master` ruleset blocks a normal merge. The owner allows
+   `gh pr merge <n> --repo AmidoriA/master-duel-modding --merge --admin` when they ask to merge or
+   to release that work. If it fails with "Base branch was modified" right after a push, GitHub is
+   still processing the new head: wait a few seconds and retry (check `git log origin/master`
+   first to be sure master really did not move).
+4. `git fetch` and `git switch --detach origin/master` in your worktree, then build from there.
+
+**Version policy:** minor (`0.X.0`) for a new feature or a change to existing buttons/workflow;
+patch (`0.4.X`) for refinements of a recent feature, fixes and card-database refreshes. Check
+the latest with `gh release list --repo AmidoriA/master-duel-modding --limit 3` and make sure the
+tag is free: `git ls-remote --tags origin vX.Y.Z` prints nothing.
 
 ## 1. Confirm version
 
@@ -125,6 +148,23 @@ Confirm the zip contains exactly:
 - `DirectML.dll` (the only loose DLL expected)
 - No `user.db`, no `.pdb`, no `.lib`, no other loose `.dll` (unless native fallback)
 
+Check it and smoke-test it from a clean folder (Windows PowerShell; expect 42 entries today):
+
+```powershell
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zp = (Resolve-Path "artifacts/MasterDuelModding-vX.Y.Z-win-x64.zip").Path
+$z = [IO.Compression.ZipFile]::OpenRead($zp); $e = $z.Entries
+"entries: $($e.Count)"
+"dlls: " + (($e | ? { $_.FullName -like '*.dll' }).FullName -join ',')          # DirectML.dll only
+"bad: [" + (($e | ? { $_.FullName -match '\.(pdb|lib)$|user\.db' }).FullName -join ',') + "]"
+$z.Dispose()
+(Get-Item artifacts/publish/win-x64-sf/Floowan.Desktop.exe).VersionInfo.ProductVersion # X.Y.Z
+(Get-FileHash artifacts/publish/win-x64-sf/database.db).Hash -eq (Get-FileHash database.db).Hash
+$d = "<scratchpad>/zip-smoke"; Expand-Archive $zp $d -Force
+$p = Start-Process "$d/Floowan.Desktop.exe" -WorkingDirectory $d -PassThru; Start-Sleep 8; $p.Refresh()
+"exited=$($p.HasExited) title='$($p.MainWindowTitle)'"; Stop-Process -Id $p.Id
+```
+
 ## 5. Git tag (release only)
 
 Annotated tag matching Desktop version:
@@ -163,6 +203,18 @@ Portions of this project may include AI-assisted contributions; review and test 
 
 Tutorial link is optional in notes; include unless the user asks to omit it.
 
+In practice, write the notes to a file in the session scratchpad and pass `--notes-file`, with
+these sections (see recent releases, e.g. `gh release view v0.4.1 --json body -q .body`):
+
+- `### What's new`: user-facing changes in plain words, one bold lead per bullet. No code or
+  class names.
+- `### Download`: the zip line, plus "Ships with `database.db`, `classdata.tpk`,
+  `THIRD_PARTY_NOTICES.txt`, `frames/`, `locales/`, `licenses/` and `DirectML.dll`. Keep
+  `DirectML.dll` next to the exe."
+- An upgrade line: keep `user.db` (favourites, backups, over-frame state); say whether
+  `database.db` changed since the previous release.
+- `### Tutorial` and `### Notes` as above.
+
 Replace an existing asset (same tag):
 
 ```powershell
@@ -176,6 +228,13 @@ Return:
 - Release URL (`gh release view vX.Y.Z --json url -q .url`)
 - Artifact name and brief zip contents
 - Whether the tag was new or reused; confirm no force-push
+- The **absolute path** of the zip in a code block: the owner uploads the same file to Nexus Mods
+- A **Nexus Mods changelog** for the new version: plain bullets per version (Nexus has one
+  changelog entry per version), same content as "What's new". If the owner asks for a range
+  (e.g. "0.3.x"), give one entry per version, newest first, from `gh release view vX.Y.Z`.
+
+If the owner asks, also update their pinned build to the new version (see the
+`desktop-ui-testing` skill, "Update the owner's pinned build").
 
 ## Script
 
