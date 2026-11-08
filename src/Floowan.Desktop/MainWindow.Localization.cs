@@ -114,9 +114,10 @@ public partial class MainWindow
 
         ToolsDbHeader.Text = Loc.T("tools.card_database");
         ToolsDbHelpText.Text = Loc.T("tools.card_database_help");
-        ToolsUpdateEntireDbButton.Content = Loc.T("tools.update_entire_db");
-        ToolsUpdateNewFilesDbButton.Content = Loc.T("tools.update_new_files");
-        ToolsUpdateNewFilesDbButton.ToolTip = Loc.T("tools.update_new_files_tooltip");
+        ToolsAfterPatchButton.Content = Loc.T("tools.after_patch");
+        ToolsAfterPatchButton.ToolTip = Loc.T("tools.after_patch_tooltip");
+        ToolsUpdateDbButton.Content = Loc.T("tools.update_db");
+        ToolsUpdateDbButton.ToolTip = Loc.T("tools.update_db_tooltip");
         ToolsOfGateHeader.Text = Loc.T("tools.of_gate");
         ToolsOfGateHelpText.Text = Loc.T("tools.of_gate_help");
         ToolsScanOfCardAssetButton.Content = Loc.T("tools.scan_of_card");

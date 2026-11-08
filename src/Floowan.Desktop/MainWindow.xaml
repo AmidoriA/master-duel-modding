@@ -516,16 +516,17 @@
               <DockPanel>
                 <TextBlock x:Name="ToolsDbHeader" DockPanel.Dock="Top" Text="Card database" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                 <TextBlock x:Name="ToolsDbHelpText" DockPanel.Dock="Top"
-                           Text="Rebuild or incrementally refresh the master card catalog (database.db) from the Home LocalData path plus install StreamingAssets/AssetBundle (names, descriptions, bundles, card_type, created_at). Prefer LocalData downloads when both exist. Incremental mode skips any AssetBundle whose File.GetCreationTimeUtc is not after MAX(created_at) already stored in the database — those files are never opened."
+                           Text="Rebuild the master card catalog (database.db) from the Home LocalData path plus install StreamingAssets/AssetBundle (names, descriptions, bundles, card types). LocalData downloads win when both exist. A full scan takes a few seconds. After a Master Duel update, use After game patch: it updates the DB, then restores your modded over-frames."
                            Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                  <Button x:Name="ToolsUpdateEntireDbButton" Content="Update entire DB"
-                          Click="ToolsUpdateEntireDatabase_Click" Background="{StaticResource AccentBrush}"
-                          Padding="12,4" Margin="0,0,8,0"/>
-                  <Button x:Name="ToolsUpdateNewFilesDbButton" Content="Update new files only"
-                          Click="ToolsUpdateNewFilesDatabase_Click"
+                  <Button x:Name="ToolsAfterPatchButton" Content="After game patch"
+                          Click="ToolsAfterGamePatch_Click" Background="{StaticResource AccentBrush}"
                           Padding="12,4" Margin="0,0,8,0"
-                          ToolTip="Only open AssetBundles whose File.GetCreationTimeUtc is after the latest created_at in database.db; older files are skipped entirely."/>
+                          ToolTip="Update the card DB from the game, then restore modded over-frames (the same as Update DB followed by Restore overframes after patch)."/>
+                  <Button x:Name="ToolsUpdateDbButton" Content="Update DB"
+                          Click="ToolsUpdateDatabase_Click"
+                          Padding="12,4" Margin="0,0,8,0"
+                          ToolTip="Rescan the game and replace the master card catalog. User favorites and mods in user.db are kept."/>
                 </StackPanel>
                 <TextBlock x:Name="ToolsUpdateDbStatusText"
                            Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
@@ -694,7 +695,7 @@
               <StackPanel>
                 <TextBlock x:Name="AboutTitleText" Text="Masterduel modding tool by AmidoriA"
                            FontSize="20" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                <TextBlock x:Name="AboutVersionText" Text="Version 0.3.1"
+                <TextBlock x:Name="AboutVersionText" Text="Version 0.4.0"
                            Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
                 <TextBlock x:Name="AboutTaglineText" Text="Card art and over-frame modding for Yu-Gi-Oh! Master Duel."
                            Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,12"/>
