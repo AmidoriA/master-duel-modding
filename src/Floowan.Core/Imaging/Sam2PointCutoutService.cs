@@ -64,6 +64,8 @@ public sealed class Sam2PointCutoutService : IDisposable
     private readonly string _encoderPath;
     private readonly string _decoderPath;
     private readonly ArtUpscaleService _artUpscale;
+    // ViTMatte only (shares the SAM 3 model folder); SAM 3 itself is never loaded here.
+    private readonly Sam3CutoutService _edgeMatte;
     private readonly object _sessionLock = new();
     private InferenceSession? _encoder;
     private InferenceSession? _decoder;
@@ -87,6 +89,23 @@ public sealed class Sam2PointCutoutService : IDisposable
                              "Floowan",
                              "models");
         _artUpscale = new ArtUpscaleService(Path.Combine(modelsRoot, "realesrgan"));
+        _edgeMatte = new Sam3CutoutService(Path.Combine(modelsRoot, "sam3cutout"), _httpClient);
+    }
+
+    /// <summary>
+    /// When true (default), each SAM 2 selection's edge is re-placed with ViTMatte before it is
+    /// used: removes background speckles and stair-stepped edges. Set env
+    /// <c>FLOOWAN_SAM2_MATTE=0</c> to use the raw SAM 2 edge.
+    /// </summary>
+    public static bool IsEdgeRefinementEnabled
+    {
+        get
+        {
+            var env = Environment.GetEnvironmentVariable("FLOOWAN_SAM2_MATTE");
+            if (string.IsNullOrWhiteSpace(env))
+                return true;
+            return !(env is "0" or "false" or "False" or "FALSE" or "off" or "OFF");
+        }
     }
 
     public string ModelDirectory => _modelDirectory;
@@ -186,6 +205,7 @@ public sealed class Sam2PointCutoutService : IDisposable
         await EnsureModelsAsync(progress, cancellationToken).ConfigureAwait(false);
         if (upscaleForOverFrame && ArtUpscaleService.IsFeatureEnabled)
             await _artUpscale.EnsureModelAsync(progress, cancellationToken).ConfigureAwait(false);
+        var refineEdge = await TryEnsureEdgeMatteAsync(progress, cancellationToken).ConfigureAwait(false);
         progress?.Report("Running SAM 2 cutout…");
 
         // Capture for Task.Run closure.
@@ -208,6 +228,10 @@ public sealed class Sam2PointCutoutService : IDisposable
                     throw new InvalidOperationException(
                         "SAM 2 found no opaque subject at that prompt. Try a different point or region.");
                 }
+
+                // Before the upscale, at the cleaned-art size: ViTMatte decides the edge band.
+                if (refineEdge)
+                    mask = RefineEdgeOrKeep(source, mask, progress);
 
                 if (doUpscale)
                 {
@@ -961,6 +985,49 @@ public sealed class Sam2PointCutoutService : IDisposable
         return hash.Equals(BundleZipSha256, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Makes sure the ViTMatte file is present (~100 MB on first use, shared with SAM 3). A failed
+    /// download only skips edge refinement: the selection still works with the SAM 2 edge.
+    /// </summary>
+    private async Task<bool> TryEnsureEdgeMatteAsync(IProgress<string>? progress, CancellationToken cancellationToken)
+    {
+        if (!IsEdgeRefinementEnabled)
+            return false;
+        try
+        {
+            await _edgeMatte.EnsureMatteModelAsync(progress, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException
+                                       or UnauthorizedAccessException
+                                       || (ex is TaskCanceledException && !cancellationToken.IsCancellationRequested))
+        {
+            progress?.Report($"ViTMatte edge model unavailable ({ex.Message}); using the SAM 2 edge.");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Returns the ViTMatte-refined mask and disposes <paramref name="mask"/>, or returns
+    /// <paramref name="mask"/> unchanged when ViTMatte cannot run.
+    /// </summary>
+    private Image<L8> RefineEdgeOrKeep(Image<Rgba32> source, Image<L8> mask, IProgress<string>? progress)
+    {
+        try
+        {
+            var refined = _edgeMatte.RefineMaskEdge(
+                source, mask, OverFrameAutoArtComposer.MaskKeepThreshold, progress: progress);
+            mask.Dispose();
+            return refined;
+        }
+        catch (Exception ex) when (ex is OnnxRuntimeException or InvalidOperationException
+                                       or DllNotFoundException or EntryPointNotFoundException)
+        {
+            progress?.Report($"ViTMatte edge refinement failed ({ex.Message}); using the SAM 2 edge.");
+            return mask;
+        }
+    }
+
     public void Dispose()
     {
         lock (_sessionLock)
@@ -971,6 +1038,7 @@ public sealed class Sam2PointCutoutService : IDisposable
             _decoder = null;
         }
 
+        _edgeMatte.Dispose();
         _httpClient.Dispose();
         _artUpscale.Dispose();
     }

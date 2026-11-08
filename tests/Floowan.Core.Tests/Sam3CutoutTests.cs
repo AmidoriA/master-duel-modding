@@ -163,4 +163,109 @@ public class Sam3CutoutTests
         Assert.Equal(image.Height, mask.Height);
         Assert.NotNull(service.ExecutionDevice);
     }
+
+    [Theory]
+    [InlineData(Sam3MaskMath.TrimapForeground, 0.1f, 255)]
+    [InlineData(0, 0.9f, 0)]
+    [InlineData(Sam3MaskMath.TrimapUnknown, 0.5f, 127)]
+    [InlineData(Sam3MaskMath.TrimapUnknown, 1.4f, 255)]
+    [InlineData(Sam3MaskMath.TrimapUnknown, -0.2f, 0)]
+    public void ComposeTrimapAlpha_UsesAlphaOnlyInTheBand(byte trimap, float alpha, byte expected) =>
+        Assert.Equal(expected, Sam3MaskMath.ComposeTrimapAlpha(trimap, alpha));
+
+    [Fact]
+    public void MatteModelFile_IsTheViTMatteEntry()
+    {
+        Assert.Equal(Sam3CutoutService.MatteModel, Sam3CutoutService.MatteModelFile.RelativePath);
+        Assert.Contains(Sam3CutoutService.MatteModelFile, Sam3CutoutService.ModelFiles);
+    }
+
+    [Fact]
+    public void RefineMaskEdge_EmptyMask_ReturnsCopyWithoutLoadingModels()
+    {
+        // Uses an empty folder: an empty mask must not need ViTMatte at all.
+        var dir = Path.Combine(Path.GetTempPath(), "floowan-matte-empty-" + Guid.NewGuid().ToString("N"));
+        using var service = new Sam3CutoutService(dir);
+        using var image = new Image<Rgba32>(40, 30, new Rgba32(10, 10, 10));
+        using var mask = new Image<L8>(40, 30, new L8(100)); // below the keep threshold everywhere
+
+        using var refined = service.RefineMaskEdge(image, mask, keepThreshold: 140);
+
+        Assert.NotSame(mask, refined);
+        Assert.Equal(new L8(100), refined[20, 15]);
+        Assert.Null(service.MatteDevice);
+    }
+
+    [Fact]
+    public void RefineMaskEdge_RejectsMismatchedSizes()
+    {
+        using var service = new Sam3CutoutService(Path.Combine(Path.GetTempPath(), "floowan-matte-size"));
+        using var image = new Image<Rgba32>(40, 30);
+        using var mask = new Image<L8>(30, 40, new L8(255));
+        Assert.Throws<ArgumentException>(() => service.RefineMaskEdge(image, mask, 140));
+    }
+
+    [Fact]
+    public void RefineMaskEdge_ThrowsWhenTheMatteModelIsMissing()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "floowan-matte-missing-" + Guid.NewGuid().ToString("N"));
+        using var service = new Sam3CutoutService(dir);
+        using var image = new Image<Rgba32>(40, 30);
+        using var mask = new Image<L8>(40, 30, new L8(255));
+        Assert.False(service.IsMatteModelPresent());
+        Assert.Throws<InvalidOperationException>(() => service.RefineMaskEdge(image, mask, 140));
+    }
+
+    /// <summary>
+    /// Real ViTMatte when installed (a no-op elsewhere): a blocky, speckled mask of a bright disc
+    /// on a dark background should snap to the disc, drop a far-off speckle, and keep the core solid.
+    /// </summary>
+    [Fact]
+    public void RefineMaskEdge_SnapsABlockyMaskToTheShape_WhenModelPresent()
+    {
+        using var service = new Sam3CutoutService();
+        if (!service.IsMatteModelPresent())
+            return;
+
+        const int size = 256, radius = 70, cx = 128, cy = 128, block = 16;
+        bool InDisc(int x, int y) => (x - cx) * (x - cx) + (y - cy) * (y - cy) <= radius * radius;
+
+        using var image = new Image<Rgba32>(size, size, new Rgba32(20, 24, 40));
+        using var coarse = new Image<L8>(size, size);
+        for (var y = 0; y < size; y++)
+        for (var x = 0; x < size; x++)
+        {
+            if (InDisc(x, y))
+                image[x, y] = new Rgba32(235, 225, 210);
+            // Low-resolution style mask: whole 16 px blocks whose centre is in the disc.
+            var bx = x / block * block + block / 2;
+            var by = y / block * block + block / 2;
+            if (InDisc(bx, by))
+                coarse[x, y] = new L8(220);
+        }
+
+        // A background speckle well away from the disc.
+        for (var y = 10; y < 16; y++)
+        for (var x = 10; x < 16; x++)
+            coarse[x, y] = new L8(200);
+
+        using var refined = service.RefineMaskEdge(image, coarse, keepThreshold: 140);
+
+        int Errors(Image<L8> m)
+        {
+            var n = 0;
+            for (var y = 0; y < size; y++)
+            for (var x = 0; x < size; x++)
+                if ((m[x, y].PackedValue >= 140) != InDisc(x, y))
+                    n++;
+            return n;
+        }
+
+        Assert.Equal(255, refined[cx, cy].PackedValue);
+        Assert.Equal(0, refined[size - 1, size - 1].PackedValue);
+        Assert.True(refined[12, 12].PackedValue < 140, "background speckle should be dropped");
+        Assert.True(Errors(refined) < Errors(coarse) / 2,
+            $"edge errors: refined {Errors(refined)} vs coarse {Errors(coarse)}");
+        Assert.NotNull(service.MatteDevice);
+    }
 }
