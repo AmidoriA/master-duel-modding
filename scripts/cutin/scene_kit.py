@@ -204,6 +204,54 @@ def fx_lightning(w=384, h=2048, seed=1, branches=3):
     return img(np.dstack([np.ones((h, w, 3)), a]))
 
 
+def split_wing_pair(path, size=2048, despill="green"):
+    """Key a symmetric wing pair painted on a flat colour and split it at the centre joint.
+    Returns {'left', 'right', 'left_joint_y', 'right_joint_y', 'span_px'}: each wing's root (the joint)
+    is at its inner edge, joint_y px from its top. Rig each wing on a bone at the joint and rotate it."""
+    _, m = key_flat_background(path, size, despill=despill)
+    full = m["_full"]
+    A = np.asarray(full)[..., 3]
+    cx = full.width // 2
+    col = np.nonzero(A[:, cx - 8:cx + 8].max(axis=1) > 128)[0]
+    jy = float(col.mean()) if len(col) else full.height / 2
+    out = {}
+    for side, box in (("left", (0, 0, cx, full.height)), ("right", (cx, 0, full.width, full.height))):
+        half = full.crop(box)
+        ys, xs = np.nonzero(np.asarray(half)[..., 3] > 6)
+        y0, y1 = ys.min(), ys.max() + 1
+        x0, x1 = (xs.min(), half.width) if side == "left" else (0, xs.max() + 1)
+        out[side] = half.crop((x0, y0, x1, y1))
+        out[side + "_joint_y"] = jy - y0
+    out["span_px"] = out["left"].width + out["right"].width
+    return out
+
+
+def wing_attachments(wings, span_units):
+    """Attachment entries placing each wing's root on its bone (see split_wing_pair)."""
+    k = span_units / wings["span_px"]
+    l, r = wings["left"], wings["right"]
+    return ({"x": round(-l.width * k / 2, 1), "y": round((l.height / 2 - wings["left_joint_y"]) * k, 1),
+             "width": round(l.width * k, 1), "height": round(l.height * k, 1)},
+            {"x": round(r.width * k / 2, 1), "y": round((r.height / 2 - wings["right_joint_y"]) * k, 1),
+             "width": round(r.width * k, 1), "height": round(r.height * k, 1)})
+
+
+def fx_bat(size=256):
+    """Bat silhouette (white; tint via the slot colour), wings spread."""
+    s = size / 256.0
+    im = Image.new("L", (size, size), 0)
+    d = ImageDraw.Draw(im)
+    wing = [(128, 118), (96, 96), (60, 84), (22, 92), (6, 120), (30, 116), (44, 134), (62, 126), (74, 146),
+            (90, 136), (106, 150), (120, 140)]
+    d.polygon([(x * s, y * s) for x, y in wing], fill=255)
+    d.polygon([((256 - x) * s, y * s) for x, y in wing], fill=255)
+    d.ellipse((112 * s, 104 * s, 144 * s, 156 * s), fill=255)                  # body
+    d.polygon([(114 * s, 110 * s), (118 * s, 92 * s), (124 * s, 106 * s)], fill=255)   # ears
+    d.polygon([(142 * s, 110 * s), (138 * s, 92 * s), (132 * s, 106 * s)], fill=255)
+    a = np.asarray(im.filter(ImageFilter.GaussianBlur(1.2))).astype(np.float32) / 255
+    return img(np.dstack([np.ones((size, size, 3)), a]))
+
+
 def circle_mask(layer, inner=0.82, outer=1.0):
     """Fade a square image to a soft disc (for rune circles / moons painted on a square)."""
     a = arr(layer)
@@ -393,6 +441,17 @@ class Rig:
     keys_per_sec: int = 30
 
 
+def stretch_time(rig, factor):
+    """Play the whole rig `factor` times slower (2.0 = half speed): every motion, fade and loop
+    is evaluated at t / factor and the duration grows by `factor`. The game's timeline clip takes
+    the new length (monster_cutin.py sets it from the animation)."""
+    wrap = lambda fn: (lambda t: fn(t / factor))
+    return Rig(bones=rig.bones, slots=rig.slots, attachments=rig.attachments,
+               motions={k: wrap(v) for k, v in rig.motions.items()},
+               alpha={k: wrap(v) for k, v in rig.alpha.items()},
+               duration=rig.duration * factor, keys_per_sec=rig.keys_per_sec)
+
+
 # ================================================================== atlas packing
 
 def pack_atlases(images, out_dir, page_name):
@@ -522,12 +581,41 @@ def render_preview(rig, images, out_dir, W=960, H=540, fps=30, background=None):
             rgb, A = L[..., :3] * col, L[..., 3:4] * al
             canvas = canvas + rgb * A if s.get("blend") == "additive" else canvas * (1 - A) + rgb * A
         frames.append(Image.fromarray((np.clip(canvas, 0, 1) * 255).astype(np.uint8), "RGB"))
-    frames[0].save(os.path.join(out_dir, "preview.gif"), save_all=True, append_images=frames[1:], duration=int(1000 / fps), loop=0)
+    save_previews(frames, out_dir, fps, "preview")
+
+
+def save_previews(frames, out_dir, fps, stem):
+    """Write <stem>.mp4 (exact colours; show this one to the user), <stem>.gif and a contact sheet.
+
+    A GIF has at most 256 colours per frame; with a per-frame palette a detailed character is
+    re-quantized differently every frame and its colours visibly shimmer. The GIF therefore uses ONE
+    palette built from frames across the whole animation, so colours stay put between frames."""
+    try:
+        import imageio_ffmpeg
+        W, H = frames[0].size
+        w = imageio_ffmpeg.write_frames(os.path.join(out_dir, stem + ".mp4"), (W, H), fps=fps, codec="libx264",
+                                        pix_fmt_out="yuv420p", macro_block_size=1,
+                                        output_params=["-crf", "14", "-preset", "slow", "-movflags", "+faststart"])
+        w.send(None)
+        for f in frames:
+            w.send(np.ascontiguousarray(np.asarray(f.convert("RGB"))))
+        w.close()
+    except Exception as e:                     # imageio-ffmpeg missing: the GIF still works
+        print(f"  (no mp4 preview: {e})")
+    step = max(1, len(frames) // 16)
+    sample = frames[::step][:16]
+    mosaic = Image.new("RGB", (frames[0].width, frames[0].height * len(sample)))
+    for i, f in enumerate(sample):
+        mosaic.paste(f, (0, i * frames[0].height))
+    pal = mosaic.quantize(colors=255, method=Image.Quantize.MEDIANCUT)
+    gif = [f.quantize(palette=pal, dither=Image.Dither.FLOYDSTEINBERG) for f in frames]
+    gif[0].save(os.path.join(out_dir, stem + ".gif"), save_all=True, append_images=gif[1:], duration=int(1000 / fps), loop=0)
+    W, H = frames[0].size
     picks = [min(len(frames) - 1, round(k * (len(frames) - 1) / 7)) for k in range(8)]
     sheet = Image.new("RGB", (W // 2 * 4, H // 2 * 2))
     for k, fi in enumerate(picks):
         sheet.paste(frames[fi].resize((W // 2, H // 2)), ((k % 4) * W // 2, (k // 4) * H // 2))
-    sheet.save(os.path.join(out_dir, "preview_sheet.png"))
+    sheet.save(os.path.join(out_dir, stem + "_sheet.png"))
 
 
 # ================================================================== ComfyUI client
