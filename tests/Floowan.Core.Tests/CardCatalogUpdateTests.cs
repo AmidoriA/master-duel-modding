@@ -291,48 +291,6 @@ CREATE TABLE card (
         }
     }
 
-    [Fact]
-    public void CardCatalogUpdater_UpdateNewFilesOnly_RequiresExistingCreatedAt()
-    {
-        var master = TempPath("floowan-catalog-inc-");
-        var user = TempPath("floowan-catalog-inc-user-");
-        try
-        {
-            using (var conn = new SqliteConnection(new SqliteConnectionStringBuilder
-            {
-                DataSource = master,
-                Mode = SqliteOpenMode.ReadWriteCreate
-            }.ToString()))
-            {
-                conn.Open();
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = @"
-CREATE TABLE card (
-  name VARCHAR(255) NOT NULL,
-  description VARCHAR(255) NOT NULL,
-  bundle VARCHAR(8) NOT NULL,
-  data_index INTEGER NOT NULL,
-  id INTEGER NOT NULL PRIMARY KEY,
-  favorite BOOLEAN NOT NULL DEFAULT 0,
-  has_backup BOOLEAN NOT NULL DEFAULT 0,
-  is_overframe INTEGER NOT NULL DEFAULT 0,
-  UNIQUE (bundle)
-);";
-                cmd.ExecuteNonQuery();
-            }
-
-            using var db = new CardDatabase(master, user);
-            Assert.Null(db.GetLatestCreatedAtUtc());
-            var result = new CardCatalogUpdater().UpdateNewFilesOnly(db, @"C:\does\not\exist");
-            Assert.False(result.Success);
-            Assert.Contains("Update entire DB", result.Message, StringComparison.OrdinalIgnoreCase);
-        }
-        finally
-        {
-            TryDelete(master, user);
-        }
-    }
-
     [Theory]
     [InlineData(CardPropTypeDecoder.SpellFace, CardPropTypeDecoder.SpellTrapSecondary, "Spell")]
     [InlineData(CardPropTypeDecoder.TrapFace, CardPropTypeDecoder.SpellTrapSecondary, "Trap")]
@@ -425,7 +383,7 @@ CREATE TABLE card (
     {
         // Regression: Fabled Lurrie's LocalData illust (bundle 2caa5d54) is ~4.61 MiB.
         // A 3 MiB upper bound skipped it, so art id 8092 never entered the catalog and
-        // search for "Fabled Lurrie" returned nothing after Update entire DB.
+        // search for "Fabled Lurrie" returned nothing after a DB update.
         const long fabledLurrieBundleBytes = 4_838_312;
         Assert.True(CardCatalogExtractor.IsIllustrationSizeCandidate(fabledLurrieBundleBytes));
         Assert.True(CardCatalogExtractor.IsIllustrationSizeCandidate(3 * 1024 * 1024));
@@ -457,90 +415,6 @@ CREATE TABLE card (
             // Must not surface NullReferenceException from a null assetsInst.
             Assert.DoesNotContain(notes, n => n.Contains("NullReference", StringComparison.OrdinalIgnoreCase));
             Assert.Contains("CARD_", result.Message, StringComparison.OrdinalIgnoreCase);
-        }
-        finally
-        {
-            try { Directory.Delete(install, recursive: true); } catch { /* ignore */ }
-        }
-    }
-
-    [Fact]
-    public void CardCatalogExtractor_Incremental_SkipsOldIllustOnlyFiles_WithoutOpening()
-    {
-        // Illust-only size (> card-data max 2 MiB) with an old creation time must be skipped
-        // before LoadBundleFile. CARD_* size-window files may still open despite the cutoff.
-        var install = Path.Combine(Path.GetTempPath(), "floowan-catalog-inc-skip-" + Guid.NewGuid().ToString("N"));
-        var player = Path.Combine(install, "LocalData", "deadbeef");
-        var local0000 = Path.Combine(player, "0000", "aa");
-        Directory.CreateDirectory(local0000);
-        Directory.CreateDirectory(Path.Combine(install, "masterduel_Data"));
-        File.WriteAllBytes(Path.Combine(install, "masterduel_Data", "data.unity3d"), Array.Empty<byte>());
-
-        var junkPath = Path.Combine(local0000, "oldbundle");
-        File.WriteAllBytes(junkPath, new byte[3 * 1024 * 1024]);
-        var oldStamp = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        File.SetCreationTimeUtc(junkPath, oldStamp);
-        File.SetLastWriteTimeUtc(junkPath, oldStamp);
-
-        var cutoff = new DateTimeOffset(2024, 6, 1, 0, 0, 0, TimeSpan.Zero);
-
-        try
-        {
-            var notes = new List<string>();
-            var progress = new SyncProgress(notes);
-            var result = new CardCatalogExtractor().Extract(
-                player, progress, illustCreatedAfterUtc: cutoff);
-
-            Assert.True(result.Success);
-            Assert.Empty(result.Rows);
-            Assert.Contains(notes, n => n.Contains("not opened", StringComparison.OrdinalIgnoreCase)
-                || n.Contains("Skipped", StringComparison.OrdinalIgnoreCase));
-            // Prove AssetsTools never opened the junk: no unreadable/unloadable messages.
-            Assert.DoesNotContain(notes, n => n.Contains("unreadable", StringComparison.OrdinalIgnoreCase));
-            Assert.DoesNotContain(notes, n => n.Contains("unloadable", StringComparison.OrdinalIgnoreCase));
-            Assert.DoesNotContain(notes, n => n.Contains("Skipping unreadable", StringComparison.OrdinalIgnoreCase));
-        }
-        finally
-        {
-            try { Directory.Delete(install, recursive: true); } catch { /* ignore */ }
-        }
-    }
-
-    [Fact]
-    public void CardCatalogExtractor_Incremental_WithNoNewIllust_DoesNotRequireCardData()
-    {
-        // Phase 1 finds nothing new → early empty success without locating CARD_*.
-        // (Previously a single date gate skipped CARD_* and still failed when any new art existed;
-        // when nothing is new we must not error on missing CARD_*.)
-        var install = Path.Combine(Path.GetTempPath(), "floowan-catalog-inc-card-" + Guid.NewGuid().ToString("N"));
-        var player = Path.Combine(install, "LocalData", "deadbeef");
-        var local0000 = Path.Combine(player, "0000", "aa");
-        Directory.CreateDirectory(local0000);
-        Directory.CreateDirectory(Path.Combine(install, "masterduel_Data"));
-        File.WriteAllBytes(Path.Combine(install, "masterduel_Data", "data.unity3d"), Array.Empty<byte>());
-
-        var cardSized = Path.Combine(local0000, "cardsized");
-        File.WriteAllBytes(cardSized, new byte[32 * 1024]);
-        var oldStamp = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        File.SetCreationTimeUtc(cardSized, oldStamp);
-        File.SetLastWriteTimeUtc(cardSized, DateTime.UtcNow);
-
-        var cutoff = new DateTimeOffset(2024, 6, 1, 0, 0, 0, TimeSpan.Zero);
-
-        try
-        {
-            var notes = new List<string>();
-            var progress = new SyncProgress(notes);
-            var result = new CardCatalogExtractor().Extract(
-                player, progress, illustCreatedAfterUtc: cutoff);
-
-            Assert.True(result.Success);
-            Assert.Empty(result.Rows);
-            List<string> snapshot;
-            lock (notes) snapshot = notes.ToList();
-            Assert.Contains(snapshot, n => n.Contains("nothing to upsert", StringComparison.OrdinalIgnoreCase));
-            Assert.DoesNotContain(snapshot, n => n.Contains("Locating CARD_", StringComparison.OrdinalIgnoreCase));
-            Assert.True(CardCatalogExtractor.IsCardDataSizeCandidate(32 * 1024));
         }
         finally
         {

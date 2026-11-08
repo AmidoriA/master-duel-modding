@@ -41,66 +41,7 @@ public sealed class CardCatalogUpdater
             written,
             extract.CryptoKey,
             extract.IllustCount,
-            extract.BundlesScanned,
-            incremental: false);
-    }
-
-    /// <summary>
-    /// Incremental update: skips illustration AssetBundles whose
-    /// <see cref="File.GetCreationTimeUtc"/> is not after
-    /// <see cref="CardDatabase.GetLatestCreatedAtUtc"/> (DB <c>MAX(created_at)</c>)
-    /// before any AssetsTools open. CARD_* TextAsset bundles are still read (MD patches
-    /// often overwrite them without refreshing CreationTime). Upserts matching rows;
-    /// does not delete existing catalog cards.
-    /// </summary>
-    public CardCatalogUpdateResult UpdateNewFilesOnly(
-        CardDatabase database,
-        string playerDataPath,
-        IProgress<string>? progress = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(database);
-
-        var latest = database.GetLatestCreatedAtUtc();
-        if (latest is null)
-        {
-            return CardCatalogUpdateResult.Fail(
-                "No created_at values in the catalog yet. Run \"Update entire DB\" once first.");
-        }
-
-        progress?.Report(
-            $"Cutoff: illustration File.GetCreationTimeUtc after DB MAX(created_at) = {latest:o} " +
-            "(CARD_* TextAsset bundles are still opened)");
-
-        var extract = _extractor.Extract(
-            playerDataPath,
-            progress,
-            cancellationToken,
-            illustCreatedAfterUtc: latest);
-        if (!extract.Success)
-            return CardCatalogUpdateResult.Fail(extract.Message);
-
-        if (extract.Rows.Count == 0)
-        {
-            progress?.Report("No new cards to upsert.");
-            return CardCatalogUpdateResult.Ok(
-                0,
-                extract.CryptoKey,
-                extract.IllustCount,
-                extract.BundlesScanned,
-                incremental: true,
-                message: "No new illustration files after the latest created_at; catalog unchanged.");
-        }
-
-        progress?.Report($"Upserting {extract.Rows.Count} new/updated cards…");
-        var written = database.UpsertMasterCatalog(extract.Rows);
-        progress?.Report($"Catalog upserted: {written} cards.");
-        return CardCatalogUpdateResult.Ok(
-            written,
-            extract.CryptoKey,
-            extract.IllustCount,
-            extract.BundlesScanned,
-            incremental: true);
+            extract.BundlesScanned);
     }
 }
 
@@ -112,26 +53,20 @@ public sealed class CardCatalogUpdateResult
     public int? CryptoKey { get; init; }
     public int IllustCount { get; init; }
     public int BundlesScanned { get; init; }
-    public bool Incremental { get; init; }
 
     public static CardCatalogUpdateResult Ok(
         int cardsWritten,
         int? cryptoKey,
         int illustCount,
-        int bundlesScanned,
-        bool incremental = false,
-        string? message = null) =>
+        int bundlesScanned) =>
         new()
         {
             Success = true,
-            Message = message ?? (incremental
-                ? $"Upserted {cardsWritten} new/updated cards."
-                : $"Updated master catalog with {cardsWritten} cards."),
+            Message = $"Updated master catalog with {cardsWritten} cards.",
             CardsWritten = cardsWritten,
             CryptoKey = cryptoKey,
             IllustCount = illustCount,
-            BundlesScanned = bundlesScanned,
-            Incremental = incremental
+            BundlesScanned = bundlesScanned
         };
 
     public static CardCatalogUpdateResult Fail(string message) =>

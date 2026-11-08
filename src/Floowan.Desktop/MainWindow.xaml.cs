@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -762,21 +763,140 @@ public partial class MainWindow : Window
 
     // --- Tools tab (backup browser) ---
 
-    private async void ToolsUpdateEntireDatabase_Click(object sender, RoutedEventArgs e) =>
-        await RunToolsDatabaseUpdateAsync(incremental: false);
-
-    private async void ToolsUpdateNewFilesDatabase_Click(object sender, RoutedEventArgs e) =>
-        await RunToolsDatabaseUpdateAsync(incremental: true);
-
-    private async Task RunToolsDatabaseUpdateAsync(bool incremental)
+    private async void ToolsUpdateDatabase_Click(object sender, RoutedEventArgs e)
     {
-        if (_database is null)
+        if (!TryGetToolsGamePath(requireOverFrameService: false, out var database, out var gamePath))
+            return;
+
+        var confirm = MessageBox.Show(
+            Loc.T("tools.update_db_confirm", database.MasterDatabasePath, gamePath),
+            Loc.T("tools.update_db_confirm_title"),
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes)
+            return;
+
+        SetToolsLongRunningButtonsEnabled(false);
+        SetUiBusy(true);
+        try
+        {
+            var result = await RunCatalogUpdateAsync(database, gamePath);
+            if (result is { Success: false })
+                MessageBox.Show(result.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            SetToolsLongRunningButtonsEnabled(true);
+            SetUiBusy(false);
+        }
+    }
+
+    private async void ToolsRestoreOverframesAfterPatch_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetToolsGamePath(requireOverFrameService: true, out var database, out var gamePath))
+            return;
+
+        var pending = database.ListFloowanOverframeCards();
+        var confirm = MessageBox.Show(
+            Loc.T("tools.restore_of_confirm", pending.Count),
+            Loc.T("tools.restore_of_confirm_title"),
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes)
+            return;
+
+        SetToolsLongRunningButtonsEnabled(false);
+        SetUiBusy(true);
+        try
+        {
+            var result = await RunRestoreOverframesAsync(database, gamePath);
+            if (result is not null)
+            {
+                MessageBox.Show(
+                    result.Message,
+                    AppCaption,
+                    MessageBoxButton.OK,
+                    result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+            }
+        }
+        finally
+        {
+            SetToolsLongRunningButtonsEnabled(true);
+            SetUiBusy(false);
+        }
+    }
+
+    /// <summary>
+    /// The usual after-patch routine in one click: refresh the card DB from the game, then
+    /// restore modded over-frames. The DB goes first because restore looks up each card's
+    /// current art bundle in it, and a patch can move cards to new bundles.
+    /// </summary>
+    private async void ToolsAfterGamePatch_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetToolsGamePath(requireOverFrameService: true, out var database, out var gamePath))
+            return;
+
+        var pending = database.ListFloowanOverframeCards();
+        var confirm = MessageBox.Show(
+            Loc.T("tools.after_patch_confirm", database.MasterDatabasePath, gamePath, pending.Count),
+            Loc.T("tools.after_patch_confirm_title"),
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes)
+            return;
+
+        SetToolsLongRunningButtonsEnabled(false);
+        SetUiBusy(true);
+        try
+        {
+            var dbResult = await RunCatalogUpdateAsync(database, gamePath);
+            if (dbResult is not { Success: true })
+            {
+                var reason = dbResult?.Message ?? ToolsUpdateDbStatusText.Text;
+                MessageBox.Show(
+                    Loc.T("tools.after_patch_db_failed", reason),
+                    AppCaption,
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            var ofResult = await RunRestoreOverframesAsync(database, gamePath);
+            var ofMessage = ofResult?.Message ?? ToolsRestoreOverframesStatusText.Text;
+            var ok = ofResult is { Success: true };
+            MessageBox.Show(
+                Loc.T("tools.after_patch_done", ToolsUpdateDbStatusText.Text, ofMessage),
+                AppCaption,
+                MessageBoxButton.OK,
+                ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        }
+        finally
+        {
+            SetToolsLongRunningButtonsEnabled(true);
+            SetUiBusy(false);
+        }
+    }
+
+    private bool TryGetToolsGamePath(
+        bool requireOverFrameService,
+        [NotNullWhen(true)] out CardDatabase? database,
+        out string gamePath)
+    {
+        database = _database;
+        gamePath = GamePathBox.Text?.Trim() ?? "";
+        if (database is null)
         {
             MessageBox.Show(Loc.T("common.open_database_first"), AppCaption);
-            return;
+            return false;
         }
 
-        var gamePath = GamePathBox.Text?.Trim() ?? "";
+        if (requireOverFrameService && _overFrameService is null)
+        {
+            MessageBox.Show(Loc.T("common.overframe_service_missing"), AppCaption);
+            database = null;
+            return false;
+        }
+
         string? pathError = null;
         if (string.IsNullOrWhiteSpace(gamePath) || !GamePathLocator.IsValidGamePath(gamePath, out pathError))
         {
@@ -785,47 +905,22 @@ public partial class MainWindow : Window
                 AppCaption,
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
-            return;
+            database = null;
+            return false;
         }
 
-        string confirmBody;
-        string confirmTitle;
-        if (incremental)
-        {
-            var latest = _database.GetLatestCreatedAtUtc();
-            var latestText = latest is DateTimeOffset dto
-                ? Loc.T("tools.created_at_utc", dto.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss"))
-                : Loc.T("tools.no_created_at");
-            confirmBody = Loc.T(
-                "tools.update_new_confirm",
-                _database.MasterDatabasePath,
-                latestText,
-                gamePath);
-            confirmTitle = Loc.T("tools.update_new_confirm_title");
-        }
-        else
-        {
-            confirmBody = Loc.T(
-                "tools.update_entire_confirm",
-                _database.MasterDatabasePath,
-                gamePath);
-            confirmTitle = Loc.T("tools.update_entire_confirm_title");
-        }
+        return true;
+    }
 
-        var confirm = MessageBox.Show(
-            confirmBody,
-            confirmTitle,
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question);
-        if (confirm != MessageBoxResult.Yes)
-            return;
-
-        SetToolsLongRunningButtonsEnabled(false);
-        SetUiBusy(true);
+    /// <summary>
+    /// Rescans the game and replaces the master catalog, reporting into the card-database
+    /// status line. Returns null when an exception was already shown to the user.
+    /// </summary>
+    private async Task<CardCatalogUpdateResult?> RunCatalogUpdateAsync(CardDatabase database, string gamePath)
+    {
         ToolsUpdateDbStatusText.Text = Loc.T("app.starting");
-        Status(incremental ? Loc.T("tools.update_db_starting_incr") : Loc.T("tools.update_db_starting_full"));
+        Status(Loc.T("tools.update_db_starting"));
 
-        var database = _database;
         var progress = new Progress<string>(msg =>
         {
             ToolsUpdateDbStatusText.Text = msg;
@@ -834,13 +929,9 @@ public partial class MainWindow : Window
 
         try
         {
-            var result = await Task.Run(() =>
-            {
-                var updater = new CardCatalogUpdater();
-                return incremental
-                    ? updater.UpdateNewFilesOnly(database, gamePath, progress)
-                    : updater.UpdateFromGame(database, gamePath, progress);
-            });
+            var stopwatch = Stopwatch.StartNew();
+            var result = await Task.Run(() => new CardCatalogUpdater().UpdateFromGame(database, gamePath, progress));
+            stopwatch.Stop();
 
             RunSearch();
             RunOfSearch();
@@ -852,72 +943,37 @@ public partial class MainWindow : Window
             {
                 ToolsUpdateDbStatusText.Text = result.Message;
                 Status(Loc.T("tools.update_db_failed", result.Message));
-                MessageBox.Show(result.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
+                return result;
             }
 
             var detail =
                 $"{result.Message} Scanned {result.BundlesScanned} bundles, " +
                 $"{result.IllustCount} illustrations" +
-                (result.CryptoKey is int key ? $", crypto key 0x{key:X}." : ".");
+                (result.CryptoKey is int key ? $", crypto key 0x{key:X}" : "") +
+                $" in {stopwatch.Elapsed.TotalSeconds:F1} s.";
             ToolsUpdateDbStatusText.Text = detail;
             Status(detail);
+            return result;
         }
         catch (Exception ex)
         {
             ToolsUpdateDbStatusText.Text = Loc.T("app.error_prefix", ex.Message);
             Status(Loc.T("tools.update_db_failed", ex.Message));
             MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        finally
-        {
-            SetToolsLongRunningButtonsEnabled(true);
-            SetUiBusy(false);
+            return null;
         }
     }
 
-    private async void ToolsRestoreOverframesAfterPatch_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Re-applies Floowan over-frames from user.db history, reporting into the over-frame
+    /// status line. Returns null when an exception was already shown to the user.
+    /// </summary>
+    private async Task<OverFrameRestoreBatchResult?> RunRestoreOverframesAsync(CardDatabase database, string gamePath)
     {
-        if (_database is null)
-        {
-            MessageBox.Show(Loc.T("common.open_database_first"), AppCaption);
-            return;
-        }
-
-        if (_overFrameService is null)
-        {
-            MessageBox.Show(Loc.T("common.overframe_service_missing"), AppCaption);
-            return;
-        }
-
-        var gamePath = GamePathBox.Text?.Trim() ?? "";
-        string? pathError = null;
-        if (string.IsNullOrWhiteSpace(gamePath) || !GamePathLocator.IsValidGamePath(gamePath, out pathError))
-        {
-            MessageBox.Show(
-                pathError ?? Loc.T("common.set_localdata_home"),
-                AppCaption,
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-            return;
-        }
-
-        var pending = _database.ListFloowanOverframeCards();
-        var confirm = MessageBox.Show(
-            Loc.T("tools.restore_of_confirm", pending.Count),
-            Loc.T("tools.restore_of_confirm_title"),
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question);
-        if (confirm != MessageBoxResult.Yes)
-            return;
-
-        SetToolsLongRunningButtonsEnabled(false);
-        SetUiBusy(true);
+        var service = _overFrameService!;
         ToolsRestoreOverframesStatusText.Text = Loc.T("app.starting");
         Status(Loc.T("tools.restore_of_starting"));
 
-        var database = _database;
-        var service = _overFrameService;
         var progress = new Progress<string>(msg =>
         {
             ToolsRestoreOverframesStatusText.Text = msg;
@@ -932,22 +988,14 @@ public partial class MainWindow : Window
             ToolsRestoreOverframesStatusText.Text = result.Message;
             Status(result.Message);
             RunOfSearch();
-            MessageBox.Show(
-                result.Message,
-                AppCaption,
-                MessageBoxButton.OK,
-                result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+            return result;
         }
         catch (Exception ex)
         {
             ToolsRestoreOverframesStatusText.Text = Loc.T("app.error_prefix", ex.Message);
             Status(Loc.T("tools.restore_of_failed", ex.Message));
             MessageBox.Show(ex.Message, AppCaption, MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        finally
-        {
-            SetToolsLongRunningButtonsEnabled(true);
-            SetUiBusy(false);
+            return null;
         }
     }
 
@@ -1834,8 +1882,8 @@ public partial class MainWindow : Window
 
     private void SetToolsLongRunningButtonsEnabled(bool enabled)
     {
-        ToolsUpdateEntireDbButton.IsEnabled = enabled;
-        ToolsUpdateNewFilesDbButton.IsEnabled = enabled;
+        ToolsAfterPatchButton.IsEnabled = enabled;
+        ToolsUpdateDbButton.IsEnabled = enabled;
         ToolsScanOfCardAssetButton.IsEnabled = enabled;
         ToolsRestoreOverframesButton.IsEnabled = enabled;
         ToolsOrphanOverframesButton.IsEnabled = enabled;
