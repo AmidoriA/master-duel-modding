@@ -581,12 +581,41 @@ def render_preview(rig, images, out_dir, W=960, H=540, fps=30, background=None):
             rgb, A = L[..., :3] * col, L[..., 3:4] * al
             canvas = canvas + rgb * A if s.get("blend") == "additive" else canvas * (1 - A) + rgb * A
         frames.append(Image.fromarray((np.clip(canvas, 0, 1) * 255).astype(np.uint8), "RGB"))
-    frames[0].save(os.path.join(out_dir, "preview.gif"), save_all=True, append_images=frames[1:], duration=int(1000 / fps), loop=0)
+    save_previews(frames, out_dir, fps, "preview")
+
+
+def save_previews(frames, out_dir, fps, stem):
+    """Write <stem>.mp4 (exact colours; show this one to the user), <stem>.gif and a contact sheet.
+
+    A GIF has at most 256 colours per frame; with a per-frame palette a detailed character is
+    re-quantized differently every frame and its colours visibly shimmer. The GIF therefore uses ONE
+    palette built from frames across the whole animation, so colours stay put between frames."""
+    try:
+        import imageio_ffmpeg
+        W, H = frames[0].size
+        w = imageio_ffmpeg.write_frames(os.path.join(out_dir, stem + ".mp4"), (W, H), fps=fps, codec="libx264",
+                                        pix_fmt_out="yuv420p", macro_block_size=1,
+                                        output_params=["-crf", "14", "-preset", "slow", "-movflags", "+faststart"])
+        w.send(None)
+        for f in frames:
+            w.send(np.ascontiguousarray(np.asarray(f.convert("RGB"))))
+        w.close()
+    except Exception as e:                     # imageio-ffmpeg missing: the GIF still works
+        print(f"  (no mp4 preview: {e})")
+    step = max(1, len(frames) // 16)
+    sample = frames[::step][:16]
+    mosaic = Image.new("RGB", (frames[0].width, frames[0].height * len(sample)))
+    for i, f in enumerate(sample):
+        mosaic.paste(f, (0, i * frames[0].height))
+    pal = mosaic.quantize(colors=255, method=Image.Quantize.MEDIANCUT)
+    gif = [f.quantize(palette=pal, dither=Image.Dither.FLOYDSTEINBERG) for f in frames]
+    gif[0].save(os.path.join(out_dir, stem + ".gif"), save_all=True, append_images=gif[1:], duration=int(1000 / fps), loop=0)
+    W, H = frames[0].size
     picks = [min(len(frames) - 1, round(k * (len(frames) - 1) / 7)) for k in range(8)]
     sheet = Image.new("RGB", (W // 2 * 4, H // 2 * 2))
     for k, fi in enumerate(picks):
         sheet.paste(frames[fi].resize((W // 2, H // 2)), ((k % 4) * W // 2, (k // 4) * H // 2))
-    sheet.save(os.path.join(out_dir, "preview_sheet.png"))
+    sheet.save(os.path.join(out_dir, stem + "_sheet.png"))
 
 
 # ================================================================== ComfyUI client

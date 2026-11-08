@@ -4,9 +4,9 @@
         --prefab-scale 0.17 [--fps 30] [--port 8765]
 
 Open http://127.0.0.1:<port>/ in a browser (e.g. the Claude browser pane). Frames are written to
-<content>/runtime_frames/NNN.png; when the page reports done, the server writes runtime_preview.gif and
-runtime_sheet.png into <content> and exits. Works for shipped cut-ins (extracted JSON/atlas/pages) and for
-scene_kit output (skeleton.json + hd.atlas + hd.png; pass --page-alias P19172.png=hd.png).
+<content>/runtime_frames/NNN.png; when the page reports done, the server writes runtime_preview.mp4 (exact
+colours), runtime_preview.gif and runtime_preview_sheet.png into <content> and exits. Works for shipped
+cut-ins (extracted JSON/atlas/pages) and for scene_kit output (skeleton.json + hd.atlas + hd.png; pass --page-alias P19172.png=hd.png).
 """
 import argparse
 import base64
@@ -90,15 +90,10 @@ def main():
     if not files:
         sys.exit("no frames rendered")
     frames = [Image.open(os.path.join(frames_dir, f)).convert("RGB") for f in files]
-    frames[0].save(os.path.join(content, "runtime_preview.gif"), save_all=True, append_images=frames[1:],
-                   duration=int(1000 / a.fps), loop=0)
-    W, H = frames[0].size
-    picks = [min(len(frames) - 1, round(k * (len(frames) - 1) / 7)) for k in range(8)]
-    sheet = Image.new("RGB", (W // 2 * 4, H // 2 * 2))
-    for k, fi in enumerate(picks):
-        sheet.paste(frames[fi].resize((W // 2, H // 2)), ((k % 4) * W // 2, (k // 4) * H // 2))
-    sheet.save(os.path.join(content, "runtime_sheet.png"))
-    print(f"wrote {len(frames)} frames, runtime_preview.gif, runtime_sheet.png", flush=True)
+    sys.path.insert(0, os.path.dirname(HERE))
+    import scene_kit                      # same writer as the kit preview: exact-colour mp4 + stable-palette gif
+    scene_kit.save_previews(frames, content, a.fps, "runtime_preview")
+    print(f"wrote {len(frames)} frames, runtime_preview.mp4/.gif, runtime_preview_sheet.png", flush=True)
 
 
 if __name__ == "__main__":

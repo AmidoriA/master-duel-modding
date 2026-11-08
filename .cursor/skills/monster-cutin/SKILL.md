@@ -23,7 +23,7 @@ Tools (Python 3 with `UnityPy`, `etcpak`, `numpy`, `Pillow`):
 
 ## Hard rules
 
-1. **Preview before patch.** Show the user `preview.gif` (and `preview_sheet.png`) and wait for
+1. **Preview before patch.** Show the user `preview.mp4` (and `preview_sheet.png`) and wait for
    an explicit approval in the conversation before running `apply ... --preview-approved`. Never pass
    that flag on your own judgement. If they ask for changes, rebuild and show the new preview.
 2. **Game closed** for `apply`, `restore` and `remove` (the tool refuses while `masterduel.exe` runs).
@@ -41,7 +41,7 @@ Cut-in Progress:
 - [ ] 3. Plan layers and the hero subject; agree briefly with the user
 - [ ] 4. Write the scene file (prompts, layers, rig)
 - [ ] 5. Build; inspect layers and preview yourself; iterate
-- [ ] 6. Show preview.gif to the user; get explicit approval
+- [ ] 6. Show preview.mp4 to the user; get explicit approval
 - [ ] 7. Close the game; apply --preview-approved; verify
 - [ ] 8. User tests in game (Settings > Monster cut-in: On)
 - [ ] 9. Commit the scene file only
@@ -69,8 +69,15 @@ Magician's Rod cut-in, which the user corrected:
 - **Framing (calibrated from an in-game screenshot):** scenes are designed in a space where the screen
   is about x ±3700, y ±2080 units. `scene_kit` scales the root by 0.58 so the game shows exactly what the
   preview shows. Official cut-ins fill about the full screen height. The user found our heroes too big at
-  full height and preferred `SCALE = 0.9` in the scene. A wide band is about 2600 high. Keep about 2.0 s
-  with a fade-out from about 1.6 s (or match the official length).
+  full height and preferred `SCALE = 0.9` in the scene. A wide band is about 2600 high.
+- **Length: strictly under 2 s.** Use `DUR = 1.9` with a fade-out from about 1.55 s. The user wants a
+  calm pace, so when they ask for "slower", use fewer and slower motions inside that limit: wing
+  beats about 0.9/s, a slow hover, a handful of particles. Never lengthen the clip, and don't use
+  `kit.stretch_time` with a factor above 1. Mention the length in the preview message.
+- **Keep the hero's colours steady.** Layers drawn over or around the hero (additive rim glow, chest
+  glows, embers, flames) must not pulse quickly: a pulsing additive layer reads as the character
+  flickering. Hold the rim at a constant alpha after the intro, keep flicker within about ±6%, and put
+  drifting particles behind the hero.
 - **The game draws the card name and ATK/DEF bar over the bottom ~23% of the screen.** Keep key
   moments (flashes, charms, faces) above it; check `preview_sheet.png` with that in mind.
 - **When the card already has an official cut-in and the user wants something "similar to the
@@ -79,7 +86,7 @@ Magician's Rod cut-in, which the user corrected:
   `prefab_scale`, duration), then render it with the real Spine runtime:
   `python scripts/cutin/spine_preview/serve.py --content <work>\official --skeleton P<id>.json --atlas P<id>.atlas --prefab-scale <s>`
   in the background and open `http://127.0.0.1:8765/` in the browser pane. It writes
-  `runtime_preview.gif`, `runtime_sheet.png` and frames. You can reuse the official keys directly:
+  `runtime_preview.mp4`, `runtime_preview.gif`, `runtime_preview_sheet.png` and frames. You can reuse the official keys directly:
   `kit.spine_bone_motion(timeline, OFF_K)` (Bézier curves included) and sprites with
   `kit.atlas_regions(atlas, predicate)`. Use
   `OFF_K = kit.VIEW_H_UNITS / (2 * kit.GAME_ORTHO_SIZE / (0.01 * prefab_scale))` (about 1.22 for 0.17).
@@ -117,8 +124,9 @@ The preview uses the in-game framing. To check with the real Spine runtime, run 
 on `<work>\out` with `--skeleton skeleton.json --atlas hd.atlas --page-alias P19172.png=hd.png --prefab-scale 0.24`.
 Optional: put a duel screenshot at `<work>\duelbg.png` to preview over a real field.
 
-**6. Preview gate.** Send `<work>\out\preview.gif` to the user, briefly describe the timing, and
-ask for approval. Iterate on the scene until they approve.
+**6. Preview gate.** Send `<work>\out\preview.mp4` to the user, briefly describe the timing, and
+ask for approval. Use the MP4, not the GIF: a GIF has 256 colours, so even with the kit's single shared
+palette the character's colours dither and band, and the user may read that as the animation flickering. Iterate on the scene until they approve.
 
 **7. Install.**
 ```
