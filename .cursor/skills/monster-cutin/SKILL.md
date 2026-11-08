@@ -70,8 +70,8 @@ Magician's Rod cut-in, which the user corrected:
   is about x ±3700, y ±2080 units. `scene_kit` scales the root by 0.58 so the game shows exactly what the
   preview shows. Official cut-ins fill about the full screen height. The user found our heroes too big at
   full height and preferred `SCALE = 0.9` in the scene. A wide band is about 2600 high.
-- **Length: strictly under 2 s.** Use `DUR = 1.9` with a fade-out from about 1.55 s. The user wants a
-  calm pace, so when they ask for "slower", use fewer and slower motions inside that limit: wing
+- **Length: exactly 2.0 s.** Use `DUR = 2.0` with a fade-out from about 1.62 s. The user wants a
+  calm pace, so when they ask for "slower", use fewer and slower motions inside that length: wing
   beats about 0.9/s, a slow hover, a handful of particles. Never lengthen the clip, and don't use
   `kit.stretch_time` with a factor above 1. Mention the length in the preview message.
 - **Keep the hero's colours steady.** Layers drawn over or around the hero (additive rim glow, chest
@@ -104,6 +104,11 @@ Magician's Rod cut-in, which the user corrected:
   Qwen can also complete parts the card hides (full unicorn legs, a whole moon, a creature's wings):
   ask for that part alone on green, then animate it as its own layer (see the wings in
   `droll_lock_bird_9279.py`, flapping around their root at a speed the user likes; they preferred about 1.8 beats/s).
+  Pin the wing bone where the wings grow from the body, not at the shoulders by default: the user
+  wanted Moa Regina's wings to meet behind the middle of her back, and Queen's Knight's to come from her
+  hips, swept upwards with a rest rotation so they show beside her. If Qwen keeps the card frame or
+  draws a whole bat when asked for wings alone, run the wings prompt on the green hero cutout instead
+  (see `queens_knight_5503.py`).
 - `rig()`: bones, slots (`"blend": "additive"` for light), attachments (sizes in skeleton units), and
   per-bone `motions` / per-slot `alpha` functions of time, built from `seg` / easing helpers.
   Motions are offsets on the setup pose (translate and rotate add, scale multiplies).
