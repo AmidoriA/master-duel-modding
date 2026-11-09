@@ -2,7 +2,8 @@
 name: monster-cutin
 description: >-
   Creates and installs custom Master Duel Monster Cut-ins (summon animations) for a card, built
-  from the card's own art with ComfyUI and Spine, and restores them after game updates. Use when
+  from the card's own art with ComfyUI and Spine, or from a WAN 2.2 image-to-video clip, and
+  restores them after game updates. Use when
   the user asks to add, make, redo, borrow, preview, restore, re-apply, list or remove a summon
   animation / cut-in / summon cut-in for a card, or says a game update removed their cut-ins.
 ---
