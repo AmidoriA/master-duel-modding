@@ -1,0 +1,1292 @@
+{
+ "1": {
+  "inputs": {
+   "unet_name": "Wan2.2\\wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+   "weight_dtype": "default"
+  },
+  "class_type": "UNETLoader",
+  "_meta": {
+   "title": "WAN 2.2 HIGH noise (fp8)"
+  }
+ },
+ "2": {
+  "inputs": {
+   "unet_name": "Wan2.2\\wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+   "weight_dtype": "default"
+  },
+  "class_type": "UNETLoader",
+  "_meta": {
+   "title": "WAN 2.2 LOW noise (fp8)"
+  }
+ },
+ "3": {
+  "inputs": {
+   "lora_name": "wan2.2_i2v_A14b_high_noise_lora_rank64_lightx2v_4step_1022.safetensors",
+   "strength_model": 1.5,
+   "model": [
+    "1",
+    0
+   ]
+  },
+  "class_type": "LoraLoaderModelOnly",
+  "_meta": {
+   "title": "4-step LoRA HIGH - strength = MOTION AMOUNT"
+  }
+ },
+ "4": {
+  "inputs": {
+   "lora_name": "Wan2.2-I2V-A14B-4steps-lora-rank64-Seko-V1-low_noise_model.safetensors",
+   "strength_model": 1,
+   "model": [
+    "2",
+    0
+   ]
+  },
+  "class_type": "LoraLoaderModelOnly",
+  "_meta": {
+   "title": "4-step LoRA LOW (speed)"
+  }
+ },
+ "5": {
+  "inputs": {
+   "lora_name": "SVI_v2_PRO_Wan2.2-I2V-A14B_HIGH_lora_rank_128_fp16.safetensors",
+   "strength_model": 0.8,
+   "model": [
+    "3",
+    0
+   ]
+  },
+  "class_type": "LoraLoaderModelOnly",
+  "_meta": {
+   "title": "SVI 2.0 PRO LoRA HIGH"
+  }
+ },
+ "6": {
+  "inputs": {
+   "lora_name": "SVI_v2_PRO_Wan2.2-I2V-A14B_LOW_lora_rank_128_fp16.safetensors",
+   "strength_model": 0.8,
+   "model": [
+    "4",
+    0
+   ]
+  },
+  "class_type": "LoraLoaderModelOnly",
+  "_meta": {
+   "title": "SVI 2.0 PRO LoRA LOW"
+  }
+ },
+ "9": {
+  "inputs": {
+   "sage_attention": "auto",
+   "model": [
+    "5",
+    0
+   ]
+  },
+  "class_type": "PathchSageAttentionKJ",
+  "_meta": {
+   "title": "Sage attention HIGH"
+  }
+ },
+ "10": {
+  "inputs": {
+   "sage_attention": "auto",
+   "model": [
+    "6",
+    0
+   ]
+  },
+  "class_type": "PathchSageAttentionKJ",
+  "_meta": {
+   "title": "Sage attention LOW"
+  }
+ },
+ "11": {
+  "inputs": {
+   "shift": 5,
+   "model": [
+    "9",
+    0
+   ]
+  },
+  "class_type": "ModelSamplingSD3",
+  "_meta": {
+   "title": "Shift HIGH"
+  }
+ },
+ "12": {
+  "inputs": {
+   "shift": 5,
+   "model": [
+    "10",
+    0
+   ]
+  },
+  "class_type": "ModelSamplingSD3",
+  "_meta": {
+   "title": "Shift LOW"
+  }
+ },
+ "13": {
+  "inputs": {
+   "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+   "type": "wan",
+   "device": "default"
+  },
+  "class_type": "CLIPLoader",
+  "_meta": {
+   "title": "Text encoder"
+  }
+ },
+ "14": {
+  "inputs": {
+   "vae_name": "wan_2.1_vae.safetensors"
+  },
+  "class_type": "VAELoader",
+  "_meta": {
+   "title": "VAE"
+  }
+ },
+ "15": {
+  "inputs": {
+   "image": "yugioh_cutin_start.png"
+  },
+  "class_type": "LoadImage",
+  "_meta": {
+   "title": "START IMAGE (16:9 frame of the card: the cut-in's first frame)"
+  }
+ },
+ "16": {
+  "inputs": {
+   "upscale_method": "lanczos",
+   "megapixels": 0.88,
+   "resolution_steps": 16,
+   "image": [
+    "15",
+    0
+   ]
+  },
+  "class_type": "ImageScaleToTotalPixels",
+  "_meta": {
+   "title": "Generation size (0.88 MP = 720p: 16:9 start image -> 1280x720)"
+  }
+ },
+ "17": {
+  "inputs": {
+   "image": [
+    "16",
+    0
+   ]
+  },
+  "class_type": "GetImageSize",
+  "_meta": {
+   "title": "Size"
+  }
+ },
+ "18": {
+  "inputs": {
+   "value": 1
+  },
+  "class_type": "PrimitiveInt",
+  "_meta": {
+   "title": "SEED (shared)"
+  }
+ },
+ "19": {
+  "inputs": {
+   "value": 1
+  },
+  "class_type": "PrimitiveInt",
+  "_meta": {
+   "title": "NUMBER OF SEGMENTS - keep 1 for a cut-in (2 s)"
+  }
+ },
+ "20": {
+  "inputs": {
+   "value": "Anime illustration. The character from the image, keeping exactly the same face, body, outfit, colors and anime art style throughout. The character stays at the center of the frame, full body visible, facing the viewer. Static camera with the same framing as the image, the whole scene stays in frame."
+  },
+  "class_type": "PrimitiveStringMultiline",
+  "_meta": {
+   "title": "GLOBAL PROMPT (subject, style, camera - used by every segment)"
+  }
+ },
+ "21": {
+  "inputs": {
+   "text": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+   "clip": [
+    "13",
+    0
+   ]
+  },
+  "class_type": "CLIPTextEncode",
+  "_meta": {
+   "title": "Negative (ignored at CFG 1, kept for CFG > 1)"
+  }
+ },
+ "22": {
+  "inputs": {
+   "pixels": [
+    "16",
+    0
+   ],
+   "vae": [
+    "14",
+    0
+   ]
+  },
+  "class_type": "VAEEncode",
+  "_meta": {
+   "title": "Anchor latent (start image, reused by every segment)"
+  }
+ },
+ "24": {
+  "inputs": {
+   "string_a": [
+    "20",
+    0
+   ],
+   "string_b": [
+    "72",
+    0
+   ],
+   "delimiter": " "
+  },
+  "class_type": "StringConcatenate",
+  "_meta": {
+   "title": "Global + segment 1"
+  }
+ },
+ "25": {
+  "inputs": {
+   "text": [
+    "24",
+    0
+   ],
+   "clip": [
+    "13",
+    0
+   ]
+  },
+  "class_type": "CLIPTextEncode",
+  "_meta": {
+   "title": "Positive 1"
+  }
+ },
+ "26": {
+  "inputs": {
+   "length": 33,
+   "motion_latent_count": 1,
+   "positive": [
+    "25",
+    0
+   ],
+   "negative": [
+    "21",
+    0
+   ],
+   "anchor_samples": [
+    "22",
+    0
+   ]
+  },
+  "class_type": "WanImageToVideoSVIPro",
+  "_meta": {
+   "title": "SVI Pro conditioning 1 - length 33 = 2.06 s at 16 fps (cut-in length)"
+  }
+ },
+ "27": {
+  "inputs": {
+   "add_noise": "enable",
+   "noise_seed": [
+    "18",
+    0
+   ],
+   "steps": 6,
+   "cfg": 1,
+   "sampler_name": "euler",
+   "scheduler": "simple",
+   "start_at_step": 0,
+   "end_at_step": 3,
+   "return_with_leftover_noise": "enable",
+   "model": [
+    "11",
+    0
+   ],
+   "positive": [
+    "26",
+    0
+   ],
+   "negative": [
+    "26",
+    1
+   ],
+   "latent_image": [
+    "26",
+    2
+   ]
+  },
+  "class_type": "KSamplerAdvanced",
+  "_meta": {
+   "title": "HIGH noise steps 0-3 (seg 1)"
+  }
+ },
+ "28": {
+  "inputs": {
+   "add_noise": "disable",
+   "noise_seed": 0,
+   "steps": 6,
+   "cfg": 1,
+   "sampler_name": "euler",
+   "scheduler": "simple",
+   "start_at_step": 3,
+   "end_at_step": 10000,
+   "return_with_leftover_noise": "disable",
+   "model": [
+    "12",
+    0
+   ],
+   "positive": [
+    "26",
+    0
+   ],
+   "negative": [
+    "26",
+    1
+   ],
+   "latent_image": [
+    "27",
+    0
+   ]
+  },
+  "class_type": "KSamplerAdvanced",
+  "_meta": {
+   "title": "LOW noise steps 3-6 (seg 1)"
+  }
+ },
+ "29": {
+  "inputs": {
+   "samples": [
+    "28",
+    0
+   ],
+   "vae": [
+    "14",
+    0
+   ]
+  },
+  "class_type": "VAEDecode",
+  "_meta": {
+   "title": "Decode 1"
+  }
+ },
+ "31": {
+  "inputs": {
+   "string_a": [
+    "20",
+    0
+   ],
+   "string_b": [
+    "73",
+    0
+   ],
+   "delimiter": " "
+  },
+  "class_type": "StringConcatenate",
+  "_meta": {
+   "title": "Global + segment 2"
+  }
+ },
+ "32": {
+  "inputs": {
+   "text": [
+    "31",
+    0
+   ],
+   "clip": [
+    "13",
+    0
+   ]
+  },
+  "class_type": "CLIPTextEncode",
+  "_meta": {
+   "title": "Positive 2"
+  }
+ },
+ "33": {
+  "inputs": {
+   "length": 33,
+   "motion_latent_count": 1,
+   "positive": [
+    "32",
+    0
+   ],
+   "negative": [
+    "21",
+    0
+   ],
+   "anchor_samples": [
+    "22",
+    0
+   ],
+   "prev_samples": [
+    "28",
+    0
+   ]
+  },
+  "class_type": "WanImageToVideoSVIPro",
+  "_meta": {
+   "title": "SVI Pro conditioning 2"
+  }
+ },
+ "34": {
+  "inputs": {
+   "add_noise": "enable",
+   "noise_seed": [
+    "18",
+    0
+   ],
+   "steps": 6,
+   "cfg": 1,
+   "sampler_name": "euler",
+   "scheduler": "simple",
+   "start_at_step": 0,
+   "end_at_step": 3,
+   "return_with_leftover_noise": "enable",
+   "model": [
+    "11",
+    0
+   ],
+   "positive": [
+    "33",
+    0
+   ],
+   "negative": [
+    "33",
+    1
+   ],
+   "latent_image": [
+    "33",
+    2
+   ]
+  },
+  "class_type": "KSamplerAdvanced",
+  "_meta": {
+   "title": "HIGH noise steps 0-3 (seg 2)"
+  }
+ },
+ "35": {
+  "inputs": {
+   "add_noise": "disable",
+   "noise_seed": 0,
+   "steps": 6,
+   "cfg": 1,
+   "sampler_name": "euler",
+   "scheduler": "simple",
+   "start_at_step": 3,
+   "end_at_step": 10000,
+   "return_with_leftover_noise": "disable",
+   "model": [
+    "12",
+    0
+   ],
+   "positive": [
+    "33",
+    0
+   ],
+   "negative": [
+    "33",
+    1
+   ],
+   "latent_image": [
+    "34",
+    0
+   ]
+  },
+  "class_type": "KSamplerAdvanced",
+  "_meta": {
+   "title": "LOW noise steps 3-6 (seg 2)"
+  }
+ },
+ "36": {
+  "inputs": {
+   "samples": [
+    "35",
+    0
+   ],
+   "vae": [
+    "14",
+    0
+   ]
+  },
+  "class_type": "VAEDecode",
+  "_meta": {
+   "title": "Decode 2"
+  }
+ },
+ "38": {
+  "inputs": {
+   "string_a": [
+    "20",
+    0
+   ],
+   "string_b": [
+    "74",
+    0
+   ],
+   "delimiter": " "
+  },
+  "class_type": "StringConcatenate",
+  "_meta": {
+   "title": "Global + segment 3"
+  }
+ },
+ "39": {
+  "inputs": {
+   "text": [
+    "38",
+    0
+   ],
+   "clip": [
+    "13",
+    0
+   ]
+  },
+  "class_type": "CLIPTextEncode",
+  "_meta": {
+   "title": "Positive 3"
+  }
+ },
+ "40": {
+  "inputs": {
+   "length": 33,
+   "motion_latent_count": 1,
+   "positive": [
+    "39",
+    0
+   ],
+   "negative": [
+    "21",
+    0
+   ],
+   "anchor_samples": [
+    "22",
+    0
+   ],
+   "prev_samples": [
+    "35",
+    0
+   ]
+  },
+  "class_type": "WanImageToVideoSVIPro",
+  "_meta": {
+   "title": "SVI Pro conditioning 3"
+  }
+ },
+ "41": {
+  "inputs": {
+   "add_noise": "enable",
+   "noise_seed": [
+    "18",
+    0
+   ],
+   "steps": 6,
+   "cfg": 1,
+   "sampler_name": "euler",
+   "scheduler": "simple",
+   "start_at_step": 0,
+   "end_at_step": 3,
+   "return_with_leftover_noise": "enable",
+   "model": [
+    "11",
+    0
+   ],
+   "positive": [
+    "40",
+    0
+   ],
+   "negative": [
+    "40",
+    1
+   ],
+   "latent_image": [
+    "40",
+    2
+   ]
+  },
+  "class_type": "KSamplerAdvanced",
+  "_meta": {
+   "title": "HIGH noise steps 0-3 (seg 3)"
+  }
+ },
+ "42": {
+  "inputs": {
+   "add_noise": "disable",
+   "noise_seed": 0,
+   "steps": 6,
+   "cfg": 1,
+   "sampler_name": "euler",
+   "scheduler": "simple",
+   "start_at_step": 3,
+   "end_at_step": 10000,
+   "return_with_leftover_noise": "disable",
+   "model": [
+    "12",
+    0
+   ],
+   "positive": [
+    "40",
+    0
+   ],
+   "negative": [
+    "40",
+    1
+   ],
+   "latent_image": [
+    "41",
+    0
+   ]
+  },
+  "class_type": "KSamplerAdvanced",
+  "_meta": {
+   "title": "LOW noise steps 3-6 (seg 3)"
+  }
+ },
+ "43": {
+  "inputs": {
+   "samples": [
+    "42",
+    0
+   ],
+   "vae": [
+    "14",
+    0
+   ]
+  },
+  "class_type": "VAEDecode",
+  "_meta": {
+   "title": "Decode 3"
+  }
+ },
+ "44": {
+  "inputs": {
+   "overlap": 5,
+   "overlap_side": "source",
+   "overlap_mode": "linear_blend",
+   "source_images": [
+    "29",
+    0
+   ],
+   "new_images": [
+    "36",
+    0
+   ]
+  },
+  "class_type": "ImageBatchExtendWithOverlap",
+  "_meta": {
+   "title": "Join segment 2 (5-frame blend)"
+  }
+ },
+ "45": {
+  "inputs": {
+   "overlap": 5,
+   "overlap_side": "source",
+   "overlap_mode": "linear_blend",
+   "source_images": [
+    "44",
+    2
+   ],
+   "new_images": [
+    "43",
+    0
+   ]
+  },
+  "class_type": "ImageBatchExtendWithOverlap",
+  "_meta": {
+   "title": "Join segment 3 (5-frame blend)"
+  }
+ },
+ "46": {
+  "inputs": {
+   "select": [
+    "19",
+    0
+   ],
+   "sel_mode": false,
+   "input1": [
+    "29",
+    0
+   ],
+   "input2": [
+    "44",
+    2
+   ],
+   "input3": [
+    "45",
+    2
+   ]
+  },
+  "class_type": "ImpactSwitch",
+  "_meta": {
+   "title": "SEGMENT SWITCH - final frames (only the chosen segments are rendered)"
+  }
+ },
+ "47": {
+  "inputs": {
+   "frame_rate": 16,
+   "loop_count": 0,
+   "filename_prefix": "YugiohCutin/preview_seg1",
+   "format": "video/h264-mp4",
+   "pix_fmt": "yuv420p",
+   "crf": 23,
+   "save_metadata": false,
+   "trim_to_audio": false,
+   "pingpong": false,
+   "save_output": false,
+   "images": [
+    "29",
+    0
+   ]
+  },
+  "class_type": "VHS_VideoCombine",
+  "_meta": {
+   "title": "PREVIEW segment 1 (not saved)"
+  }
+ },
+ "48": {
+  "inputs": {
+   "select": [
+    "19",
+    0
+   ],
+   "sel_mode": false,
+   "input1": [
+    "29",
+    0
+   ],
+   "input2": [
+    "36",
+    0
+   ],
+   "input3": [
+    "36",
+    0
+   ]
+  },
+  "class_type": "ImpactSwitch",
+  "_meta": {
+   "title": "Preview switch 2"
+  }
+ },
+ "49": {
+  "inputs": {
+   "frame_rate": 16,
+   "loop_count": 0,
+   "filename_prefix": "YugiohCutin/preview_seg2",
+   "format": "video/h264-mp4",
+   "pix_fmt": "yuv420p",
+   "crf": 23,
+   "save_metadata": false,
+   "trim_to_audio": false,
+   "pingpong": false,
+   "save_output": false,
+   "images": [
+    "48",
+    0
+   ]
+  },
+  "class_type": "VHS_VideoCombine",
+  "_meta": {
+   "title": "PREVIEW segment 2 (not saved) - replays an earlier one if this segment is switched off"
+  }
+ },
+ "50": {
+  "inputs": {
+   "select": [
+    "19",
+    0
+   ],
+   "sel_mode": false,
+   "input1": [
+    "29",
+    0
+   ],
+   "input2": [
+    "36",
+    0
+   ],
+   "input3": [
+    "43",
+    0
+   ]
+  },
+  "class_type": "ImpactSwitch",
+  "_meta": {
+   "title": "Preview switch 3"
+  }
+ },
+ "51": {
+  "inputs": {
+   "frame_rate": 16,
+   "loop_count": 0,
+   "filename_prefix": "YugiohCutin/preview_seg3",
+   "format": "video/h264-mp4",
+   "pix_fmt": "yuv420p",
+   "crf": 23,
+   "save_metadata": false,
+   "trim_to_audio": false,
+   "pingpong": false,
+   "save_output": false,
+   "images": [
+    "50",
+    0
+   ]
+  },
+  "class_type": "VHS_VideoCombine",
+  "_meta": {
+   "title": "PREVIEW segment 3 (not saved) - replays an earlier one if this segment is switched off"
+  }
+ },
+ "52": {
+  "inputs": {
+   "frame_rate": 16,
+   "loop_count": 0,
+   "filename_prefix": "YugiohCutin/raw_16fps",
+   "format": "video/h264-mp4",
+   "pix_fmt": "yuv420p",
+   "crf": 19,
+   "save_metadata": true,
+   "trim_to_audio": false,
+   "pingpong": false,
+   "save_output": true,
+   "images": [
+    "46",
+    0
+   ]
+  },
+  "class_type": "VHS_VideoCombine",
+  "_meta": {
+   "title": "RAW preview 16 fps (appears first)"
+  }
+ },
+ "53": {
+  "inputs": {
+   "upscaling_mode": "1.5x (Quality)",
+   "nr_preset": "Default",
+   "nr_style": "Cinematic",
+   "nr_intensity": 1,
+   "local_tone_strength": 1,
+   "local_structure_strength": 1.5,
+   "skin_structure_strength": 2,
+   "automatic_mask": true,
+   "dlss_model_preset": "M",
+   "motion": "auto",
+   "scene_change_threshold": 0.24,
+   "warmup_frames": 0,
+   "runtime_dir": ""
+  },
+  "class_type": "DLSS5Settings",
+  "_meta": {
+   "title": "DLSS 5 settings (1.5x: 720p -> 1080p)"
+  }
+ },
+ "54": {
+  "inputs": {
+   "verify_neural_rendering": true,
+   "images": [
+    "46",
+    0
+   ],
+   "settings": [
+    "53",
+    0
+   ]
+  },
+  "class_type": "DLSS5EnhanceImages",
+  "_meta": {
+   "title": "DLSS 5 upscale 1.5x (Ctrl+B to skip)"
+  }
+ },
+ "55": {
+  "inputs": {
+   "ckpt_name": "rife49.pth",
+   "clear_cache_after_n_frames": 10,
+   "multiplier": 2,
+   "fast_mode": true,
+   "ensemble": true,
+   "scale_factor": 1,
+   "frames": [
+    "54",
+    0
+   ]
+  },
+  "class_type": "RIFE VFI",
+  "_meta": {
+   "title": "Frame generation 16 -> 32 fps (Ctrl+B to skip)"
+  }
+ },
+ "56": {
+  "inputs": {
+   "frame_rate": 32,
+   "loop_count": 0,
+   "filename_prefix": "YugiohCutin/final_32fps",
+   "format": "video/h264-mp4",
+   "pix_fmt": "yuv420p",
+   "crf": 17,
+   "save_metadata": true,
+   "trim_to_audio": false,
+   "pingpong": false,
+   "save_output": true,
+   "images": [
+    "55",
+    0
+   ]
+  },
+  "class_type": "VHS_VideoCombine",
+  "_meta": {
+   "title": "FINAL 32 fps, 3x resolution"
+  }
+ },
+ "59": {
+  "inputs": {
+   "value": "The horned demon woman floats in the air and raises her head to look straight into the camera with a confident smile, her red eyes glowing. Her huge dark red bat wings beat once, wide and powerful. Her long pink and red hair flows in the wind. The blue flames below her flicker and rise, small black bats flutter past in the background. The camera pushes in a little."
+  },
+  "class_type": "PrimitiveStringMultiline",
+  "_meta": {
+   "title": "YOUR IDEA FOR THE WHOLE CLIP - plain words. The LLM splits it into the segments and writes the WAN prompts."
+  }
+ },
+ "60": {
+  "inputs": {
+   "value": 1
+  },
+  "class_type": "PrimitiveInt",
+  "_meta": {
+   "title": "PROMPT WRITER MODE:   1 = off    2 = Gemini (falls back to the local LLM if Gemini fails or blocks)    3 = Local LLM (offline)"
+  }
+ },
+ "61": {
+  "inputs": {
+   "value": ""
+  },
+  "class_type": "PrimitiveStringMultiline",
+  "_meta": {
+   "title": "GEMINI API KEY - leave EMPTY when GOOGLE_API_KEY is set in launch.bat (keys typed here get saved into the workflow and output files)"
+  }
+ },
+ "62": {
+  "inputs": {
+   "value": "You are the shot planner and prompt writer for the WAN 2.2 image-to-video model. You are given the FIRST FRAME of the video (the attached image), the number N of consecutive 5-second segments (1 to 3), and the user's plain idea for the WHOLE clip. Split the idea into N consecutive phases and write one WAN 2.2 prompt per phase.\n\nPLANNING\nA. Spread the user's idea over the N segments in chronological order: a beginning, a development, a finish. If the idea is short or simple, do not repeat the same action N times - build a natural progression of it (start, escalate, resolve).\nB. Segment 1 starts from the exact pose in the image. Every later segment must begin with the words \"Continuing the motion,\" and start where the previous segment ended, without re-introducing the subject.\nC. Use a different camera instruction in each segment when it suits the idea. If the user names camera moves, keep them and place them in the right phase.\nD. The final segment ends in a clear, settled pose or shot.\n\nWRITING (applies to every segment prompt)\n1. The image already defines who the subject is, what they wear and where they are. Do not re-describe appearance, clothing or background. Refer to the subject in two or three words based on what you see (for example: the woman, the armored knight, the robot).\n2. Spend the words on MOTION: what the subject's body does, in order, with concrete physical verbs (steps, spins, kicks, raises, swings, leans, drops, tosses hair). Two or three beats per segment - they must fit in 5 seconds.\n3. State the speed explicitly (quick, rapid, snappy, energetic, explosive) unless the idea asks for slow motion. Never use: slowly, gently, subtly, slightly, softly, still, static pose.\n4. Add secondary motion: hair, clothing, props and the environment reacting.\n5. Exactly one camera instruction per segment, in standard film terms: fixed shot, camera pushes in, camera pulls back, pans left or right, tilts up or down, orbits around the subject, tracking shot, handheld, crane up or down.\n6. At most one short lighting or atmosphere phrase per segment, only if the idea asks for it.\n7. Positive phrasing only: describe what happens, never what should not happen.\n8. Stay faithful to the user's idea and intent. Do not invent unrelated story events.\n9. Each prompt: present tense, plain English, ONE paragraph of 50 to 90 words.\n\nOUTPUT FORMAT - follow it exactly, with nothing before or after:\n<<1>> prompt for segment 1\n<<2>> prompt for segment 2\n<<3>> prompt for segment 3\n<<END>>\nAlways print all three markers and <<END>>. If N is smaller than 3, write a single dash - for each unused segment. No titles, no quotes, no markdown, no explanations."
+  },
+  "class_type": "PrimitiveStringMultiline",
+  "_meta": {
+   "title": "SHOT-PLANNING + WAN PROMPT RULES (system instruction for the LLM - edit to taste)"
+  }
+ },
+ "63": {
+  "inputs": {
+   "prefix": "NUMBER OF 5-SECOND SEGMENTS (N): ",
+   "suffix": "  ||  THE USER'S IDEA FOR THE WHOLE CLIP: ",
+   "input": [
+    "19",
+    0
+   ]
+  },
+  "class_type": "SomethingToString",
+  "_meta": {
+   "title": "Request: number of segments"
+  }
+ },
+ "64": {
+  "inputs": {
+   "string_a": [
+    "63",
+    0
+   ],
+   "string_b": [
+    "59",
+    0
+   ],
+   "delimiter": ""
+  },
+  "class_type": "StringConcatenate",
+  "_meta": {
+   "title": "Request sent to the LLM"
+  }
+ },
+ "65": {
+  "inputs": {
+   "string_a": "<<1>> ",
+   "string_b": [
+    "59",
+    0
+   ],
+   "delimiter": ""
+  },
+  "class_type": "StringConcatenate",
+  "_meta": {
+   "title": "Fallback 1"
+  }
+ },
+ "66": {
+  "inputs": {
+   "string_a": [
+    "65",
+    0
+   ],
+   "string_b": [
+    "59",
+    0
+   ],
+   "delimiter": " <<2>> "
+  },
+  "class_type": "StringConcatenate",
+  "_meta": {
+   "title": "Fallback 2"
+  }
+ },
+ "67": {
+  "inputs": {
+   "string_a": [
+    "66",
+    0
+   ],
+   "string_b": [
+    "59",
+    0
+   ],
+   "delimiter": " <<3>> "
+  },
+  "class_type": "StringConcatenate",
+  "_meta": {
+   "title": "Fallback 3"
+  }
+ },
+ "68": {
+  "inputs": {
+   "string_a": [
+    "67",
+    0
+   ],
+   "string_b": " <<END>>",
+   "delimiter": ""
+  },
+  "class_type": "StringConcatenate",
+  "_meta": {
+   "title": "Fallback = plain idea for all segments"
+  }
+ },
+ "69": {
+  "inputs": {
+   "prompt": [
+    "64",
+    0
+   ],
+   "safety_settings": "BLOCK_NONE",
+   "response_type": "text",
+   "model": "gemini-2.5-flash",
+   "api_key": [
+    "61",
+    0
+   ],
+   "proxy": "",
+   "system_instruction": [
+    "62",
+    0
+   ],
+   "error_fallback_value": [
+    "79",
+    0
+   ],
+   "seed": 1000,
+   "temperature": 0.7,
+   "num_predict": 0,
+   "image_1": [
+    "16",
+    0
+   ]
+  },
+  "class_type": "Ask_Gemini",
+  "_meta": {
+   "title": "Gemini plans the clip and writes all WAN prompts (one call) - on failure the local LLM takes over"
+  }
+ },
+ "70": {
+  "inputs": {
+   "select": [
+    "60",
+    0
+   ],
+   "sel_mode": false,
+   "input1": [
+    "68",
+    0
+   ],
+   "input3": [
+    "79",
+    0
+   ],
+   "input2": [
+    "69",
+    0
+   ]
+  },
+  "class_type": "ImpactSwitch",
+  "_meta": {
+   "title": "MODE SWITCH  (1 plain / 2 Gemini / 3 local)"
+  }
+ },
+ "71": {
+  "inputs": {
+   "source": [
+    "70",
+    0
+   ]
+  },
+  "class_type": "PreviewAny",
+  "_meta": {
+   "title": "LLM ANSWER - all segment prompts as written (check here what WAN will get)"
+  }
+ },
+ "72": {
+  "inputs": {
+   "string": [
+    "70",
+    0
+   ],
+   "regex_pattern": "<<1>>\\s*(.*?)\\s*(?:<<2>>|<<3>>|<<END>>|\\n\\s*END\\s*$|$)",
+   "mode": "First Group",
+   "case_insensitive": true,
+   "multiline": false,
+   "dotall": true,
+   "group_index": 1
+  },
+  "class_type": "RegexExtract",
+  "_meta": {
+   "title": "SEGMENT 1 PROMPT (cut out of the LLM answer)"
+  }
+ },
+ "73": {
+  "inputs": {
+   "string": [
+    "70",
+    0
+   ],
+   "regex_pattern": "<<2>>\\s*(.*?)\\s*(?:<<3>>|<<END>>|\\n\\s*END\\s*$|$)",
+   "mode": "First Group",
+   "case_insensitive": true,
+   "multiline": false,
+   "dotall": true,
+   "group_index": 1
+  },
+  "class_type": "RegexExtract",
+  "_meta": {
+   "title": "SEGMENT 2 PROMPT (cut out of the LLM answer)"
+  }
+ },
+ "74": {
+  "inputs": {
+   "string": [
+    "70",
+    0
+   ],
+   "regex_pattern": "<<3>>\\s*(.*?)\\s*(?:<<END>>|\\n\\s*END\\s*$|$)",
+   "mode": "First Group",
+   "case_insensitive": true,
+   "multiline": false,
+   "dotall": true,
+   "group_index": 1
+  },
+  "class_type": "RegexExtract",
+  "_meta": {
+   "title": "SEGMENT 3 PROMPT (cut out of the LLM answer)"
+  }
+ },
+ "75": {
+  "inputs": {
+   "clip_name": "qwen_3_4b_abliterated_bf16.safetensors",
+   "type": "lumina2",
+   "device": "default"
+  },
+  "class_type": "CLIPLoader",
+  "_meta": {
+   "title": "LOCAL LLM model: Qwen3-4B abliterated (uncensored). Stock alternative: qwen_3_4b.safetensors"
+  }
+ },
+ "76": {
+  "inputs": {
+   "string_a": [
+    "62",
+    0
+   ],
+   "string_b": [
+    "64",
+    0
+   ],
+   "delimiter": "  ||  REQUEST: "
+  },
+  "class_type": "StringConcatenate",
+  "_meta": {
+   "title": "Local request = rules + request"
+  }
+ },
+ "77": {
+  "inputs": {
+   "string_a": [
+    "76",
+    0
+   ],
+   "string_b": "  ||  IMPORTANT: you cannot see the image. Never mention any color, hair, clothing, armor, body feature, lighting, stage or location that is not stated in the user's idea. Call the subject only by the word the user uses. Describe only movement, speed, secondary motion and the camera. /no_think",
+   "delimiter": ""
+  },
+  "class_type": "StringConcatenate",
+  "_meta": {
+   "title": "... + blind-model guard + /no_think (skips Qwen's thinking phase)"
+  }
+ },
+ "78": {
+  "inputs": {
+   "prompt": [
+    "77",
+    0
+   ],
+   "max_length": 900,
+   "sampling_mode": "on",
+   "sampling_mode.temperature": 0.7,
+   "sampling_mode.top_k": 64,
+   "sampling_mode.top_p": 0.95,
+   "sampling_mode.min_p": 0.05,
+   "sampling_mode.repetition_penalty": 1.05,
+   "sampling_mode.seed": 1,
+   "sampling_mode.presence_penalty": 0,
+   "thinking": false,
+   "use_default_template": true,
+   "mtp": "auto",
+   "clip": [
+    "75",
+    0
+   ]
+  },
+  "class_type": "TextGenerate",
+  "_meta": {
+   "title": "LOCAL LLM plans the clip and writes all WAN prompts"
+  }
+ },
+ "79": {
+  "inputs": {
+   "string": [
+    "78",
+    0
+   ],
+   "regex_pattern": "<think>.*?</think>\\s*",
+   "replace": "",
+   "case_insensitive": true,
+   "multiline": false,
+   "dotall": true,
+   "count": 0
+  },
+  "class_type": "RegexReplace",
+  "_meta": {
+   "title": "Remove the empty <think> block"
+  }
+ }
+}

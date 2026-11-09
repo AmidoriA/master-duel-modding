@@ -2,7 +2,8 @@
 name: monster-cutin
 description: >-
   Creates and installs custom Master Duel Monster Cut-ins (summon animations) for a card, built
-  from the card's own art with ComfyUI and Spine, and restores them after game updates. Use when
+  from the card's own art with ComfyUI and Spine, or from a WAN 2.2 image-to-video clip, and
+  restores them after game updates. Use when
   the user asks to add, make, redo, borrow, preview, restore, re-apply, list or remove a summon
   animation / cut-in / summon cut-in for a card, or says a game update removed their cut-ins.
 ---
@@ -20,6 +21,10 @@ Tools (Python 3 with `UnityPy`, `etcpak`, `numpy`, `Pillow`):
 - `scripts/cutin/scene_kit.py` builds a cut-in (layers, atlases, Spine 4.2 JSON, preview) from a scene file.
 - `scripts/cutin/scenes/<slug>_<id>.py` holds one card's art prompts and animation. Copy
   `magicians_rod_12418.py` (approved in game) to start a new one.
+- Video cut-ins (see "Video cut-in" below): `scene_still.py` renders a 16:9 start image, `comfy_video.py`
+  runs the **Yu-Gi-Oh cut-in** ComfyUI workflow (WAN 2.2 image-to-video), and `video_cutin.py` turns the
+  clip into cut-in content. The workflow is in `workflows/` next to this file: `Yu-Gi-Oh cut-in.json` to
+  load in ComfyUI, `yugioh_cutin_api.json` for `comfy_video.py`.
 
 ## Hard rules
 
@@ -146,6 +151,64 @@ are backed up (and backed up again after an update changes them); `remove --card
 **8.** Ask the user to test it in game.
 
 **9.** Commit `scripts/cutin/scenes/<scene>.py` (and any `scene_kit.py` improvements). Do not commit images.
+
+## Video cut-in (WAN 2.2 image-to-video)
+
+A full-screen cut-in made from a 2 s AI video of the card's character, played as a Spine flipbook
+(approved in game on Azamina Mu Rcielago, 20507). The hard rules above still apply: preview before
+patch, game closed, never commit generated images or videos, and **exactly 2.0 s**.
+
+```
+Video cut-in Progress:
+- [ ] 1. Card + art as in steps 1-2 above
+- [ ] 2. 16:9 start image of the character at the cut-in framing; show it to the user
+- [ ] 3. Write the motion idea; run the workflow; look at the frames yourself
+- [ ] 4. video_cutin.py; show preview.mp4; get explicit approval
+- [ ] 5. Close the game; apply --preview-approved; verify; user tests in game
+```
+
+**2. Start image (1920x1080).** WAN keeps the start image's aspect and identity, so this frame decides
+the look. For a card that already has a scene, render it (uses `<work>/layers_src/bgup.png` as the
+background behind the band, or `--background`):
+```
+python scripts/cutin/scene_still.py scripts/cutin/scenes/<scene>.py --work <work> --out <work>\video\start.png --t 1.0
+```
+Otherwise make a 16:9 picture from the art (hero cut-out over a widened background, as in a scene's
+layers). Keep the face and key moments above the bottom ~23% (name and ATK/DEF bar).
+
+**3. Video.** ComfyUI must be running; `comfy_video.py` uploads the image, queues the workflow and
+downloads the final mp4 (plus a `.json` with the seed and prompts):
+```
+python scripts/cutin/comfy_video.py --image <work>\video\start.png --out <work>\video\wan.mp4 --idea "<motion>" [--global "<subject, style, camera>"] [--seed N]
+```
+- Defaults (tested): **720p** generation (0.88 MP, 1280x720) + **DLSS 1.5x** -> 1920x1080, one segment of
+  33 frames at 16 fps, RIFE to 65 frames at 32 fps (2.03 s). About 100 s on the RTX 5080.
+  480p + DLSS 3x (`--megapixels 0.38 --dlss "3x (Ultra Performance)"`) takes ~50 s but smears the face and
+  lost the head of Azamina's spear; use it only for quick motion tests.
+- The GLOBAL PROMPT asks for the same character and art style, centred, static camera. `--idea` is the
+  motion for these 2 s: one or two actions (look into the camera, one wing beat, hair and flames moving,
+  a slight push-in). The workflow's READ ME says "slowly" / "gently" really slow WAN down; the user wants a
+  calm pace, so keep motion calm but describe it with concrete verbs.
+- Check frames from the start, middle and end at full size: face, hands, weapons and props must stay
+  intact. Colours drift slightly pinker/lower-contrast after the first frame; re-roll the seed if the
+  character changes.
+- The workflow's prompt writer (Gemini / local LLM) stays off (mode 1). The repo copy has an empty Gemini
+  key box; never commit a key (the UI JSON also stores widget values under `widgets_values_named`).
+
+**4. Content + preview.**
+```
+python scripts/cutin/video_cutin.py <work>\video\wan.mp4 --card <id> --name "<name>" --out <work>\video\out
+```
+It spreads the clip over 2.0 s at 30 fps (60 frames), packs them on one sheet (11544x10840 for 1080p,
+2 px bled gutters), sizes the attachment to the game camera (+3% overscan) and writes `preview.mp4`,
+`preview.gif` and `preview_sheet.png` at the in-game framing. For an exact check run `spine_preview/serve.py`
+on the out folder (`--skeleton skeleton.json --atlas hd.atlas --page-alias P19172.png=hd.png --prefab-scale 0.24`).
+Show `preview.mp4` to the user and wait for approval.
+
+**5. Install** as in step 7 above (`apply ... --preview-approved`, then `verify`). Encoding the BC7 sheets
+takes about a minute per video cut-in, and the HD bundle is about 90 MB. Before replacing an existing
+custom cut-in, copy `%LOCALAPPDATA%\Floowan\cutins\content\<id>` into the work folder so the user can switch
+back with `apply --content <copy> --preview-approved`.
 
 ## Borrow an existing cut-in
 

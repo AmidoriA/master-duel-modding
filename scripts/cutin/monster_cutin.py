@@ -41,6 +41,9 @@ import time
 import zlib
 
 import UnityPy
+from PIL import Image as _PILImage
+
+_PILImage.MAX_IMAGE_PIXELS = None   # video cut-in sheets are ~125 MP (11544x10840) on purpose
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = os.environ.get("FLOOWAN_CUTIN_DATA") or os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Floowan", "cutins")
