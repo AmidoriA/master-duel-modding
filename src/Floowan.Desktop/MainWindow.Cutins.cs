@@ -37,8 +37,15 @@ public partial class MainWindow
     private HashSet<int>? _cutinOfficialIds;
     private bool _cutinTimerHooked;
 
+    /// <summary>
+    /// The Cut-ins tab is not production ready yet: hidden unless FLOOWAN_CUTINS=1 is set (for testing).
+    /// Tools > After game patch still restores cut-ins that are already registered.
+    /// </summary>
+    private static bool CutinTabEnabled => Environment.GetEnvironmentVariable("FLOOWAN_CUTINS") == "1";
+
     private void ApplyCutinLocalizedUi()
     {
+        CutinTab.Visibility = CutinTabEnabled ? Visibility.Visible : Visibility.Collapsed;
         CutinTab.Header = Loc.T("tabs.cutins");
         CutinInstalledHeader.Text = Loc.T("cutins.installed_header");
         CutinInstalledHelpText.Text = Loc.T("cutins.installed_help");
