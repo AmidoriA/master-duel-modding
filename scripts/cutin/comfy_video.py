@@ -64,7 +64,9 @@ def main():
         if p.get(nid, {}).get("class_type") != cls:
             sys.exit(f"workflow node {nid} is not {cls} ({key}); re-export yugioh_cutin_api.json")
     seed = a.seed if a.seed is not None else random.randint(1, 2 ** 48)
-    p["15"]["inputs"]["image"] = upload(a.image, "yugioh_cutin_" + os.path.basename(a.image))
+    # unique name: ComfyUI reads the file when the job runs, so a shared name lets a later upload replace
+    # the start image of a job that is still queued
+    p["15"]["inputs"]["image"] = upload(a.image, f"yugioh_cutin_{uuid.uuid4().hex[:12]}_{os.path.basename(a.image)}")
     p["18"]["inputs"]["value"] = seed
     p["19"]["inputs"]["value"] = 1
     p["60"]["inputs"]["value"] = 1
