@@ -31,6 +31,7 @@ public partial class MainWindow
         ImportExportTab.Header = Loc.T("tabs.import_export");
         OptionsTab.Header = Loc.T("tabs.options");
         AboutTab.Header = Loc.T("tabs.about");
+        ApplyCutinLocalizedUi();
 
         CardArtCardsHeader.Text = Loc.T("card_art.cards");
         CardArtSearchButton.Content = Loc.T("common.search");

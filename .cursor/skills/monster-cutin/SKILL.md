@@ -156,6 +156,15 @@ all of them; bump `BUILD_VERSION` when a change to `build_custom` / `build_borro
 
 **9.** Commit `scripts/cutin/scenes/<scene>.py` (and any `scene_kit.py` improvements). Do not commit images.
 
+## The app's Cut-ins tab
+
+Floowan has the same tooling built in (C#, `Floowan.Core.Cutins`), for users without Python: a Cut-ins
+tab that turns a video into a 2.0 s cut-in with a looping preview (name/ATK bar area marked), installs,
+removes, restores after updates (also part of Tools → After game patch) and exports/imports `.cutins`
+packs. It reads and writes the same registry and build keys as `monster_cutin.py`, so cut-ins made with
+either tool show up in both and are not rebuilt needlessly. Keep `BUILD_VERSION` in `monster_cutin.py` and
+`CutinInstaller.BuildVersion` equal. Generating the video itself (ComfyUI, below) stays outside the app.
+
 ## Video cut-in (WAN 2.2 image-to-video)
 
 A full-screen cut-in made from a 2 s AI video of the card's character, played as a Spine flipbook

@@ -314,6 +314,119 @@
         </Grid>
       </TabItem>
 
+      <TabItem x:Name="CutinTab" Header="Cut-ins">
+        <Grid Margin="0,8,0,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="12"/>
+            <ColumnDefinition Width="1.35*"/>
+          </Grid.ColumnDefinitions>
+
+          <Border Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+            <DockPanel>
+              <TextBlock x:Name="CutinInstalledHeader" DockPanel.Dock="Top" Text="Installed cut-ins" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4"/>
+              <TextBlock x:Name="CutinInstalledHelpText" DockPanel.Dock="Top" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"
+                         Text="Summon animations added to cards, by this app or by the cut-in scripts. Game updates reset them: Restore all puts them back."/>
+              <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                <Button x:Name="CutinRefreshButton" Content="Refresh" Click="CutinRefresh_Click" Margin="0,0,6,6"/>
+                <Button x:Name="CutinRestoreAllButton" Content="Restore all" Click="CutinRestoreAll_Click" Background="{StaticResource AccentBrush}" Margin="0,0,6,6"
+                        ToolTip="Re-install every cut-in after a game update. Unchanged ones are kept, so this is quick."/>
+                <Button x:Name="CutinRemoveButton" Content="Remove selected" Click="CutinRemove_Click" Margin="0,0,6,6"
+                        ToolTip="Uninstall the selected cut-ins and put back the game's original files."/>
+                <Button x:Name="CutinExportButton" Content="Export pack…" Click="CutinExport_Click" Margin="0,0,6,6"
+                        ToolTip="Save the selected cut-ins (or all) as a .cutins file to share."/>
+                <Button x:Name="CutinImportButton" Content="Import pack…" Click="CutinImport_Click" Margin="0,0,6,6"
+                        ToolTip="Open a .cutins file and install its cut-ins on this PC."/>
+              </WrapPanel>
+              <TextBlock x:Name="CutinListStatusText" DockPanel.Dock="Bottom" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0"/>
+              <ListView x:Name="CutinList" SelectionMode="Extended" Background="#12161A" Foreground="{StaticResource TextBrush}" BorderBrush="#3A4652">
+                <ListView.Resources>
+                  <Style TargetType="GridViewColumnHeader">
+                    <Setter Property="Background" Value="#1E252C"/>
+                    <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+                    <Setter Property="BorderBrush" Value="#3A4652"/>
+                    <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                    <Setter Property="Padding" Value="6,3"/>
+                    <Setter Property="Template">
+                      <Setter.Value>
+                        <ControlTemplate TargetType="GridViewColumnHeader">
+                          <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="0,0,1,1">
+                            <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
+                          </Border>
+                        </ControlTemplate>
+                      </Setter.Value>
+                    </Setter>
+                  </Style>
+                </ListView.Resources>
+                <ListView.View>
+                  <GridView>
+                    <GridViewColumn x:Name="CutinColCard" Header="Card" Width="210" DisplayMemberBinding="{Binding Name}"/>
+                    <GridViewColumn x:Name="CutinColKind" Header="Kind" Width="110" DisplayMemberBinding="{Binding Kind}"/>
+                    <GridViewColumn x:Name="CutinColStatus" Header="Status" Width="140" DisplayMemberBinding="{Binding StatusText}"/>
+                  </GridView>
+                </ListView.View>
+              </ListView>
+            </DockPanel>
+          </Border>
+
+          <Border Grid.Column="2" Background="{StaticResource PanelBrush}" Padding="12" CornerRadius="4">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel>
+                <TextBlock x:Name="CutinNewHeader" Text="New cut-in from a video" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <TextBlock x:Name="CutinNewHelpText" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"
+                           Text="Pick a card and a video. The video fills the screen and always plays for 2.0 s: a longer clip is sped up, a shorter one slowed down. Check the preview before installing."/>
+                <DockPanel Margin="0,0,0,6">
+                  <TextBlock x:Name="CutinCardLabel" Text="Card" Width="70" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <Button x:Name="CutinSearchButton" DockPanel.Dock="Right" Content="Search" Click="CutinSearch_Click"/>
+                  <TextBox x:Name="CutinSearchBox" KeyDown="CutinSearchBox_KeyDown"/>
+                </DockPanel>
+                <ListBox x:Name="CutinCardList" Height="120" DisplayMemberPath="DisplayName" Margin="70,0,0,4"
+                         SelectionChanged="CutinCardList_SelectionChanged"/>
+                <TextBlock x:Name="CutinCardInfoText" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" Margin="70,0,0,8"/>
+                <DockPanel Margin="0,0,0,6">
+                  <TextBlock x:Name="CutinVideoLabel" Text="Video" Width="70" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                  <Button x:Name="CutinBrowseVideoButton" DockPanel.Dock="Right" Content="Browse…" Click="CutinBrowseVideo_Click"/>
+                  <TextBox x:Name="CutinVideoPathBox" TextChanged="CutinVideoPath_Changed"/>
+                </DockPanel>
+                <StackPanel Orientation="Horizontal" Margin="70,0,0,6">
+                  <TextBlock x:Name="CutinTrimLabel" Text="Use from" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="0,0,6,0"/>
+                  <TextBox x:Name="CutinStartBox" Width="60" Text="0"/>
+                  <TextBlock x:Name="CutinTrimToLabel" Text="s to" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="6,0,6,0"/>
+                  <TextBox x:Name="CutinEndBox" Width="60" ToolTip="Leave empty for the end of the video."/>
+                  <TextBlock x:Name="CutinTrimEndLabel" Text="s (empty = to the end)" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Margin="6,0,0,0"/>
+                </StackPanel>
+                <CheckBox x:Name="CutinReplaceOfficialBox" Content="Replace the card's official cut-in" IsEnabled="False" Margin="70,0,0,8" Foreground="{StaticResource TextBrush}"/>
+                <StackPanel Orientation="Horizontal" Margin="70,0,0,8">
+                  <Button x:Name="CutinBuildPreviewButton" Content="Build preview" Click="CutinBuildPreview_Click" Background="{StaticResource AccentBrush}" Margin="0,0,8,0"/>
+                  <Button x:Name="CutinInstallButton" Content="Install" Click="CutinInstall_Click" IsEnabled="False"
+                          ToolTip="Install this preview in the game (close the game first). The original files stay backed up."/>
+                </StackPanel>
+                <Border Background="#12161A" CornerRadius="4" Padding="6">
+                  <Viewbox Stretch="Uniform" MaxHeight="420">
+                    <Grid Width="960" Height="540">
+                      <Rectangle Fill="#282C34"/>
+                      <Image x:Name="CutinPreviewImage" Width="960" Height="540"/>
+                      <Border x:Name="CutinNameBarOverlay" VerticalAlignment="Bottom" Height="124" Background="#66000000"
+                              BorderBrush="#AAFFD54F" BorderThickness="0,2,0,0">
+                        <TextBlock x:Name="CutinNameBarText" Text="Card name and ATK/DEF bar" Foreground="#FFD54F" FontSize="22" Margin="12,8,0,0"/>
+                      </Border>
+                      <TextBlock x:Name="CutinPreviewEmptyText" Text="The preview appears here." Foreground="#8A96A3" FontSize="28"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Grid>
+                  </Viewbox>
+                </Border>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                  <Button x:Name="CutinPlayButton" Content="Pause" Click="CutinPlay_Click" IsEnabled="False" Margin="0,0,8,0"/>
+                  <CheckBox x:Name="CutinShowNameBarBox" Content="Show the name/ATK bar area" IsChecked="True" VerticalAlignment="Center"
+                            Foreground="{StaticResource TextBrush}" Checked="CutinShowNameBar_Changed" Unchecked="CutinShowNameBar_Changed"/>
+                </StackPanel>
+                <TextBlock x:Name="CutinPreviewInfoText" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" Margin="0,6,0,0"/>
+              </StackPanel>
+            </ScrollViewer>
+          </Border>
+        </Grid>
+      </TabItem>
+
       <TabItem x:Name="DatabaseTab" Header="Database">
         <Grid Margin="0,8,0,0">
           <Grid.RowDefinitions>
