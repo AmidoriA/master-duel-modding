@@ -147,6 +147,10 @@ This copies the content into the registry, clones the template's 16 bundles as `
 CAB names, swaps in the Spine data, and patches CardIndividualData and the manifest.
 For a card with an official cut-in, add `--override-official`. Konami's files that get replaced
 are backed up (and backed up again after an update changes them); `remove --card <id>` restores them.
+`apply`, `restore` and `remove` re-apply every registered cut-in, but only build the new or changed ones.
+The others keep their bundles when their build key is unchanged (template/donor bundles, manifest entries,
+content files, `BUILD_VERSION`) and each file is still byte for byte what was written. `--rebuild` builds
+all of them; bump `BUILD_VERSION` when a change to `build_custom` / `build_borrow` changes their output.
 
 **8.** Ask the user to test it in game.
 
@@ -173,8 +177,15 @@ background behind the band, or `--background`):
 ```
 python scripts/cutin/scene_still.py scripts/cutin/scenes/<scene>.py --work <work> --out <work>\video\start.png --t 1.0
 ```
-Otherwise make a 16:9 picture from the art (hero cut-out over a widened background, as in a scene's
-layers). Keep the face and key moments above the bottom ~23% (name and ATK/DEF bar).
+Otherwise make one from the art with Qwen-Image-Edit (ComfyUI). The art, cropped above the text box, goes
+in the middle of a grey 16:9 canvas; Qwen removes the card frame, keeps the character and extends the
+background (`--scenery` replaces it, e.g. the user wanted Diabellze in a snowy forest):
+```
+python scripts/cutin/scene_still.py --art <work>\art.png --out <work>\video\start.png --describe "<the character, its colours and props>" [--scenery "<new background>"] [--seed 7]
+```
+Compare the face, helmet and props with the art at full size. Qwen added a glowing orb to Diabellstar
+Vengeance's helmet at seed 7; "Do not add anything new to her helmet or face" plus seed 11 fixed it.
+Keep the face and key moments above the bottom ~23% (name and ATK/DEF bar).
 
 **3. Video.** ComfyUI must be running; `comfy_video.py` uploads the image, queues the workflow and
 downloads the final mp4 (plus a `.json` with the seed and prompts):
@@ -205,8 +216,9 @@ It spreads the clip over 2.0 s at 30 fps (60 frames), packs them on one sheet (1
 on the out folder (`--skeleton skeleton.json --atlas hd.atlas --page-alias P19172.png=hd.png --prefab-scale 0.24`).
 Show `preview.mp4` to the user and wait for approval.
 
-**5. Install** as in step 7 above (`apply ... --preview-approved`, then `verify`). Encoding the BC7 sheets
-takes about a minute per video cut-in, and the HD bundle is about 90 MB. Before replacing an existing
+**5. Install** as in step 7 above (`apply ... --preview-approved`, then `verify`). Encoding the new card's
+BC7 sheets takes about a minute (other cut-ins are kept, see step 7), and the HD bundle is about 90 MB.
+Installing several cards: `apply` each one; only that card is built each time. Before replacing an existing
 custom cut-in, copy `%LOCALAPPDATA%\Floowan\cutins\content\<id>` into the work folder so the user can switch
 back with `apply --content <copy> --preview-approved`.
 
