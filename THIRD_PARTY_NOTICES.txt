@@ -42,6 +42,29 @@ Floowandereeze and Modding (inspiration — please credit)
   comply with GPL-3.0 for that combined work.
 
 
+Vortice.MediaFoundation
+-----------------------
+- https://github.com/amerkoleci/Vortice.Windows
+- License: MIT
+- Windows Media Foundation bindings: decodes videos for video Monster Cut-ins.
+
+
+DirectXTex texconv (downloaded on first use, not bundled)
+--------------------------------------------------------
+- https://github.com/microsoft/DirectXTex
+- License: MIT (Copyright (c) Microsoft Corporation)
+- texconv.exe (release may2026) is downloaded once to %LOCALAPPDATA%\Floowan\tools
+  and checked against a pinned SHA-256. It encodes cut-in textures as BC7.
+
+
+Monster Cut-in method
+---------------------
+- "Cut-ins and Activation Effects for Any Card - Tools and Guide" by TLVv and Astra
+  (https://www.nexusmods.com/yugiohmasterduel/mods/2332): the video-to-flipbook
+  technique (one Spine slot swapping frames, Timeline length) used by the Cut-ins tab.
+  No code from the MD Cut-in Kit is included.
+
+
 SixLabors.ImageSharp
 --------------------
 - https://github.com/SixLabors/ImageSharp

@@ -11,6 +11,7 @@ using System.Windows.Navigation;
 using System.Windows.Threading;
 using Floowan.Core.Assets;
 using Floowan.Core.Backup;
+using Floowan.Core.Cutins;
 using Floowan.Core.Data;
 using Floowan.Core.Game;
 using Floowan.Core.Imaging;
@@ -864,6 +865,13 @@ public partial class MainWindow : Window
             var ofResult = await RunRestoreOverframesAsync(database, gamePath);
             var ofMessage = ofResult?.Message ?? ToolsRestoreOverframesStatusText.Text;
             var ok = ofResult is { Success: true };
+            if (CutinRegistry.Load().Entries.Count > 0)
+            {
+                // cut-ins: the update resets the game's cut-in list; put ours back (unchanged ones are kept)
+                var cutinMessage = CutinInstaller.IsGameRunning() ? Loc.T("cutins.close_game") : await RestoreCutinsAsync(gamePath);
+                if (cutinMessage is not null)
+                    ofMessage += Environment.NewLine + Environment.NewLine + cutinMessage;
+            }
             MessageBox.Show(
                 Loc.T("tools.after_patch_done", ToolsUpdateDbStatusText.Text, ofMessage),
                 AppCaption,
@@ -1560,6 +1568,12 @@ public partial class MainWindow : Window
         if (ToolsTab is not null && ReferenceEquals(MainTabs.SelectedItem, ToolsTab))
         {
             EnsureAndRefreshBackupBrowser();
+            return;
+        }
+
+        if (CutinTab is not null && ReferenceEquals(MainTabs.SelectedItem, CutinTab))
+        {
+            OnCutinTabSelected();
             return;
         }
 
