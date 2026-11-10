@@ -57,6 +57,7 @@ RESOURCE_TYPES = ("SD", "HighEnd_HD")
 # Shipped bundles use header flags 0x243 (LZ4HC block info | combined dir | padding-at-start).
 # We write 0x242 (LZ4, same decoder) with LZ4 data blocks.
 PACKER = (0x242, 2)
+BUILD_VERSION = 1    # bump when build_custom / build_borrow output changes, so every cut-in is rebuilt once
 CONTENT_FILES = ("skeleton.json", "hd.atlas", "sd.atlas", "hd.png", "sd.png", "meta.json", "preview.gif", "preview_sheet.png")
 
 
@@ -275,8 +276,7 @@ def build_borrow(player, src_id, dst_id, base_man, reg, override=False):
         out = bundle_file(player, dst_path)
         write_bytes(out, env.file.save(packer=PACKER), reg, override)
         files.append(out)
-        entries.append({"assetName": dst_path, "dependencies": list(by_name[src_path]["dependencies"])})
-    return entries, files
+    return borrow_entries(src_id, dst_id, base_man), files
 
 
 def anim_duration(skel):
@@ -354,13 +354,56 @@ def build_custom(player, tpl_id, dst_id, content, base_man, reg, override=False)
         out = bundle_file(player, v["new"])
         write_bytes(out, bf.save(packer=PACKER), reg, override)
         files.append(out)
-    entries = [{"assetName": ren(e["assetName"]), "dependencies": [ren(d) for d in e["dependencies"]]} for e in tpl_entries]
-    return entries, files
+    return custom_entries(tpl_id, dst_id, base_man), files
+
+
+def source_entries(c, base_man):
+    """Manifest entries a build reads: every template bundle (custom) or the donor's two root prefabs (borrow)."""
+    if c["mode"] == "custom":
+        prefix = CUTIN_DIR.format(id=c["template"])
+        return [e for e in base_man["informations"] if e["assetName"].startswith(prefix)]
+    names = {CUTIN_ROOT.format(id=c["src"], rt=rt) for rt in RESOURCE_TYPES}
+    return [e for e in base_man["informations"] if e["assetName"] in names]
+
+
+def custom_entries(tpl_id, dst_id, base_man):
+    s_tok, d_tok = f"P{tpl_id}", f"P{dst_id}"
+    return [{"assetName": e["assetName"].replace(s_tok, d_tok), "dependencies": [d.replace(s_tok, d_tok) for d in e["dependencies"]]}
+            for e in source_entries({"mode": "custom", "template": tpl_id}, base_man)]
+
+
+def borrow_entries(src_id, dst_id, base_man):
+    by_name = {e["assetName"]: e for e in base_man["informations"]}
+    return [{"assetName": CUTIN_ROOT.format(id=dst_id, rt=rt), "dependencies": list(by_name[CUTIN_ROOT.format(id=src_id, rt=rt)]["dependencies"])}
+            for rt in RESOURCE_TYPES]
+
+
+def build_key(player, c, dst, base_man, override):
+    """Hash of everything a cut-in's bundles are built from: the build code version, the card, the template /
+    donor bundles on disk and their manifest entries, and (custom) the content files. Same key = same output."""
+    h = hashlib.sha256(json.dumps([BUILD_VERSION, dst, c["mode"], c.get("template"), c.get("src"), bool(override)]).encode())
+    ents = source_entries(c, base_man)
+    h.update(json.dumps(ents, sort_keys=True).encode())
+    for e in ents:
+        f = bundle_file(player, e["assetName"])
+        h.update(sha256(f).encode() if os.path.exists(f) else b"missing")
+    if c["mode"] == "custom":
+        for name in CONTENT_FILES[:5]:          # skeleton.json, atlases, page textures
+            h.update(sha256(os.path.join(DATA_DIR, c["content"], name)).encode())
+    return h.hexdigest()
+
+
+def reusable(c, key, reg):
+    """The bundles from the last build can stay: same inputs, and every file is still exactly what we wrote."""
+    files = c.get("files") or []
+    return c.get("build_key") == key and bool(files) and all(os.path.exists(f) and sha256(f) == reg["written"].get(f) for f in files)
 
 
 # ================================================================== apply everything (idempotent)
 
-def apply_all(reg, player):
+def apply_all(reg, player, rebuild=False):
+    """Install every registered cut-in. A cut-in whose inputs are unchanged (build_key) and whose bundles
+    are still exactly what we wrote is kept as is; only new or changed ones are built (rebuild=True: all)."""
     if game_running():
         sys.exit("Master Duel is running. Close it first.")
     reg["player_dir"] = player
@@ -392,14 +435,23 @@ def apply_all(reg, player):
     new_entries, keep = [], set()
     for dst, c in active.items():
         ov = dst in replaced
-        if c["mode"] == "custom":
-            entries, files = build_custom(player, c["template"], dst, os.path.join(DATA_DIR, c["content"]), base_man, reg, ov)
+        t0 = time.time()
+        key = build_key(player, c, dst, base_man, ov)
+        if not rebuild and reusable(c, key, reg):
+            files = list(c["files"])
+            entries = custom_entries(c["template"], dst, base_man) if c["mode"] == "custom" else borrow_entries(c["src"], dst, base_man)
+            how = "unchanged, kept"
         else:
-            entries, files = build_borrow(player, c["src"], dst, base_man, reg, ov)
+            if c["mode"] == "custom":
+                entries, files = build_custom(player, c["template"], dst, os.path.join(DATA_DIR, c["content"]), base_man, reg, ov)
+            else:
+                entries, files = build_borrow(player, c["src"], dst, base_man, reg, ov)
+            c["build_key"] = key
+            how = "built"
         new_entries += entries
         keep.update(files)
         c["files"] = sorted(files)
-        print(f"  {c.get('name', dst)} ({dst}): {len(files)} bundles")
+        print(f"  {c.get('name', dst)} ({dst}): {len(files)} bundles {how} ({time.time() - t0:.1f}s)", flush=True)
 
     if active:
         env = UnityPy.load(table_base)
@@ -534,9 +586,13 @@ def cmd_apply(a, reg):
                  "content": os.path.join("content", cid), "added": now()}
     if official:
         entry["override_official"] = True
+    old = reg["cutins"].get(cid) or {}
+    for k in ("build_key", "files"):       # re-applying identical content keeps its bundles (the key covers the content)
+        if k in old:
+            entry[k] = old[k]
     reg["cutins"][cid] = entry
     save_registry(reg)
-    apply_all(reg, player)
+    apply_all(reg, player, a.rebuild)
 
 
 def cmd_extract_cutin(a, reg):
@@ -588,7 +644,7 @@ def cmd_restore(a, reg):
     if not reg["cutins"]:
         print("no cut-ins registered.")
         return 0
-    apply_all(reg, detect_player_dir(reg, a.player_dir))
+    apply_all(reg, detect_player_dir(reg, a.player_dir), a.rebuild)
 
 
 def cmd_remove(a, reg):
@@ -601,7 +657,7 @@ def cmd_remove(a, reg):
         elif c["mode"] == "custom":
             shutil.rmtree(os.path.join(DATA_DIR, c["content"]), ignore_errors=True)
     save_registry(reg)
-    apply_all(reg, player)
+    apply_all(reg, player, a.rebuild)
 
 
 def cmd_verify(a, reg):
@@ -657,6 +713,7 @@ def main():
     ap.add_argument("--override-official", action="store_true", help="apply: replace the card's official cut-in (originals are backed up)")
     ap.add_argument("--out", help="extract-art: output PNG; extract-cutin: output folder")
     ap.add_argument("--all", action="store_true", help="remove: every registered cut-in")
+    ap.add_argument("--rebuild", action="store_true", help="apply/restore/remove: rebuild every cut-in, not only new or changed ones")
     ap.add_argument("--player-dir", help="LocalData/<playerId> folder (auto-detected and remembered)")
     a = ap.parse_args()
     reg = load_registry()
